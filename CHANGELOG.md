@@ -2,6 +2,12 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.3] - 2026-05-22
+
+### Added
+
+- Added Pi package gallery image metadata for the public package listing.
+
 ## [0.0.2] - 2026-05-22
 
 ### Fixed

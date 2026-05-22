@@ -11,7 +11,7 @@
   <a href="#settings-reference"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.1/docs/assets/readme-link-settings.svg" alt="Settings" /></a>
 </p>
 
-**Workflow Suite Version:** `v0.0.2`
+**Workflow Suite Version:** `v0.0.3`
 
 ## Overview
 
@@ -1154,10 +1154,10 @@ See `docs/TROUBLESHOOTING.md` for detailed diagnostics.
 
 ## Versioning
 
-The current public preview version is `v0.0.2`. Version information is intentionally aligned across:
+The current public preview version is `v0.0.3`. Version information is intentionally aligned across:
 
-- `VERSION` (`v0.0.2`),
-- `package.json` (`0.0.2`),
+- `VERSION` (`v0.0.3`),
+- `package.json` (`0.0.3`),
 - `package-lock.json`,
 - this README,
 - Workflow Suite settings/about output.
@@ -1189,18 +1189,18 @@ The intended package and repository identities are:
 https://github.com/MediaDataFusion/pi-workflow-suite
 ```
 
-The current public preview package is published as `@mediadatafusion/pi-workflow-suite@0.0.2`.
+The current public preview package is published as `@mediadatafusion/pi-workflow-suite@0.0.3`.
 
 Install from npm with:
 
 ```bash
-pi install npm:@mediadatafusion/pi-workflow-suite@0.0.2
+pi install npm:@mediadatafusion/pi-workflow-suite@0.0.3
 ```
 
 For temporary evaluation in a current Pi run, use:
 
 ```bash
-pi -e npm:@mediadatafusion/pi-workflow-suite@0.0.2
+pi -e npm:@mediadatafusion/pi-workflow-suite@0.0.3
 ```
 
 ## Planned Enhancements
