@@ -1,17 +1,17 @@
 # Pi Workflow Suite
 
 <p align="center">
-  <img src="docs/assets/pi-workflow-suite-header.png" alt="Pi Workflow Suite — structured workflow orchestration for Pi" />
+  <img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.2/docs/assets/pi-workflow-suite-header.png" alt="Pi Workflow Suite — structured workflow orchestration for Pi" />
 </p>
 
 <p align="center">
-  <a href="#installation"><img src="docs/assets/readme-link-install.svg" alt="Install" /></a>
-  <a href="#quick-start"><img src="docs/assets/readme-link-quick-start.svg" alt="Quick Start" /></a>
-  <a href="#core-commands"><img src="docs/assets/readme-link-commands.svg" alt="Commands" /></a>
-  <a href="#settings-reference"><img src="docs/assets/readme-link-settings.svg" alt="Settings" /></a>
+  <a href="#installation"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.2/docs/assets/readme-link-install.svg" alt="Install" /></a>
+  <a href="#quick-start"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.2/docs/assets/readme-link-quick-start.svg" alt="Quick Start" /></a>
+  <a href="#core-commands"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.2/docs/assets/readme-link-commands.svg" alt="Commands" /></a>
+  <a href="#settings-reference"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.2/docs/assets/readme-link-settings.svg" alt="Settings" /></a>
 </p>
 
-**Workflow Suite Version:** `v0.0.1`
+**Workflow Suite Version:** `v0.0.2`
 
 ## Overview
 
@@ -1154,10 +1154,10 @@ See `docs/TROUBLESHOOTING.md` for detailed diagnostics.
 
 ## Versioning
 
-The current public preview preparation version is `v0.0.1`. Version information is intentionally aligned across:
+The current public preview version is `v0.0.2`. Version information is intentionally aligned across:
 
-- `VERSION` (`v0.0.1`),
-- `package.json` (`0.0.1`),
+- `VERSION` (`v0.0.2`),
+- `package.json` (`0.0.2`),
 - `package-lock.json`,
 - this README,
 - Workflow Suite settings/about output.
@@ -1189,15 +1189,19 @@ The intended package and repository identities are:
 https://github.com/MediaDataFusion/pi-workflow-suite
 ```
 
-The current public preview preparation version is `v0.0.1`. The package will not be published until package contents, license, metadata, and release posture are approved.
+The current public preview package is published as `@mediadatafusion/pi-workflow-suite@0.0.2`.
 
-Before publishing to npm, review package contents with:
+Install from npm with:
 
 ```bash
-npm pack --dry-run
+pi install npm:@mediadatafusion/pi-workflow-suite@0.0.2
 ```
 
-Do not run `npm publish` until the release is explicitly approved.
+For temporary evaluation in a current Pi run, use:
+
+```bash
+pi -e npm:@mediadatafusion/pi-workflow-suite@0.0.2
+```
 
 ## Planned Enhancements
 
