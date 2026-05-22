@@ -1,0 +1,41 @@
+# Runtime state
+/workflows/
+/missions/
+/plans/
+/sessions/
+/logs/
+active.json
+workflow-settings.json
+*.log
+*.tmp
+
+# Secrets and auth
+auth.json
+settings.json
+.env
+.env.*
+*.secret
+*.token
+*.key
+
+# Backups
+*.broken.*
+*.backup.*
+*.bak
+
+# macOS
+.DS_Store
+
+# Dependencies/build output
+node_modules/
+dist/
+build/
+.cache/
+
+# Private local context
+.factory/
+.cursor/
+AGENTS.md
+CLAUDE.md
+memories.md
+memories.archive.md
