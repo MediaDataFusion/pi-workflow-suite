@@ -1,14 +1,14 @@
 # Pi Workflow Suite
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.2/docs/assets/pi-workflow-suite-header.png" alt="Pi Workflow Suite — structured workflow orchestration for Pi" />
+  <img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.1/docs/assets/pi-workflow-suite-header.png" alt="Pi Workflow Suite — structured workflow orchestration for Pi" />
 </p>
 
 <p align="center">
-  <a href="#installation"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.2/docs/assets/readme-link-install.svg" alt="Install" /></a>
-  <a href="#quick-start"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.2/docs/assets/readme-link-quick-start.svg" alt="Quick Start" /></a>
-  <a href="#core-commands"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.2/docs/assets/readme-link-commands.svg" alt="Commands" /></a>
-  <a href="#settings-reference"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.2/docs/assets/readme-link-settings.svg" alt="Settings" /></a>
+  <a href="#installation"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.1/docs/assets/readme-link-install.svg" alt="Install" /></a>
+  <a href="#quick-start"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.1/docs/assets/readme-link-quick-start.svg" alt="Quick Start" /></a>
+  <a href="#core-commands"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.1/docs/assets/readme-link-commands.svg" alt="Commands" /></a>
+  <a href="#settings-reference"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.1/docs/assets/readme-link-settings.svg" alt="Settings" /></a>
 </p>
 
 **Workflow Suite Version:** `v0.0.2`
