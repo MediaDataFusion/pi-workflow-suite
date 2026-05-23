@@ -2,6 +2,12 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.6] - 2026-05-23
+
+### Changed
+
+- Updated package media metadata to use versioned package-hosted preview assets.
+
 ## [0.0.5] - 2026-05-23
 
 ### Changed
