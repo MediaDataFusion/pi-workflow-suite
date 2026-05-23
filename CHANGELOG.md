@@ -2,6 +2,12 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.7] - 2026-05-23
+
+### Changed
+
+- Restored npm README rendering with a compact package overview.
+
 ## [0.0.6] - 2026-05-23
 
 ### Changed
