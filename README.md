@@ -27,19 +27,23 @@ https://github.com/user-attachments/assets/9782fefc-5349-4cc9-b4ea-20b4c916a8b9
 
 ## Screenshots
 
-![Pi Workflow Suite Mission Home with workflow graphs](https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.5/docs/assets/screenshots/00-mission-home.png)
-
-![Pi Workflow Suite startup logo](https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.5/docs/assets/screenshots/01-startup-Logo.png)
-
-![Workflow Suite theme settings](https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.5/docs/assets/screenshots/02-theme-settings.png)
-
-![Workflow Suite global safety settings](https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.5/docs/assets/screenshots/03-GlobalSafetySettings.png)
-
-![Workflow Suite shared sub-agent settings](https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.5/docs/assets/screenshots/04-SharedSubAgentsSettings.png)
-
-![Mission Mode milestone progress](https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.5/docs/assets/screenshots/05-mission-mode.png)
-
-![Workflow Suite Mermaid diagram output](https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.5/docs/assets/screenshots/06-diagram-mermaid.png)
+<table>
+  <tr>
+    <td colspan="2"><img src="docs/assets/screenshots/00-mission-home.png" alt="Pi Workflow Suite Mission Home with workflow graphs" /></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/screenshots/01-startup-Logo.png" alt="Pi Workflow Suite startup logo" /></td>
+    <td><img src="docs/assets/screenshots/02-theme-settings.png" alt="Workflow Suite theme settings" /></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/screenshots/03-GlobalSafetySettings.png" alt="Workflow Suite global safety settings" /></td>
+    <td><img src="docs/assets/screenshots/04-SharedSubAgentsSettings.png" alt="Workflow Suite shared sub-agent settings" /></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/screenshots/05-mission-mode.png" alt="Mission Mode milestone progress" /></td>
+    <td><img src="docs/assets/screenshots/06-diagram-mermaid.png" alt="Workflow Suite Mermaid diagram output" /></td>
+  </tr>
+</table>
 
 ## Contents
 
