@@ -1,6 +1,6 @@
 {
   "name": "@mediadatafusion/pi-workflow-suite",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "Structured workflow orchestration suite for Pi with Standard, Plan, Mission, compaction, diagrams, web access, repo lock, and safety gates.",
   "license": "Apache-2.0",
   "repository": {
@@ -107,7 +107,10 @@
     "validate": "npm run check:ts && ./scripts/check-clean-release-tree.sh && npm run check:package-size && git diff --check",
     "check:package-size": "node scripts/check-package-size.mjs",
     "prepack": "node scripts/prepare-package-readme.mjs apply",
-    "postpack": "node scripts/prepare-package-readme.mjs restore",
-    "restore:package-readme": "node scripts/prepare-package-readme.mjs restore"
+    "postpack": "node scripts/prepare-package-readme.mjs restore --pack",
+    "restore:package-readme": "node scripts/prepare-package-readme.mjs restore",
+    "prepublishOnly": "node scripts/prepare-package-readme.mjs apply --publish",
+    "postpublish": "node scripts/prepare-package-readme.mjs restore --publish",
+    "check:package-readme": "node scripts/prepare-package-readme.mjs check"
   }
 }

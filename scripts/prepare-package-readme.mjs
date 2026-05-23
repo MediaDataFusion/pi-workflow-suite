@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -7,6 +7,7 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, '..');
 const readmePath = resolve(repoRoot, 'README.md');
 const backupPath = resolve(repoRoot, '.package-readme.source.md');
+const publishMarkerPath = resolve(repoRoot, '.package-readme.publish');
 const mediaVersion = '0.0.6';
 
 function mediaCdn(assetPath) {
@@ -56,23 +57,48 @@ function assertPackageReadme(readme) {
   if (readme.includes('https://github.com/user-attachments/assets/9782fefc-5349-4cc9-b4ea-20b4c916a8b9')) {
     throw new Error('package README still contains raw GitHub demo attachment URL');
   }
+  if (readme.includes('<table>') || readme.includes('<img src="docs/assets/screenshots/')) {
+    throw new Error('package README still contains source screenshot table markup');
+  }
   if (readme.includes('src="docs/assets/screenshots/') || readme.includes('](docs/assets/screenshots/')) {
     throw new Error('package README still contains source-relative screenshot paths');
   }
 }
 
+function looksPackageSafe(readme) {
+  try {
+    assertPackageReadme(readme);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function apply() {
+  const publishMode = process.argv.includes('--publish');
+  const currentReadme = readFileSync(readmePath, 'utf8');
+
+  if (looksPackageSafe(currentReadme)) {
+    if (publishMode) writeFileSync(publishMarkerPath, 'publish\n');
+    return;
+  }
+
   if (existsSync(backupPath)) throw new Error('README backup already exists; run restore first');
-  const sourceReadme = readFileSync(readmePath, 'utf8');
-  const packageReadme = buildPackageReadme(sourceReadme);
+  const packageReadme = buildPackageReadme(currentReadme);
   assertPackageReadme(packageReadme);
-  writeFileSync(backupPath, sourceReadme);
+  writeFileSync(backupPath, currentReadme);
   writeFileSync(readmePath, packageReadme);
+  if (publishMode) writeFileSync(publishMarkerPath, 'publish\n');
 }
 
 function restore() {
-  if (!existsSync(backupPath)) return;
-  renameSync(backupPath, readmePath);
+  const packMode = process.argv.includes('--pack');
+  const publishMode = process.argv.includes('--publish');
+
+  if (packMode && existsSync(publishMarkerPath)) return;
+
+  if (existsSync(backupPath)) renameSync(backupPath, readmePath);
+  if ((publishMode || !packMode) && existsSync(publishMarkerPath)) unlinkSync(publishMarkerPath);
 }
 
 function check() {
@@ -84,6 +110,6 @@ if (command === 'apply') apply();
 else if (command === 'restore') restore();
 else if (command === 'check') check();
 else {
-  console.error('Usage: prepare-package-readme.mjs apply|restore|check');
+  console.error('Usage: prepare-package-readme.mjs apply|restore|check [--publish|--pack]');
   process.exit(1);
 }

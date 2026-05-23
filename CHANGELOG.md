@@ -2,6 +2,12 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.9] - 2026-05-23
+
+### Changed
+
+- Restored package README media presentation for public package pages while preserving the reduced install payload.
+
 ## [0.0.8] - 2026-05-23
 
 ### Changed
