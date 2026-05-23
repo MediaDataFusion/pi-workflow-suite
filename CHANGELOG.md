@@ -2,6 +2,13 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.5] - 2026-05-23
+
+### Changed
+
+- Removed the package gallery card image asset and set Pi package image metadata to the main header asset.
+- Changed README screenshot references to absolute npm CDN image URLs for Pi package page rendering.
+
 ## [0.0.4] - 2026-05-23
 
 ### Added
