@@ -23,7 +23,7 @@ Pi itself is intentionally minimal and extensible. Pi Workflow Suite layers an o
 
 See Pi Workflow Suite in action: structured workflow modes, settings, runtime status, and guided execution inside Pi.
 
-https://github.com/user-attachments/assets/c0c24565-b7c2-4f5b-af13-5956000a8510
+https://github.com/user-attachments/assets/9782fefc-5349-4cc9-b4ea-20b4c916a8b9
 
 ## Screenshots
 
