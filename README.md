@@ -1,17 +1,17 @@
 # Pi Workflow Suite
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.1/docs/assets/pi-workflow-suite-header.png" alt="Pi Workflow Suite — structured workflow orchestration for Pi" />
+  <img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.3/docs/assets/pi-workflow-suite-header.png" alt="Pi Workflow Suite — structured workflow orchestration for Pi" />
 </p>
 
 <p align="center">
-  <a href="#installation"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.1/docs/assets/readme-link-install.svg" alt="Install" /></a>
-  <a href="#quick-start"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.1/docs/assets/readme-link-quick-start.svg" alt="Quick Start" /></a>
-  <a href="#core-commands"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.1/docs/assets/readme-link-commands.svg" alt="Commands" /></a>
-  <a href="#settings-reference"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.1/docs/assets/readme-link-settings.svg" alt="Settings" /></a>
+  <a href="#installation"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.3/docs/assets/readme-link-install.svg" alt="Install" /></a>
+  <a href="#quick-start"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.3/docs/assets/readme-link-quick-start.svg" alt="Quick Start" /></a>
+  <a href="#core-commands"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.3/docs/assets/readme-link-commands.svg" alt="Commands" /></a>
+  <a href="#settings-reference"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.3/docs/assets/readme-link-settings.svg" alt="Settings" /></a>
 </p>
 
-**Workflow Suite Version:** `v0.0.3`
+**Workflow Suite Version:** `v0.0.4`
 
 ## Overview
 
@@ -19,8 +19,36 @@ Pi Workflow Suite is a structured workflow orchestration suite for [Pi](https://
 
 Pi itself is intentionally minimal and extensible. Pi Workflow Suite layers an opinionated workflow system on top of Pi without modifying Pi core. It is designed to run from user-level Pi resources under `~/.pi/agent`, while keeping runtime state, credentials, sessions, logs, backups, and local/private configuration out of the package.
 
+## Quick Demo
+
+See Pi Workflow Suite in action: structured workflow modes, settings, runtime status, and guided execution inside Pi.
+
+https://github.com/user-attachments/assets/c0c24565-b7c2-4f5b-af13-5956000a8510
+
+## Screenshots
+
+<table>
+  <tr>
+    <td colspan="2"><img src="docs/assets/screenshots/00-mission-home.png" alt="Pi Workflow Suite Mission Home with workflow graphs" /></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/screenshots/01-startup-Logo.png" alt="Pi Workflow Suite startup logo" /></td>
+    <td><img src="docs/assets/screenshots/02-theme-settings.png" alt="Workflow Suite theme settings" /></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/screenshots/03-GlobalSafetySettings.png" alt="Workflow Suite global safety settings" /></td>
+    <td><img src="docs/assets/screenshots/04-SharedSubAgentsSettings.png" alt="Workflow Suite shared sub-agent settings" /></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/screenshots/05-mission-mode.png" alt="Mission Mode milestone progress" /></td>
+    <td><img src="docs/assets/screenshots/06-diagram-mermaid.png" alt="Workflow Suite Mermaid diagram output" /></td>
+  </tr>
+</table>
+
 ## Contents
 
+- [Quick Demo](#quick-demo)
+- [Screenshots](#screenshots)
 - [Why Pi Workflow Suite Exists](#why-pi-workflow-suite-exists)
 - [What It Adds To Pi](#what-it-adds-to-pi)
 - [Feature Overview](#feature-overview)
@@ -1154,10 +1182,10 @@ See `docs/TROUBLESHOOTING.md` for detailed diagnostics.
 
 ## Versioning
 
-The current public preview version is `v0.0.3`. Version information is intentionally aligned across:
+The current public preview version is `v0.0.4`. Version information is intentionally aligned across:
 
-- `VERSION` (`v0.0.3`),
-- `package.json` (`0.0.3`),
+- `VERSION` (`v0.0.4`),
+- `package.json` (`0.0.4`),
 - `package-lock.json`,
 - this README,
 - Workflow Suite settings/about output.
@@ -1189,18 +1217,18 @@ The intended package and repository identities are:
 https://github.com/MediaDataFusion/pi-workflow-suite
 ```
 
-The current public preview package is published as `@mediadatafusion/pi-workflow-suite@0.0.3`.
+The current release candidate is prepared as `@mediadatafusion/pi-workflow-suite@0.0.4`.
 
-Install from npm with:
+After npm publication, install with:
 
 ```bash
-pi install npm:@mediadatafusion/pi-workflow-suite@0.0.3
+pi install npm:@mediadatafusion/pi-workflow-suite@0.0.4
 ```
 
-For temporary evaluation in a current Pi run, use:
+After npm publication, temporary evaluation in a current Pi run can use:
 
 ```bash
-pi -e npm:@mediadatafusion/pi-workflow-suite@0.0.3
+pi -e npm:@mediadatafusion/pi-workflow-suite@0.0.4
 ```
 
 ## Planned Enhancements

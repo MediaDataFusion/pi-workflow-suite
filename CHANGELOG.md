@@ -2,25 +2,32 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.4] - 2026-05-23
+
+### Added
+
+- Added package gallery video preview metadata.
+- Added explicit prompt and theme metadata for bundled Workflow Suite resources.
+
+### Changed
+
+- Updated package metadata for improved Pi package discovery.
+- Refined public README media presentation.
+
 ## [0.0.3] - 2026-05-22
 
 ### Added
 
-- Added Pi package gallery image metadata for the public package listing.
+- Added package gallery image preview metadata.
 
 ## [0.0.2] - 2026-05-22
 
-### Fixed
+### Changed
 
-- Repaired npm README presentation by using public package CDN image URLs.
-- Removed stale pre-publication wording from the published README.
+- Improved public README media presentation.
 
 ## [0.0.1] - 2026-05-22
 
 ### Added
 
-- Initial public preview package preparation.
-
-### Changed
-
-- Prepared the clean release surface for first package publication.
+- Initial public preview package.
