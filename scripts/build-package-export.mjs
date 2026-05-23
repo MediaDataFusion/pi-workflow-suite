@@ -39,18 +39,20 @@ function parseArgs(argv) {
   return args;
 }
 
-function cdn(version, assetPath) {
-  return `https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@${version}/${assetPath}`;
+const mediaVersion = '0.0.6';
+
+function mediaCdn(assetPath) {
+  return `https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@${mediaVersion}/${assetPath}`;
 }
 
 function buildPackageReadme(sourceReadme, version) {
   const headerBlock = `# Pi Workflow Suite\n\n${
-    `![Pi Workflow Suite — structured workflow orchestration for Pi](${cdn(version, 'docs/assets/pi-workflow-suite-header.png')})`
+    `![Pi Workflow Suite — structured workflow orchestration for Pi](${mediaCdn('docs/assets/pi-workflow-suite-header.png')})`
   }\n\n${[
-    `[![Install](${cdn(version, 'docs/assets/readme-link-install.svg')})](#installation)`,
-    `[![Quick Start](${cdn(version, 'docs/assets/readme-link-quick-start.svg')})](#quick-start)`,
-    `[![Commands](${cdn(version, 'docs/assets/readme-link-commands.svg')})](#core-commands)`,
-    `[![Settings](${cdn(version, 'docs/assets/readme-link-settings.svg')})](#settings-reference)`,
+    `[![Install](${mediaCdn('docs/assets/readme-link-install.svg')})](#installation)`,
+    `[![Quick Start](${mediaCdn('docs/assets/readme-link-quick-start.svg')})](#quick-start)`,
+    `[![Commands](${mediaCdn('docs/assets/readme-link-commands.svg')})](#core-commands)`,
+    `[![Settings](${mediaCdn('docs/assets/readme-link-settings.svg')})](#settings-reference)`,
   ].join(' ')}\n\n**Workflow Suite Version:** `;
 
   let readme = sourceReadme.replace(
@@ -58,7 +60,7 @@ function buildPackageReadme(sourceReadme, version) {
     headerBlock,
   );
 
-  const packageMediaBlock = `## Quick Demo\n\nSee Pi Workflow Suite in action: structured workflow modes, settings, runtime status, and guided execution inside Pi.\n\n[![Watch the Pi Workflow Suite quick demo](${cdn(version, 'docs/assets/pi-workflow-suite-demo.gif')})](${cdn(version, 'docs/assets/pi-workflow-suite-demo.mp4')})\n\n## Screenshots\n\n${[
+  const packageMediaBlock = `## Quick Demo\n\nSee Pi Workflow Suite in action: structured workflow modes, settings, runtime status, and guided execution inside Pi.\n\n[![Watch the Pi Workflow Suite quick demo](${mediaCdn('docs/assets/pi-workflow-suite-demo.gif')})](${mediaCdn('docs/assets/pi-workflow-suite-demo.mp4')})\n\n## Screenshots\n\n${[
     ['Pi Workflow Suite Mission Home with workflow graphs', 'docs/assets/screenshots/00-mission-home.png'],
     ['Pi Workflow Suite startup logo', 'docs/assets/screenshots/01-startup-Logo.png'],
     ['Workflow Suite theme settings', 'docs/assets/screenshots/02-theme-settings.png'],
@@ -66,7 +68,7 @@ function buildPackageReadme(sourceReadme, version) {
     ['Workflow Suite shared sub-agent settings', 'docs/assets/screenshots/04-SharedSubAgentsSettings.png'],
     ['Mission Mode milestone progress', 'docs/assets/screenshots/05-mission-mode.png'],
     ['Workflow Suite Mermaid diagram output', 'docs/assets/screenshots/06-diagram-mermaid.png'],
-  ].map(([alt, path]) => `![${alt}](${cdn(version, path)})`).join('\n\n')}\n\n`;
+  ].map(([alt, path]) => `![${alt}](${mediaCdn(path)})`).join('\n\n')}\n\n`;
 
   readme = readme.replace(/## Quick Demo[\s\S]*?## Contents\n/, `${packageMediaBlock}## Contents\n`);
   return readme;

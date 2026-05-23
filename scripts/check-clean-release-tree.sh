@@ -18,7 +18,7 @@ if [[ -e .cursor && -n "$(git ls-files .cursor)" ]]; then report '.cursor/ must 
 
 while IFS= read -r path; do
   case "$path" in
-    agents/*|config/*|extensions/*|skills/*|docs/assets/*|themes/*|scripts/install-to-live.sh|scripts/verify-live.sh|scripts/audit-live.sh|scripts/quarantine-live-junk.sh|scripts/backup-live.sh|scripts/audit-settings.sh|scripts/bootstrap-project.sh|scripts/check-clean-release-tree.sh|scripts/build-package-export.mjs|README.md|CHANGELOG.md|CONTRIBUTING.md|LICENSE.md|NOTICE|SECURITY.md|SUPPORT.md|TRADEMARKS.md|VERSION|package.json|package-lock.json|tsconfig.json|.gitignore)
+    agents/*|config/*|extensions/*|skills/*|docs/assets/*|themes/*|scripts/install-to-live.sh|scripts/verify-live.sh|scripts/audit-live.sh|scripts/quarantine-live-junk.sh|scripts/backup-live.sh|scripts/audit-settings.sh|scripts/bootstrap-project.sh|scripts/check-clean-release-tree.sh|scripts/check-package-size.mjs|scripts/build-package-export.mjs|README.md|CHANGELOG.md|CONTRIBUTING.md|LICENSE.md|NOTICE|SECURITY.md|SUPPORT.md|TRADEMARKS.md|VERSION|package.json|package-lock.json|tsconfig.json|.gitignore)
       ;;
     docs/*)
       report "non-asset docs file is not allowed: $path"

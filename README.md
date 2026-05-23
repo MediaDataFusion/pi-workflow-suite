@@ -11,7 +11,7 @@
   <a href="#settings-reference"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.3/docs/assets/readme-link-settings.svg" alt="Settings" /></a>
 </p>
 
-**Workflow Suite Version:** `v0.0.6`
+**Workflow Suite Version:** `v0.0.7`
 
 ## Overview
 
@@ -1182,15 +1182,15 @@ See `docs/TROUBLESHOOTING.md` for detailed diagnostics.
 
 ## Versioning
 
-The current public preview version is `v0.0.5`. Version information is intentionally aligned across:
+The current public preview version is `v0.0.7`. Version information is intentionally aligned across:
 
-- `VERSION` (`v0.0.5`),
-- `package.json` (`0.0.5`),
+- `VERSION` (`v0.0.7`),
+- `package.json` (`0.0.7`),
 - `package-lock.json`,
 - this README,
 - Workflow Suite settings/about output.
 
-The suite remains in early public preview versioning. Use `1.0.0` only when the install path, mode behavior, commands, settings, scripts, and packaging are ready to be treated as a public contract.
+Published package versions should stay aligned across repository metadata, package metadata, documentation, and Workflow Suite settings/about output. Use `1.0.0` only when the install path, mode behavior, commands, settings, scripts, and packaging are ready to be treated as a public contract.
 
 ## License, Trademarks, Security, Support, And Contributions
 
@@ -1217,18 +1217,20 @@ The intended package and repository identities are:
 https://github.com/MediaDataFusion/pi-workflow-suite
 ```
 
-The current release candidate is prepared as `@mediadatafusion/pi-workflow-suite@0.0.5`.
+The current release candidate is prepared as `@mediadatafusion/pi-workflow-suite@0.0.7`.
+
+Private DEV, private main, and the clean public release repository should carry the same approved package version before publication.
 
 After npm publication, install with:
 
 ```bash
-pi install npm:@mediadatafusion/pi-workflow-suite@0.0.5
+pi install npm:@mediadatafusion/pi-workflow-suite@0.0.7
 ```
 
 After npm publication, temporary evaluation in a current Pi run can use:
 
 ```bash
-pi -e npm:@mediadatafusion/pi-workflow-suite@0.0.5
+pi -e npm:@mediadatafusion/pi-workflow-suite@0.0.7
 ```
 
 ## Planned Enhancements
