@@ -2,6 +2,17 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.5] - 2026-05-23
+
+### Changed
+
+- Updated Pi package gallery metadata to use the main Workflow Suite header image for the package preview.
+- Kept README screenshots on repository-hosted image paths for GitHub rendering.
+
+### Removed
+
+- Removed an unused alternate package preview image asset from the published package.
+
 ## [0.0.4] - 2026-05-23
 
 ### Added
