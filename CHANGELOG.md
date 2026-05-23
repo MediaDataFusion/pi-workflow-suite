@@ -2,6 +2,12 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.8] - 2026-05-23
+
+### Changed
+
+- Restored package README media rendering for npm and pi.dev while keeping promotional media assets out of the install payload.
+
 ## [0.0.7] - 2026-05-23
 
 ### Changed
