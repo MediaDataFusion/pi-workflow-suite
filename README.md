@@ -11,7 +11,7 @@
   <a href="#settings-reference"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.3/docs/assets/readme-link-settings.svg" alt="Settings" /></a>
 </p>
 
-**Workflow Suite Version:** `v0.0.9`
+**Workflow Suite Version:** `v0.0.10`
 
 ## Overview
 
@@ -127,7 +127,7 @@ Pi Workflow Suite turns Pi into a guided workflow environment:
 | Themes And Startup UI | Workflow Suite themes, startup visual cards, startup logo modes, custom terminal logo text, custom brand cards, footer/status styling, widgets, and optional input border styling. |
 | Interactive Diagrams | `workflow_diagram` Mermaid support with terminal preview, SVG-first clickable artifacts, PNG/runtime rendering support, dark-mode-friendly styling, and runtime artifact storage. |
 | Web Research | First-party `workflow_web_search` and `workflow_web_fetch` tools for public web search/fetch with source URLs, blocked local/private/internal hosts, time/size limits, and untrusted-content handling. |
-| Repo Lock | Project-scoped Global Safety control that constrains path tools and conservative bash path detection to the current repo and Pi runtime, with clear non-sandbox caveats. |
+| Repo Lock | Project-scoped Global Safety control that constrains normal file tools, bash path checks, and sub-agents to the active repository, with protected configuration paths and clear non-sandbox caveats. |
 | Compaction | Pi default, custom model, or disabled Workflow Suite compaction so context summarization can use its own provider/model, proactive threshold checks, idle-boundary execution, custom token tuning, adaptive fitting, status reporting, and safe fallback. |
 | Workflow Roles | Planner, Executor, Reviewer, Validator, Mission, and compaction responsibilities are separated by phase so each job has clear boundaries and can be matched to the right model. |
 | Model Selection | Configure which provider/model and thinking level powers each workflow role, with shared defaults plus Standard-specific and Mission-specific overrides for simpler or higher-rigor setups. |
@@ -150,7 +150,7 @@ Pi Workflow Suite turns Pi into a guided workflow environment:
 - Workflow themes with a `none` option, startup visual cards, startup logo modes, custom terminal logo text, custom brand cards, and optional themed input borders.
 - Integrated `workflow_web_search` and `workflow_web_fetch` tools for current public evidence and source-backed URL reading.
 - Interactive `workflow_diagram` Mermaid rendering with terminal preview, clickable SVG artifacts, and PNG/runtime rendering support.
-- Repo Lock for project-scoped path safety around repository and Pi-runtime access.
+- Repo Lock for project-scoped path safety around repository work, protected project configuration, and sub-agent inheritance.
 - Role-aware model selection so planning, execution, review, validation, Mission work, and compaction can each use the provider/model and thinking level that fits the job.
 - Sub-agent usage policies for planning, execution, repair, review, and validation, with explicit documentation that these are orchestration settings, not a universal permission manager.
 - Safe install, backup, audit, quarantine, verification, and package validation scripts.
@@ -226,7 +226,7 @@ Core behavior:
 - `/standard todo clear` clears the Standard To Do list.
 - `/standard exit` returns to idle.
 
-Standard Mode settings live under `standard.*`, including `autoTodoEnabled`, `todoTriggerMode`, `todoProgressVisible`, `clarificationEnabled`, `clarificationMode`, `maxClarificationQuestions`, `interactiveClarificationEnabled`, `clarificationTiming`, `clarificationQualityGate`, `allowClarificationWithoutAnalysis`, `useSubagentsBeforeClarification`, `allowSubagents`, `subagentScope`, Standard-specific sub-agent phase overrides, `statusWidgetVisible`, `modelRole`, and `useSharedExecutorModel`. These controls are user-configurable through `/workflow settings Standard Mode` or `/workflow-settings configure standard-mode`, and custom workflow presets can save/apply Standard Mode settings.
+Standard Mode settings live under `standard.*`, including `autoTodoEnabled`, `todoTriggerMode`, `todoProgressVisible`, `clarificationEnabled`, `clarificationMode`, `maxClarificationQuestions`, `interactiveClarificationEnabled`, `clarificationTiming`, `clarificationQualityGate`, `allowClarificationWithoutAnalysis`, `useSubagentsBeforeClarification`, `allowSubagents`, `subagentScope`, Standard-specific sub-agent phase overrides, `statusWidgetVisible`, `modelRole`, and `useSharedExecutorModel`. These controls are user-configurable through `/workflow settings Standard Mode`, and custom workflow presets can save/apply Standard Mode settings.
 
 ## Plan Mode
 
@@ -413,7 +413,7 @@ Standard Mode, Plan Mode, and Mission Mode use model settings differently:
 - **Plan Mode** supports formal planned execution: plan, approve, optionally review with a second model, execute with the selected executor model, optionally validate with an independent validator model, and optionally repair/retry failed validation.
 - **Mission Mode** supports persistent milestone work: plan mission milestones, approve the mission, execute the current milestone, validate that milestone, checkpoint, repair/retry if needed, optionally run final whole-mission validation, then continue or complete according to autonomy settings. Mission-specific role overrides let long-running work use different planner/executor/reviewer/validator choices from normal Plan Mode.
 
-The included example settings provide defaults, but users can change provider/model, thinking level, role enablement, reviewer/validator behavior, Mission Mode autonomy, and mission-specific model selection through `/workflow-settings`. Do not treat the shipped defaults as the only supported setup. Provider names must match the user's configured Pi/Factory model route and API compatibility; official providers and proxy/generic providers may require different provider values even when the display model name looks similar.
+The included example settings provide defaults, but users can change provider/model, thinking level, role enablement, reviewer/validator behavior, Mission Mode autonomy, and mission-specific model selection through `/workflow settings`. Do not treat the shipped defaults as the only supported setup. Provider names must match the user's configured Pi/Factory model route and API compatibility; official providers and proxy/generic providers may require different provider values even when the display model name looks similar.
 
 Thinking levels:
 
@@ -438,30 +438,11 @@ Configuration examples:
 /workflow settings Standard Mode
 /workflow settings Mission Mode
 /workflow settings Shared Compaction
-/workflow-settings configure models
-/workflow-settings configure standard-mode
-/workflow-settings configure mission-mode
-/workflow-settings configure compaction
-
-# Standard-specific model overrides
-/workflow-settings set standard useStandardSpecificModels true|false
-/workflow-settings set standard-models executor <provider> <model>
-/workflow-settings set standard-models validator <provider> <model>
-
-# Mission-specific model overrides
-/workflow-settings set missions useMissionSpecificModels true|false
-# Then use /workflow-settings configure mission-mode to select Mission Planner, Executor, Reviewer, and Validator models.
-
-# Compaction model selection and token budget
-/workflow-settings set context compactionMode custom_model
-/workflow-settings set context compactionModelProvider <provider>
-/workflow-settings set context compactionModel <model>
-/workflow-settings set context customCompactionEnabled true
-/workflow-settings set context customCompactionReserveTokens 4096-65536|default|reset
-/workflow-settings set context customCompactionKeepRecentTokens 1000-200000|default|reset
 ```
 
-Shared model selection is available through `/workflow settings Shared Models` or direct `/workflow-settings configure models` commands. Standard-specific and mission-specific model selection is available through their mode settings menus.
+The grouped settings menus expose shared role selection, Standard-specific model behavior, Mission-specific model behavior, and compaction model/token-budget controls without relying on legacy dashed command entry points.
+
+Shared model selection is available through `/workflow settings Shared Models`. Standard-specific and mission-specific model selection is available through their mode settings menus.
 
 ## Workflow Settings UI
 
@@ -487,16 +468,7 @@ Public slash menu entries use the grouped `/workflow settings ...` surface. Use 
 /workflow settings Summary
 ```
 
-Direct legacy compatibility settings commands are also available for command-line style configuration:
-
-```text
-/workflow-settings
-/workflow-settings list
-/workflow-settings help
-/workflow-settings scope
-/workflow-settings write-target
-/workflow-settings create-project-override
-```
+Public command discovery is through `/workflow help` and the grouped `/workflow settings ...` entries above. Legacy dashed compatibility routes may exist for older scripts, but they are not public slash-menu commands and are not the recommended README surface.
 
 Settings menus:
 
@@ -549,7 +521,7 @@ Sub-agents: forced maximum teams across planning/execution/repair/review/validat
 Mission: supervised auto, final validation, higher retry budget
 ```
 
-`/workflow settings Show Current Settings` and `/workflow-settings list` print an Active Profile section near the top so the active preset is explained before the detailed settings.
+`/workflow settings Show Current Settings` prints an Active Profile section near the top so the active preset is explained before the detailed settings.
 
 Quick access:
 
@@ -599,24 +571,6 @@ Open the interactive theme menu from the public settings surface:
 /workflow settings Theme
 ```
 
-Direct theme commands are also available:
-
-```text
-/workflow-settings theme list
-/workflow-settings theme use aurora|synthwave|matrix|nebula|ember|arctic|oceanic|royal|solar|graphite|access|diagnostic|classic|MediaDataFusion|none
-/workflow-settings theme startup mission_control|diagnostic_center|workflow_duo|data_stream|neural_grid|minimal|custom_brand|none
-/workflow-settings theme startup-logo none|pi|custom
-/workflow-settings theme logo-text <letters>
-/workflow-settings theme logo-font block|shadow|outline|wide|double|three_d
-/workflow-settings theme logo-shadow down_right|down|up|left|right
-/workflow-settings theme logo-color theme|primary|split
-/workflow-settings theme startup-on-open enable|disable
-/workflow-settings theme preview
-/workflow-settings theme brand enable|disable
-/workflow-settings theme brand text <custom text>
-/workflow-settings theme brand base minimal|workflow_duo|mission_control|diagnostic_center|data_stream|neural_grid
-```
-
 The interactive menu is the easiest way to configure appearance:
 
 ```text
@@ -643,37 +597,13 @@ How the pieces fit together:
 
 `startupVisual: none` is separate. It disables only the startup visual card. It does not disable the selected Workflow Suite theme, Standard Mode, Plan Mode, Mission Mode, widgets, presets, or commands.
 
-Practical recipes:
+Practical recipes use the guided appearance menu:
 
 ```text
-# Open the guided appearance menu
 /workflow settings Theme
-
-# Preview the current startup card and logo
-/workflow-settings theme preview
-
-# Choose a complete visual style
-/workflow-settings theme use synthwave
-/workflow-settings theme startup mission_control
-/workflow-settings theme startup-logo pi
-
-# Add your own short terminal logo above the card
-/workflow-settings theme startup-logo custom
-/workflow-settings theme logo-text ACME
-/workflow-settings theme logo-font shadow
-/workflow-settings theme logo-color primary
-
-# Use a branded startup card without changing workflow behavior
-/workflow-settings theme startup custom_brand
-/workflow-settings theme brand text Acme Workflow
-/workflow-settings theme brand base mission_control
-
-# Turn off only the startup card
-/workflow-settings theme startup none
-
-# Turn off Workflow Suite visual theming while keeping features active
-/workflow-settings theme use none
 ```
+
+From that menu users can preview the current startup card and logo, choose a complete visual style, configure a short terminal logo, configure a branded startup card, turn off only the startup card, or opt out of Workflow Suite visual theming while keeping workflow features active.
 
 ## Sub-Agents And Parallel Work
 
@@ -727,7 +657,7 @@ Commands:
 /workflow subagents status
 /workflow subagents list
 /workflow subagents orchestration
-/workflow-settings configure subagents
+/workflow settings Shared Sub-agents
 ```
 
 ## Review, Validation, Repair, And Retry
@@ -783,7 +713,6 @@ Compaction settings are available through:
 
 ```text
 /workflow settings Shared Compaction
-/workflow-settings configure compaction
 ```
 
 Supported modes:
@@ -795,13 +724,7 @@ Supported modes:
 
 Workflow Suite can request proactive compaction when context usage reaches the configured threshold. For Custom model mode, a configured compaction provider/model with custom compaction enabled arms the threshold trigger even when generic auto-trigger behavior is otherwise off. This lets compaction use a different model than planning, execution, review, or validation, which is useful when context summarization has a different cost, speed, or context-window requirement than active workflow work. Actual proactive compaction runs only at a safe after-turn idle agent boundary, so it does not interrupt arbitrary tool execution or queued workflow handoffs. Pi default auto-compaction remains available as a safety fallback near the model limit.
 
-```text
-/workflow-settings set context autoCompactionEnabled true|false
-/workflow-settings set context compactionTriggerPercent 50-95|default|reset
-/workflow-settings set context compactionCooldownMinutes 0-240
-/workflow-settings set context customCompactionReserveTokens 4096-65536|default|reset
-/workflow-settings set context customCompactionKeepRecentTokens 1000-200000|default|reset
-```
+The grouped Shared Compaction menu controls auto-compaction, trigger threshold, cooldown, reserve tokens, keep-recent tokens, and custom compaction model behavior.
 
 Important behavior:
 
@@ -861,9 +784,11 @@ Repo Lock is a Global Safety setting controlled through:
 /workflow settings Global Safety
 ```
 
-The underlying setting is `safety.repoLockEnabled`. The interactive toggle is project-scoped: it writes to the active repository override at `.pi/workflow-settings.json` so Repo Lock can be enabled for one project without changing every Pi session. When enabled, Workflow Suite scopes path-based tools such as read, grep, find, ls, edit, and write to the current Git repository root and the live Pi runtime. Bash path detection is conservative and blocks detected paths outside the current repository or Pi runtime.
+The underlying setting is `safety.repoLockEnabled`. The interactive toggle is project-scoped: it writes to the active repository override at `.pi/workflow-settings.json` so Repo Lock can be enabled for one project without changing every Pi session.
 
-Repo Lock allows access to the Pi runtime directory for installed Workflow Suite tools, agents, skills, prompts, and runtime resources. Sub-agent calls are checked at the parent current working directory, but sub-agent child processes are guided by their own agent configuration and tool allow-list.
+When enabled, Repo Lock keeps normal file tools, conservative bash path checks, and Workflow Suite sub-agents inside the active repository. Project `.pi` files may be read for settings and instruction context, but protected project control paths such as `.pi/workflow-settings.json`, `.pi/settings.json`, and `.pi/agents/**` are not edited through normal file tools. Use the dedicated settings UI/commands for intentional Workflow Suite settings changes, or temporarily disable Repo Lock, make the configuration change, and re-enable it.
+
+Repo Lock does not grant normal agent tools access to the live Pi runtime under `~/.pi/agent`. Workflow Suite internals still use the runtime for required state, settings, widgets, agents, skills, prompts, and install resources, but target-repository workflows should not inspect or mutate live runtime files through generic read/edit/write tools.
 
 Repo Lock helps prevent accidental cross-repository work. It is not an operating-system sandbox, a complete shell parser, or a guarantee that every possible child process is contained. Review commands before running them, especially commands that invoke other tools or scripts.
 
@@ -938,16 +863,7 @@ Widget commands:
 /workflow widgets off
 ```
 
-Footer hints can be tuned without disabling the actual commands/shortcuts:
-
-```text
-/workflow-settings set ui showIdleWorkflowEntryHint true|false
-/workflow-settings set ui showActiveWorkflowSwitchHint true|false
-/workflow-settings set ui showWidgetShortcutHint true|false
-/workflow-settings set ui showPresetShortcutHint true|false
-```
-
-The interactive path is `/workflow settings UI Widgets` → `Footer Hints`. Direct command users can also open it with `/workflow-settings configure widgets`.
+Footer hints can be tuned without disabling the actual commands/shortcuts. The interactive path is `/workflow settings UI Widgets` → `Footer Hints`.
 
 Mission heartbeat and stale-status fields are tracked and displayed. Checkpoint interval settings record the preferred cadence for future timed checkpoint automation, while recovery actions remain user-supervised for safety.
 
@@ -1012,6 +928,7 @@ Operational scripts:
 | `scripts/backup-live.sh` | Create a timestamped live-runtime backup while excluding credentials, sessions, logs, and workflow state. |
 | `scripts/quarantine-live-junk.sh` | Dry-run or move known stale runtime debris to quarantine; it does not delete files. |
 | `scripts/bootstrap-project.sh /path/to/project` | Create project-local Workflow Suite setup files for a target project. |
+| `scripts/sync-from-live.sh` | Maintainer synchronization helper for reviewing live runtime resources before deciding what belongs in source. |
 
 The live Pi runtime should not contain a top-level `.git`, stale `*.backup.*` / `*.broken.*` files in active resource directories, or old recovery/disabled directories mixed with current resources. Quarantine moves files; it does not delete them.
 
@@ -1126,7 +1043,7 @@ Example defaults shipped with the suite include Standard Mode enabled with confi
 
 Users can change the workflow shape. For example, a user may disable reviewer involvement for fast local work, use a stronger reviewer for corporate policy review, route executor to a tool-use/code-writing model, route validator to a separate high-reasoning model, or use mission-specific models for long-running work.
 
-Use `/workflow settings Show Current Settings` or `/workflow-settings list` for the effective merged Workflow Suite configuration, and `/workflow-settings scope` to see the Workflow Suite write target. For Pi core settings versus Workflow Suite settings, run `./scripts/audit-settings.sh [target-cwd]`; it reports global/project paths and safe summaries without writing settings or printing secrets.
+Use `/workflow settings Show Current Settings` for the effective merged Workflow Suite configuration. For Pi core settings versus Workflow Suite settings, run `./scripts/audit-settings.sh [target-cwd]`; it reports global/project paths, Workflow Suite write targets, and safe summaries without writing settings or printing secrets.
 
 Workflow Suite settings are currently global/project scoped, not session-local. A global preset/theme/model change can affect every session using global settings; a project `.pi/workflow-settings.json` can affect sessions launched under that project. Use project overrides for per-project behavior today. A true session-local profile lock should be treated as a separate future runtime feature; see `docs/SESSION_PROFILES.md` for the design.
 
@@ -1163,7 +1080,7 @@ Common recovery commands:
 ```text
 /workflow status
 /workflow settings Show Current Settings
-/workflow-settings scope
+./scripts/audit-settings.sh [target-cwd]
 /mission status
 /mission resume
 /workflow widgets list
@@ -1182,10 +1099,10 @@ See `docs/TROUBLESHOOTING.md` for detailed diagnostics.
 
 ## Versioning
 
-The current public preview version is `v0.0.9`. Version information is intentionally aligned across:
+The current preparation version is `v0.0.10`. Version information is intentionally aligned across:
 
-- `VERSION` (`v0.0.9`),
-- `package.json` (`0.0.9`),
+- `VERSION` (`v0.0.10`),
+- `package.json` (`0.0.10`),
 - `package-lock.json`,
 - this README,
 - Workflow Suite settings/about output.
@@ -1200,13 +1117,11 @@ Apache-2.0 licenses the code, not the MediaDataFusion names, Workflow Suite name
 
 This project is not officially affiliated with, endorsed by, sponsored by, or maintained by Pi or any third-party platform unless explicitly stated in official project materials.
 
-Security issues should not be reported through public issues, public pull requests, or public discussions. See `SECURITY.md`.
+Security issues should be reported privately, not through public issues. See `SECURITY.md`. A private reporting channel will be published before broad public release.
 
-Pi Workflow Suite is maintainer-led and provided as-is. Feedback may be considered, but issues are not support tickets and no response or implementation timeline is promised. See `SUPPORT.md`.
+Support is maintainer-led and best-effort. See `SUPPORT.md`.
 
-Pull requests are not an open contribution channel. Discuss changes first or wait for an explicit maintainer invitation. See `CONTRIBUTING.md`.
-
-Paid consulting through MediaDataFusion may be available separately for implementation, integration, or workflow design work.
+Contributions are welcome when they align with the project direction. Workflow behavior, installation, dependency, security, and release changes require maintainer review. See `CONTRIBUTING.md`.
 
 ## Release Status
 
@@ -1217,20 +1132,12 @@ The intended package and repository identities are:
 https://github.com/MediaDataFusion/pi-workflow-suite
 ```
 
-The current release candidate is prepared as `@mediadatafusion/pi-workflow-suite@0.0.9`.
-
 Private DEV, private main, and the clean public release repository should carry the same approved package version before publication.
 
-After npm publication, install with:
+Published public package versions are installed from npm with:
 
 ```bash
-pi install npm:@mediadatafusion/pi-workflow-suite@0.0.9
-```
-
-After npm publication, temporary evaluation in a current Pi run can use:
-
-```bash
-pi -e npm:@mediadatafusion/pi-workflow-suite@0.0.9
+pi install npm:@mediadatafusion/pi-workflow-suite@<version>
 ```
 
 ## Planned Enhancements

@@ -15,7 +15,7 @@
  * Uses JSON mode to capture structured output from subagents.
  */
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -109,6 +109,42 @@ class SafeContainer {
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
 const COLLAPSED_ITEM_COUNT = 10;
+const REPOLOCK_GUARD_EXTENSION = path.join(path.dirname(new URL(import.meta.url).pathname), "repolock-guard.ts");
+
+function safeRealpath(candidate: string): string {
+	try {
+		return fs.realpathSync(candidate);
+	} catch {
+		return candidate;
+	}
+}
+
+function pathInsideRoot(candidate: string, root: string): boolean {
+	return candidate === root || candidate.startsWith(`${root}${path.sep}`);
+}
+
+function resolveSubagentCwd(candidate: string | undefined, defaultCwd: string): string {
+	return safeRealpath(path.resolve(defaultCwd, candidate || "."));
+}
+
+function repoRootForCwd(cwd: string): string {
+	try {
+		const root = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+		return safeRealpath(root || cwd);
+	} catch {
+		return safeRealpath(cwd);
+	}
+}
+
+function repoLockRootForSubagent(defaultCwd: string, settings: ReturnType<typeof loadWorkflowSettings>): string | undefined {
+	if (process.env.PI_WORKFLOW_REPO_LOCK_ENABLED === "1" && process.env.PI_WORKFLOW_REPO_LOCK_ROOT) return safeRealpath(process.env.PI_WORKFLOW_REPO_LOCK_ROOT);
+	return settings.safety.repoLockEnabled === true ? repoRootForCwd(defaultCwd) : undefined;
+}
+
+function repoLockCwdError(candidate: string | undefined, defaultCwd: string, root: string): string | undefined {
+	const resolved = resolveSubagentCwd(candidate, defaultCwd);
+	return pathInsideRoot(resolved, root) ? undefined : `Repo Lock blocked sub-agent cwd outside current repository: ${resolved} (repo root: ${root})`;
+}
 
 function formatTokens(count: number): string {
 	if (count < 1000) return count.toString();
@@ -345,7 +381,23 @@ async function runSingleAgent(
 		};
 	}
 
-	const args: string[] = ["--no-extensions", "--mode", "json", "-p", "--no-session"];
+	const settings = loadWorkflowSettings(defaultCwd);
+	const lockRoot = repoLockRootForSubagent(defaultCwd, settings);
+	const effectiveCwd = resolveSubagentCwd(cwd, defaultCwd);
+	if (lockRoot && !pathInsideRoot(effectiveCwd, lockRoot)) {
+		return {
+			agent: agentName,
+			agentSource: agent.source,
+			task,
+			exitCode: 1,
+			messages: [],
+			stderr: `Repo Lock blocked sub-agent cwd outside current repository: ${effectiveCwd} (repo root: ${lockRoot})`,
+			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+			step,
+		};
+	}
+
+	const args: string[] = ["--no-extensions", "--extension", REPOLOCK_GUARD_EXTENSION, "--mode", "json", "-p", "--no-session"];
 	if (agent.model) args.push("--model", agent.model);
 	if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
 
@@ -390,13 +442,14 @@ async function runSingleAgent(
 		const exitCode = await new Promise<number>((resolve) => {
 			const invocation = getPiInvocation(args);
 			const proc = spawn(invocation.command, invocation.args, {
-				cwd: cwd ?? defaultCwd,
+				cwd: effectiveCwd,
 				shell: false,
 				stdio: ["ignore", "pipe", "pipe"],
 				env: {
 					...process.env,
 					PI_SUBAGENT_WORKER: "1",
 					PI_SUBAGENT_NAME: agent.name,
+					...(lockRoot ? { PI_WORKFLOW_REPO_LOCK_ENABLED: "1", PI_WORKFLOW_REPO_LOCK_ROOT: lockRoot } : {}),
 				},
 			});
 			let buffer = "";
@@ -562,6 +615,19 @@ export default function (pi: ExtensionAPI) {
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const settings = loadWorkflowSettings(ctx.cwd);
+			const lockRoot = repoLockRootForSubagent(ctx.cwd, settings);
+			if (lockRoot) {
+				const cwdErrors = [params.cwd, ...(params.tasks ?? []).map((task) => task.cwd), ...(params.chain ?? []).map((step) => step.cwd)]
+					.map((cwdValue) => repoLockCwdError(cwdValue, ctx.cwd, lockRoot))
+					.filter((error): error is string => Boolean(error));
+				if (cwdErrors.length) {
+					return {
+						content: [{ type: "text", text: cwdErrors[0] }],
+						details: { mode: "single", agentScope: params.agentScope ?? "user", projectAgentsDir: null, results: [] },
+						isError: true,
+					};
+				}
+			}
 			const subagentLimits = { timeoutMinutes: settings.subagents.subagentTimeoutMinutes, staleMinutes: settings.subagents.subagentStaleMinutes };
 			if (settings.subagents.requireApprovalBeforeRun === true) {
 				const requested = params.tasks?.length

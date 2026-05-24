@@ -1,9 +1,19 @@
 # Contributing
 
-Pi Workflow Suite is a maintainer-led project. It is not currently operated as an open contribution project.
+Pi Workflow Suite is a maintainer-led project. Contributions are welcome only at maintainer discretion, and unsolicited pull requests may be closed without review.
 
-Feedback is welcome, but it is not a request queue. Issues, discussions, messages, or suggestions do not create an obligation for the maintainer to respond, investigate, prioritize, or implement a change.
+Before opening a pull request, discuss changes that affect workflow behavior, release safety, or maintenance burden.
 
-Unsolicited pull requests are not guaranteed to be reviewed and may be closed without action. Please do not open pull requests for features, behavior changes, dependency changes, packaging, workflow logic, or security-sensitive areas unless the maintainer has explicitly invited the change or discussed it with you first.
+Pull requests require explicit maintainer approval before changing:
 
-The maintainer may accept, defer, ignore, or decline suggestions based on project direction, complexity, risk, support burden, and available time.
+- workflow modes or mode state
+- Mission Mode behavior, milestones, validation, repair, or reviewer logic
+- Plan Mode approval, execution, validation, or repair flow
+- Standard Mode task handling, clarification, or To Do behavior
+- package publishing, GitHub Actions, or install scripts
+- security-sensitive logic
+- dependency behavior or dependency lists
+
+Contributors must not introduce telemetry, postinstall scripts, credential handling, network calls, obfuscated code, or new dependencies without explicit justification and maintainer approval.
+
+External contributions must preserve existing behavior unless a behavior change is explicitly approved. Feature requests may be declined if they increase scope, complexity, or support burden.

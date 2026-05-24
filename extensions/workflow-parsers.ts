@@ -204,7 +204,8 @@ export function formatAnswersForPlanner(questions: ClarificationQuestion[], answ
 
 export function planValidationStatusForVerdict(verdict: WorkflowState["validationVerdict"]): PlanValidationStatus {
   if (verdict === "PASS") return "pass";
-  if (verdict === "UNKNOWN" || verdict === "PARTIAL PASS") return "unknown";
+  if (verdict === "PARTIAL PASS") return "partial pass";
+  if (verdict === "UNKNOWN") return "unknown";
   return "fail";
 }
 

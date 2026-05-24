@@ -14,7 +14,7 @@ printf 'A live backup will be created before installing files.\n'
 is_forbidden_path() {
   local rel="$1"
   case "$rel" in
-    auth.json|settings.json|workflow-settings.json|active.json|workflows/*|missions/*|plans/*|sessions/*|logs/*|*.log|*.backup.*|*.broken.*|.env|.env.*|.factory/*|.cursor/*|*.DS_Store|*.tmp)
+    auth.json|settings.json|workflow-settings.json|active.json|workflows/*|missions/*|plans/*|sessions/*|logs/*|*.log|*.backup.*|*.broken.*|.env|.env.*|.factory/*|.cursor/*|.kilo/*|node_modules/*|*.DS_Store|*.tmp)
       return 0
       ;;
   esac
@@ -83,5 +83,6 @@ install_dir "extensions"
 install_dir "agents"
 install_dir "skills"
 install_dir "config"
+install_dir "themes"
 
 printf 'install complete; auth, settings, and workflow state were not touched\n'

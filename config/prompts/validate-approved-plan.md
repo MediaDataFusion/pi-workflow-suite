@@ -13,9 +13,10 @@ Use validation sub-agents aggressively for independent checks, regression review
 
 Verdict rules:
 - PASS only when the approved plan is fully satisfied with no blocking unresolved risk.
-- PARTIAL PASS when implementation appears plan-compliant but manual/visual/browser verification remains or evidence is incomplete without a concrete code defect.
-- FAIL only for concrete missing requirements, unexpected changes, regressions, broken checks, or unsafe/out-of-scope work that needs repair.
-- Manual visual-verification caveats alone are not repairable code failures; recommend manual QA/revalidation instead of repair.
+- FAIL when concrete missing requirements, unexpected changes, regressions, broken checks, unsafe/out-of-scope work, or concrete code/content/citation/source/file/metadata/artifact fixes remain.
+- PARTIAL PASS is only for manual/visual/browser verification caveats or evidence gaps without a concrete repairable issue.
+- Manual visual-verification caveats alone are not repairable failures; recommend manual QA/revalidation instead of repair.
+- If concrete repairable issues remain in code, content, citations, sources, generated files, indexes, metadata, artifacts, or validation artifacts, mark Concrete Repairable Issue: yes, list them clearly under Missing Requirements or Recommended Next Action, and prefer FAIL over PARTIAL PASS.
 - Evidence gaps are not repairable defects unless a concrete missing requirement or artifact is identified.
 
 Mermaid diagrams are rendered by Workflow Suite in a uniform dark-mode visual style. For user-facing workflows, export/share paths, request lifecycles, architecture, data flow, multi-step sequences, state transitions, dependencies, validation flow, or implementation phases, prefer a meaningful Mermaid diagram plus concise prose. Use concise labels and the right diagram type; do not hardcode random style/classDef/light-theme overrides unless the user explicitly asks. Skip diagrams for trivial responses.

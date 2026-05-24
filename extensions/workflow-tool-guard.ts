@@ -58,33 +58,73 @@ function pathInsideRoot(candidate: string, root: string): boolean {
   return candidate === root || candidate.startsWith(`${root}/`);
 }
 
-function piRuntimeRoot(): string {
-  return safeRealpath(getAgentDir());
+function repoLockRoot(cwd: string): string {
+  return process.env.PI_WORKFLOW_REPO_LOCK_ENABLED === "1" && process.env.PI_WORKFLOW_REPO_LOCK_ROOT
+    ? safeRealpath(process.env.PI_WORKFLOW_REPO_LOCK_ROOT)
+    : repoRootForCwd(cwd);
 }
 
-function pathInsideRepoOrPiRuntime(candidate: string, root: string): boolean {
-  const piRoot = piRuntimeRoot();
-  return pathInsideRoot(candidate, root) || pathInsideRoot(candidate, piRoot);
+function protectedRepoPath(candidate: string, root: string): boolean {
+  const rel = candidate === root ? "" : candidate.slice(root.length + 1);
+  return rel === ".pi" || rel.startsWith(".pi/");
 }
 
-function repoLockPathBlock(pathValue: unknown, cwd: string): string | undefined {
-  const root = repoRootForCwd(cwd);
+function piRuntimeInstructionPath(candidate: string): boolean {
+  const root = safeRealpath(getAgentDir());
+  if (!pathInsideRoot(candidate, root)) return false;
+  const rel = candidate === root ? "" : candidate.slice(root.length + 1);
+  return rel === "skills" || rel.startsWith("skills/")
+    || rel === "agents" || rel.startsWith("agents/")
+    || rel === "config/prompts" || rel.startsWith("config/prompts/")
+    || rel === "prompts" || rel.startsWith("prompts/")
+    || rel === "themes" || rel.startsWith("themes/");
+}
+
+function repoLockPathBlock(pathValue: unknown, cwd: string, tool: string): string | undefined {
+  const root = repoLockRoot(cwd);
   const candidate = resolveCandidatePath(typeof pathValue === "string" && pathValue.trim() ? pathValue.trim() : ".", cwd);
-  if (!pathInsideRepoOrPiRuntime(candidate, root)) return `Repo Lock blocked path outside current repository or Pi runtime: ${candidate} (repo root: ${root}; Pi runtime: ${piRuntimeRoot()})`;
+  if (!pathInsideRoot(candidate, root)) {
+    if ((tool === "read" || tool === "grep" || tool === "find" || tool === "ls") && piRuntimeInstructionPath(candidate)) return undefined;
+    return `Repo Lock blocked path outside current repository: ${candidate} (repo root: ${root})`;
+  }
+  if ((tool === "edit" || tool === "write") && protectedRepoPath(candidate, root)) return `Repo Lock blocked ${tool} for protected project control path: ${candidate}`;
   return undefined;
 }
 
+function stripHereDocBodies(command: string): string {
+  const lines = command.split("\n");
+  const kept: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    kept.push(line);
+    const match = line.match(/<<[-]?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?/);
+    if (!match) continue;
+    const marker = match[1];
+    i++;
+    while (i < lines.length && lines[i].trim() !== marker) i++;
+  }
+  return kept.join("\n");
+}
+
+function stripUriTokens(command: string): string {
+  return command.replace(/\b[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s'"`;&|)]*/g, " ");
+}
+
+function bashPathCandidates(command: string): string[] {
+  const trimmed = stripUriTokens(stripHereDocBodies(command)).trim();
+  if (!trimmed) return [];
+  return Array.from(trimmed.matchAll(/(?:^|[\s=:'"`])((?:\.{1,2}|~|\/)[^\s'"`;&|)]*)/g)).map((match) => match[1]).filter(Boolean);
+}
+
 function repoLockBashBlock(command: string, cwd: string): string | undefined {
-  const trimmed = command.trim();
-  if (!trimmed) return undefined;
-  const root = repoRootForCwd(cwd);
-  const pathCandidates = Array.from(trimmed.matchAll(/(?:^|[\s=:'"`])((?:\.{1,2}|~|\/)[^\s'"`;&|)]*)/g)).map((match) => match[1]).filter(Boolean);
+  const root = repoLockRoot(cwd);
+  const pathCandidates = bashPathCandidates(command);
   for (const raw of pathCandidates) {
-    if (raw === "." || raw === "./") continue;
+    if (raw === "." || raw === "./" || raw === "/") continue;
     const cleaned = raw.replace(/[),]+$/, "");
     if (!cleaned || cleaned.startsWith("./node_modules/.bin")) continue;
     const candidate = resolveCandidatePath(cleaned, cwd);
-    if (!pathInsideRepoOrPiRuntime(candidate, root)) return `Repo Lock blocked bash path outside current repository or Pi runtime: ${cleaned} -> ${candidate} (repo root: ${root}; Pi runtime: ${piRuntimeRoot()})`;
+    if (!pathInsideRoot(candidate, root)) return `Repo Lock blocked bash path outside current repository: ${cleaned} -> ${candidate} (repo root: ${root})`;
   }
   return undefined;
 }
@@ -204,20 +244,11 @@ export function registerToolGuard(pi: ExtensionAPI, getState: () => WorkflowStat
     const tool = event.toolName;
     const settings = loadWorkflowSettings(ctx.cwd);
 
-    // Sub-agent child processes should obey their own --tools allow-list from the
-    // agent file. Parent workflow phase guards must not remove bash/read tools.
-    // Destructive bash remains blocked when global safety requires it.
-    if (isSubagentWorker()) {
-      if (tool === "bash") {
-        const command = String((event.input as { command?: unknown }).command ?? "");
-        if (commandBlocked(command, ctx.cwd)) return { block: true, reason: `Workflow safety blocked destructive sub-agent bash command: ${command}` };
-      }
-      return;
-    }
-
-    if (repoLockEnabled(settings)) {
+    const effectiveRepoLockEnabled = repoLockEnabled(settings) || process.env.PI_WORKFLOW_REPO_LOCK_ENABLED === "1";
+    if (effectiveRepoLockEnabled) {
       if (PATH_SCOPED_TOOLS.has(tool)) {
-        const reason = repoLockPathBlock((event.input as { path?: unknown }).path, ctx.cwd);
+        const input = event.input as { path?: unknown; file_path?: unknown };
+        const reason = repoLockPathBlock(input.path ?? input.file_path, ctx.cwd, tool);
         if (reason) return { block: true, reason };
       }
       if (tool === "bash") {
@@ -226,9 +257,17 @@ export function registerToolGuard(pi: ExtensionAPI, getState: () => WorkflowStat
         if (reason) return { block: true, reason };
       }
       if (tool === "subagent") {
-        const reason = repoLockPathBlock(".", ctx.cwd);
+        const reason = repoLockPathBlock(".", ctx.cwd, tool);
         if (reason) return { block: true, reason };
       }
+    }
+
+    if (isSubagentWorker()) {
+      if (tool === "bash") {
+        const command = String((event.input as { command?: unknown }).command ?? "");
+        if (commandBlocked(command, ctx.cwd)) return { block: true, reason: `Workflow safety blocked destructive sub-agent bash command: ${command}` };
+      }
+      return;
     }
 
     if (tool === STANDARD_HANDOFF_RESULT_TOOL && state.mode !== "standard") return { block: true, reason: "Standard handoff result is only available while Standard Mode is active." };
@@ -281,7 +320,7 @@ export function registerToolGuard(pi: ExtensionAPI, getState: () => WorkflowStat
       return;
     }
 
-    if (repoLockEnabled(settings)) {
+    if (repoLockEnabled(settings) || process.env.PI_WORKFLOW_REPO_LOCK_ENABLED === "1") {
       const reason = repoLockBashBlock(event.command, ctx.cwd);
       if (reason) return { result: { output: reason, exitCode: 1, cancelled: false, truncated: false } };
     }

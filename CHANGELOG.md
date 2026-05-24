@@ -2,6 +2,13 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.10] - 2026-05-25
+
+### Changed
+
+- Improved workflow reliability across Standard, Plan, and Mission execution, including stronger progress tracking and validation handoff behavior.
+- Tightened repository safety checks to keep guarded workflows scoped to the active project.
+
 ## [0.0.9] - 2026-05-23
 
 ### Changed

@@ -93,7 +93,7 @@ export interface StandardRuntimeState {
 
 export type PlanLifecycleStatus = "planning" | "awaiting_clarification" | "plan_ready" | "approved" | "reviewing" | "executing" | "validating" | "repairing" | "revalidating" | "completed" | "blocked";
 export type PlanStepStatus = "pending" | "active" | "completed" | "failed" | "blocked" | "skipped";
-export type PlanValidationStatus = "pending" | "running" | "pass" | "fail" | "unknown";
+export type PlanValidationStatus = "pending" | "running" | "pass" | "partial pass" | "fail" | "unknown";
 
 export interface PlanProgressStep {
   id: string;
@@ -235,6 +235,7 @@ export interface WorkflowState {
   repairHistory?: WorkflowRepairHistoryEntry[];
   lastRepairStatus?: "none" | "running" | "completed" | "failed" | "blocked";
   planStepValidationIndex?: number;
+  planExecutionStepIndex?: number;
   planRuntime?: PlanRuntimeState;
   planProgress?: PlanProgressState;
   standardRuntime?: StandardRuntimeState;

@@ -40,10 +40,12 @@ export function validationReportHasRepairableIssue(text?: string): boolean {
   if (!normalized.trim()) return false;
   const actionable = normalized
     .replace(/\bno (actual |concrete )?(code |repairable )?(failure|failures|issue|issues|defect|defects)\b/g, " ")
+    .replace(/\bno (blocking|remaining|required) (issue|issues|action|actions|fix|fixes|gap|gaps)\b/g, " ")
+    .replace(/\brequired action (?:is )?(?:manual|visual|browser) (?:verification|qa|inspection|confirmation)\b/g, " ")
     .replace(/\bno automated repair is needed\b/g, " ")
     .replace(/\bno specific missing requirements? (?:is |are )?identified\b/g, " ")
     .replace(/\bmanual[-\s]only\b/g, " ");
-  return /\b(needs? repair|needs? revision|repair pass|repairable (issue|failure|defect)|concrete (issue|failure|defect|regression)|critical issues?|must fix|required fixes|fixes required|missing requirements?|not fully meet|does not fully meet|not (a )?full final artifact|acceptable as (a )?checkpoint baseline but not (a )?(full )?final artifact|unexpected changes?|regression introduced|build (failed|error)|type error|tests? failed|new lint error|incomplete (file|artifact|implementation|coverage)|persistent artifact|structured artifact|risk register artifact|artifact required|(?:produce|create|add|write) (a )?(structured |persistent )?(risk register )?artifact|missing (file|config|import|export|declaration|function|module|dependency))\b/.test(actionable);
+  return /\b(needs? repair|needs? revision|repair pass|repairable (issue|failure|defect)|concrete (issue|failure|defect|regression)|blocking issues?|critical issues?|must fix|required (fixes?|actions?)|fixes required|remaining (fixes?|issues?|gaps?)|should be fixed before advancing|apply (the )?(two |[0-9]+ )?remaining fixes?|needs? to be (replaced|updated|expanded|corrected)|missing requirements?|not fully meet|does not fully meet|not (a )?full final artifact|acceptable as (a )?checkpoint baseline but not (a )?(full )?final artifact|unexpected changes?|regression introduced|build (failed|error)|type error|tests? failed|new lint error|incomplete (file|artifact|implementation|coverage)|persistent artifact|structured artifact|risk register artifact|artifact required|(?:produce|create|add|write) (a )?(structured |persistent )?(risk register )?artifact|missing (file|config|import|export|declaration|function|module|dependency))\b/.test(actionable);
 }
 
 export function validationReportIsEvidenceGap(text?: string): boolean {
@@ -94,7 +96,8 @@ export function normalizeValidationVerdict(verdict: WorkflowState["validationVer
 // Re-export the verdict-to-status helper so consumers do not need workflow-parsers.
 export function planValidationStatusForVerdict(verdict: WorkflowState["validationVerdict"]): PlanValidationStatus {
   if (verdict === "PASS") return "pass";
-  if (verdict === "UNKNOWN" || verdict === "PARTIAL PASS") return "unknown";
+  if (verdict === "PARTIAL PASS") return "partial pass";
+  if (verdict === "UNKNOWN") return "unknown";
   return "fail";
 }
 
