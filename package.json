@@ -1,6 +1,6 @@
 {
   "name": "@mediadatafusion/pi-workflow-suite",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "description": "Structured workflow orchestration suite for Pi with Standard, Plan, Mission, compaction, diagrams, web access, repo lock, and safety gates.",
   "license": "Apache-2.0",
   "repository": {
@@ -36,6 +36,7 @@
   "type": "module",
   "files": [
     "extensions/",
+    "!extensions/*.bak",
     "skills/",
     "agents/",
     "config/",
@@ -105,7 +106,7 @@
   "scripts": {
     "check:ts": "tsc --noEmit --noCheck",
     "typecheck": "tsc --noEmit",
-    "validate": "npm run check:ts && ./scripts/check-clean-release-tree.sh && npm run check:package-size && git diff --check",
+    "validate": "npm run check:ts && ./scripts/test-workflow-forced-subagent-regression.sh && ./scripts/test-agent-skill-boundary-regression.sh && ./scripts/test-startup-visual-mode-entry-regression.sh && ./scripts/test-settings-health-regression.sh && ./scripts/test-handoff-visibility-regression.sh && ./scripts/test-mission-milestone-handoff-regression.sh && ./scripts/test-plan-handoff-chain-regression.sh && ./scripts/test-plan-step-progress-regression.sh && ./scripts/test-standard-mode-regression.sh && ./scripts/test-final-handoff-summary-regression.sh && ./scripts/test-clarification-answer-handoff-regression.sh && ./scripts/test-validation-evidence-contract-regression.sh && ./scripts/test-mermaid-guidance-regression.sh && ./scripts/test-runtime-web-tools-regression.sh && ./scripts/test-repolock-scope-regression.sh && ./scripts/test-repo-lock-version-regression.sh && ./scripts/test-package-menu-surface.sh && npm run check:package-size && git diff --check",
     "check:package-size": "node scripts/check-package-size.mjs",
     "prepack": "node scripts/prepare-package-readme.mjs apply",
     "postpack": "node scripts/prepare-package-readme.mjs restore --pack",

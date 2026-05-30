@@ -163,12 +163,32 @@ export interface CompletedPlanSummary {
   finalReport?: string;
 }
 
+export interface BlockedPlanResumeSnapshot {
+  task?: string;
+  originalTask?: string;
+  approvedPlan?: string;
+  planHistoryId?: string;
+  approvedPlanHistoryId?: string;
+  executionSummary?: string;
+  validationReport?: string;
+  validationVerdict?: "PASS" | "PARTIAL PASS" | "FAIL" | "UNKNOWN";
+  lastValidationFailure?: string;
+  lastRepairAttempt?: string;
+  repairHistory?: WorkflowRepairHistoryEntry[];
+  lastRepairStatus?: "none" | "running" | "completed" | "failed" | "blocked";
+  currentValidationRetry?: number;
+  workflowValidationRetryCount?: number;
+  planRuntime?: PlanRuntimeState;
+  planProgress?: PlanProgressState;
+}
+
 export interface WorkflowFinalStopSummary {
   stoppedAt: string;
   kind: "plan" | "mission";
   status: "completed" | "blocked";
   title: string;
   summary: string;
+  blockedPlanSnapshot?: BlockedPlanResumeSnapshot;
 }
 
 export interface CompletedMissionSummary {
@@ -234,10 +254,20 @@ export interface WorkflowState {
   lastRepairAttempt?: string;
   repairHistory?: WorkflowRepairHistoryEntry[];
   lastRepairStatus?: "none" | "running" | "completed" | "failed" | "blocked";
+  concreteRepairableIssue?: boolean;
+  manualVerificationRequired?: boolean;
+  evidenceGap?: boolean;
+  lastValidationCompletedAt?: string;
   planStepValidationIndex?: number;
   planExecutionStepIndex?: number;
   planRuntime?: PlanRuntimeState;
   planProgress?: PlanProgressState;
+  planProgressLastToolStep?: number;
+  planProgressLastToolStatus?: PlanStepStatus;
+  planProgressLastToolAt?: string;
+  planTokensUsed?: number;
+  missionTokensUsed?: number;
+  standardTokensUsed?: number;
   standardRuntime?: StandardRuntimeState;
   standardTodo?: StandardTodoState;
   standardLastAutoCheckAt?: string;
@@ -291,6 +321,15 @@ export interface SavedWorkflowPlan {
   finalReport?: string;
   modelsUsed?: WorkflowState["modelsUsed"];
   subagents?: Record<string, unknown>;
+  planProgress?: WorkflowState["planProgress"];
+  planRuntime?: WorkflowState["planRuntime"];
+  planExecutionStepIndex?: number;
+  planStepValidationIndex?: number;
+  currentValidationRetry?: number;
+  workflowValidationRetryCount?: number;
+  repairRetryState?: WorkflowState["repairRetryState"];
+  repairHistory?: WorkflowState["repairHistory"];
+  reviewHistory?: WorkflowState["reviewHistory"];
 }
 
 export interface PlanSavingOptions {
@@ -385,6 +424,9 @@ export interface MissionState {
   reviewHistory?: WorkflowReviewHistoryEntry[];
   reviewRepairInProgress?: boolean;
   lastValidationResult?: string;
+  concreteRepairableIssue?: boolean;
+  manualVerificationRequired?: boolean;
+  evidenceGap?: boolean;
   modelsUsed: Record<string, string>;
   subagentsUsed: string[];
   approvalRequired: boolean;
@@ -535,6 +577,15 @@ export function saveWorkflowPlan(state: WorkflowState, options: PlanSavingOption
     finalReport: options.finalReport?.trim() ? (redactSecrets(compact(options.finalReport, 5000)) ?? compact(options.finalReport, 5000)) : undefined,
     modelsUsed: state.modelsUsed,
     subagents: options.subagents,
+    planProgress: state.planProgress,
+    planRuntime: state.planRuntime,
+    planExecutionStepIndex: state.planExecutionStepIndex,
+    planStepValidationIndex: state.planStepValidationIndex,
+    currentValidationRetry: state.currentValidationRetry,
+    workflowValidationRetryCount: state.workflowValidationRetryCount,
+    repairRetryState: state.repairRetryState,
+    repairHistory: state.repairHistory,
+    reviewHistory: state.reviewHistory,
   };
 
   writeFileSync(LATEST_PLAN_FILE, JSON.stringify(record, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
@@ -714,8 +765,10 @@ function activeElapsedMs(startedAt: string | null | undefined, nowMs: number, la
   const parsed = Date.parse(startedAt ?? "");
   if (!Number.isFinite(parsed)) return 0;
   const updated = Date.parse(lastUpdatedAt ?? "");
-  const end = parsed < RUNTIME_SESSION_STARTED_AT_MS && Number.isFinite(updated) && updated < RUNTIME_SESSION_STARTED_AT_MS
-    ? Math.max(parsed, updated)
+  const end = parsed < RUNTIME_SESSION_STARTED_AT_MS
+    ? (Number.isFinite(updated) && updated < RUNTIME_SESSION_STARTED_AT_MS
+        ? Math.max(parsed, updated)
+        : RUNTIME_SESSION_STARTED_AT_MS)
     : nowMs;
   return Math.max(0, end - parsed);
 }
@@ -770,7 +823,9 @@ export function planActiveRuntimeMs(state: WorkflowState, now = new Date()): num
 export function planWallClockAgeMs(state: WorkflowState, now = new Date()): number {
   const start = Date.parse(state.planRuntime?.createdAt ?? "");
   if (!Number.isFinite(start)) return 0;
-  return Math.max(0, now.getTime() - start);
+  const terminalTimestamp = planRuntimeCounterState(state) === "stopped" ? state.updatedAt : undefined;
+  const end = terminalTimestamp ? Date.parse(terminalTimestamp) : now.getTime();
+  return Math.max(0, (Number.isFinite(end) ? end : now.getTime()) - start);
 }
 
 export function applyStandardRuntimeAccounting(previous: WorkflowState | undefined, state: WorkflowState, now = new Date()): WorkflowState {
@@ -826,7 +881,9 @@ export function standardActiveRuntimeMs(state: WorkflowState, now = new Date()):
 export function standardWallClockAgeMs(state: WorkflowState, now = new Date()): number {
   const start = Date.parse(state.standardRuntime?.createdAt ?? "");
   if (!Number.isFinite(start)) return 0;
-  return Math.max(0, now.getTime() - start);
+  const terminalTimestamp = standardRuntimeCounterState(state) === "stopped" ? state.updatedAt : undefined;
+  const end = terminalTimestamp ? Date.parse(terminalTimestamp) : now.getTime();
+  return Math.max(0, (Number.isFinite(end) ? end : now.getTime()) - start);
 }
 
 export function applyMissionRuntimeAccounting(previous: MissionState | undefined, mission: MissionState, now = new Date()): MissionState {
@@ -859,7 +916,7 @@ export function applyMissionRuntimeAccounting(previous: MissionState | undefined
       lastResumedAt: mission.lastResumedAt ?? nowIso,
     };
   } else if (nextActive && previousStartedAt) {
-    next = { ...next, activeRunStartedAt: previousStartedAt };
+    next = { ...next, activeRunStartedAt: Date.parse(previousStartedAt) < RUNTIME_SESSION_STARTED_AT_MS ? nowIso : previousStartedAt };
   } else if (!nextActive) {
     next = { ...next, activeRunStartedAt: null };
   }

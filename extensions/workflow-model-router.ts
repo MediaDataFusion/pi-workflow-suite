@@ -106,6 +106,8 @@ export interface WorkflowSettings {
     clarificationQualityGate?: boolean;
     allowClarificationWithoutAnalysis?: boolean;
     useSubagentsBeforeClarification?: boolean;
+    maxTokens?: number;
+    maxRuntimeHours?: number;
   };
   workflow: {
     requirePlanApprovalBeforeExecute: boolean;
@@ -138,6 +140,7 @@ export interface WorkflowSettings {
     planHistoryLimit?: number;
     planProgressEnabled?: boolean;
     planRuntimeEnabled?: boolean;
+    planShowProgressBar?: boolean;
   };
   standard: {
     enabled: boolean;
@@ -160,11 +163,13 @@ export interface WorkflowSettings {
     useStandardSpecificModels?: boolean;
     modelRole?: StandardModelRole;
     models?: Record<WorkflowRole, RoleModelSettings>;
+    maxTokens?: number;
   };
   missions: {
     enabled: boolean;
     defaultAutonomy: MissionAutonomy;
     maxRuntimeHours: number;
+    maxTokens?: number;
     checkpointIntervalMinutes: number;
     requireApprovalForDestructiveActions: boolean;
     requireValidationPerMilestone: boolean;
@@ -214,6 +219,7 @@ export interface WorkflowSettings {
     disableBashInPlanMode: boolean;
     disableBashInValidatorMode: boolean;
     blockDestructiveCommands: boolean;
+    allowPackageInstallInExecution: boolean;
   };
   ui: {
     showWorkflowStatus: boolean;
@@ -242,6 +248,7 @@ export interface WorkflowSettings {
     customBrandEnabled?: boolean;
     customBrandText?: string;
     customBrandBaseVisual?: CustomBrandBaseVisual;
+    debugPlanStepTracking?: boolean;
   };
   subagents: WorkflowSubagentSettings;
   context: {
@@ -365,6 +372,7 @@ const BUILTIN_DEFAULT_WORKFLOW_SETTINGS = {
     "planHistoryLimit": 50,
     "planProgressEnabled": true,
     "planRuntimeEnabled": true,
+    "planShowProgressBar": true,
     "requireApprovalBeforeExecution": true,
     "requireApprovalPerStep": false,
     "validateAfterEachStep": false,
@@ -415,7 +423,8 @@ const BUILTIN_DEFAULT_WORKFLOW_SETTINGS = {
         "model": null,
         "thinkingLevel": "xhigh"
       }
-    }
+    },
+    "maxTokens": 0
   },
   "missions": {
     "enabled": true,
@@ -429,9 +438,9 @@ const BUILTIN_DEFAULT_WORKFLOW_SETTINGS = {
     "autoRunAfterApproval": true,
     "offerReviewerBeforeApprove": false,
     "autoRunReviewerBeforeApprove": false,
-    "autoRepairReviewFailures": false,
-    "reviewRetryMode": "off",
-    "maxReviewRetriesPerMission": 0,
+    "autoRepairReviewFailures": true,
+    "reviewRetryMode": "safe_only",
+    "maxReviewRetriesPerMission": 2,
     "continueAcrossMilestones": true,
     "pauseBetweenMilestones": false,
     "progressWidgetEnabled": true,
@@ -488,13 +497,15 @@ const BUILTIN_DEFAULT_WORKFLOW_SETTINGS = {
     "clarificationTiming": "after_initial_analysis",
     "clarificationQualityGate": true,
     "allowClarificationWithoutAnalysis": false,
-    "useSubagentsBeforeClarification": true
+    "useSubagentsBeforeClarification": true,
+    "maxTokens": 0
   },
   "safety": {
-    "repoLockEnabled": false,
-    "disableBashInPlanMode": true,
+    "repoLockEnabled": true,
+    "disableBashInPlanMode": false,
     "disableBashInValidatorMode": true,
-    "blockDestructiveCommands": true
+    "blockDestructiveCommands": true,
+    "allowPackageInstallInExecution": true
   },
   "ui": {
     "showWorkflowStatus": true,
@@ -522,7 +533,8 @@ const BUILTIN_DEFAULT_WORKFLOW_SETTINGS = {
     "startupVisualOnSessionStart": true,
     "customBrandEnabled": false,
     "customBrandText": "",
-    "customBrandBaseVisual": "mission_control"
+    "customBrandBaseVisual": "mission_control",
+    "debugPlanStepTracking": false
   },
   "shortcuts": {
     "planMode": null
@@ -572,7 +584,9 @@ const BUILTIN_DEFAULT_WORKFLOW_SETTINGS = {
     "clarificationTiming": "after_initial_analysis",
     "clarificationQualityGate": true,
     "allowClarificationWithoutAnalysis": false,
-    "useSubagentsBeforeClarification": true
+    "useSubagentsBeforeClarification": true,
+    "maxTokens": 0,
+    "maxRuntimeHours": 0
   },
   "context": {
     "compactionMode": "pi_default",
@@ -869,7 +883,7 @@ export function builtInWorkflowPresets(): Record<string, WorkflowPresetBundle> {
       displayName: "Simple",
       description: "Fast end-to-end Plan/Mission/Standard workflow with minimal ceremony, automatic validation when work runs, low safe repair retries, and one-worker sub-agent support.",
       planning: { depth: "fast", clarificationMode: "auto", maxClarificationQuestions: 2, interactiveClarificationEnabled: true, clarificationQualityGate: false, useSubagentsBeforeClarification: true },
-      workflow: { offerReviewerBeforeExecute: false, autoRunReviewerBeforeExecute: false, offerValidationAfterExecute: true, autoRunValidationAfterExecute: true, validateAfterExecution: true, requirePlanApprovalBeforeExecute: false, requireApprovalBeforeExecution: false, autoRepairReviewFailures: false, autoRepairValidationFailures: true, reviewRetryMode: "off", validationRetryMode: "safe_only", maxReviewRetriesPerPlan: 0, maxReviewRetriesPerWorkflow: 0, maxValidationRetriesPerPlan: 1, maxValidationRetriesPerWorkflow: 2, pauseAfterReviewFailure: true, pauseAfterValidationFailure: false, planProgressEnabled: true, planRuntimeEnabled: true },
+      workflow: { offerReviewerBeforeExecute: false, autoRunReviewerBeforeExecute: false, offerValidationAfterExecute: true, autoRunValidationAfterExecute: true, validateAfterExecution: true, requirePlanApprovalBeforeExecute: false, requireApprovalBeforeExecution: false, autoRepairReviewFailures: false, autoRepairValidationFailures: true, reviewRetryMode: "off", validationRetryMode: "safe_only", maxReviewRetriesPerPlan: 0, maxReviewRetriesPerWorkflow: 0, maxValidationRetriesPerPlan: 1, maxValidationRetriesPerWorkflow: 2, pauseAfterReviewFailure: true, pauseAfterValidationFailure: false, planProgressEnabled: true, planRuntimeEnabled: true, planShowProgressBar: true },
       standard: { enabled: true, autoTodoEnabled: true, todoProgressVisible: true, todoTriggerMode: "auto", clarificationEnabled: true, clarificationMode: "auto", maxClarificationQuestions: 1, interactiveClarificationEnabled: true, clarificationTiming: "after_initial_analysis", clarificationQualityGate: false, allowClarificationWithoutAnalysis: false, useSubagentsBeforeClarification: false, allowSubagents: true, subagentScope: "user", subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "auto", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 1, minPlanningWorkersForMaximum: 1, minExecutionWorkersForDeep: 1, minExecutionWorkersForMaximum: 1, minRepairWorkersForDeep: 1, minRepairWorkersForMaximum: 1, minReviewWorkersForDeep: 1, minReviewWorkersForMaximum: 1, minValidationWorkersForDeep: 1, minValidationWorkersForMaximum: 1 }, statusWidgetVisible: true, useSharedExecutorModel: true, useStandardSpecificModels: false, modelRole: "executor" },
       missions: { defaultAutonomy: "approval_gated", requireValidationPerMilestone: true, autoRunAfterApproval: true, continueAcrossMilestones: true, pauseBetweenMilestones: false, clarificationMode: "auto", maxClarificationQuestions: 2, planningDepth: "fast", useSubagentsBeforeClarification: true, autoRepairValidationFailures: true, validationRetryMode: "safe_only", maxValidationRetriesPerMilestone: 1, maxValidationRetriesPerMission: 2, finalValidationEnabled: false, autoRepairFinalValidationFailures: false, maxFinalValidationRetries: 0, subagentPolicy: "forced", minWorkersForDeep: 1, minWorkersForMaximum: 1 },
       subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "auto", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 1, minPlanningWorkersForMaximum: 1, minExecutionWorkersForDeep: 1, minExecutionWorkersForMaximum: 1, minRepairWorkersForDeep: 1, minRepairWorkersForMaximum: 1, minReviewWorkersForDeep: 1, minReviewWorkersForMaximum: 1, minValidationWorkersForDeep: 1, minValidationWorkersForMaximum: 1 },
@@ -878,7 +892,7 @@ export function builtInWorkflowPresets(): Record<string, WorkflowPresetBundle> {
       displayName: "Standard",
       description: "Default end-to-end workflow with useful clarification, automatic execution/validation after approval, safe repair retries, and balanced worker support.",
       planning: { depth: "standard", clarificationMode: "auto", maxClarificationQuestions: 3, interactiveClarificationEnabled: true, clarificationQualityGate: true, useSubagentsBeforeClarification: true },
-      workflow: { offerReviewerBeforeExecute: false, autoRunReviewerBeforeExecute: false, offerValidationAfterExecute: true, autoRunValidationAfterExecute: true, validateAfterExecution: true, requirePlanApprovalBeforeExecute: false, requireApprovalBeforeExecution: false, autoRepairReviewFailures: true, autoRepairValidationFailures: true, reviewRetryMode: "safe_only", validationRetryMode: "safe_only", maxReviewRetriesPerPlan: 2, maxReviewRetriesPerWorkflow: 4, maxValidationRetriesPerPlan: 2, maxValidationRetriesPerWorkflow: 4, pauseAfterReviewFailure: false, pauseAfterValidationFailure: false, planProgressEnabled: true, planRuntimeEnabled: true },
+      workflow: { offerReviewerBeforeExecute: false, autoRunReviewerBeforeExecute: false, offerValidationAfterExecute: true, autoRunValidationAfterExecute: true, validateAfterExecution: true, requirePlanApprovalBeforeExecute: false, requireApprovalBeforeExecution: false, autoRepairReviewFailures: true, autoRepairValidationFailures: true, reviewRetryMode: "safe_only", validationRetryMode: "safe_only", maxReviewRetriesPerPlan: 2, maxReviewRetriesPerWorkflow: 4, maxValidationRetriesPerPlan: 2, maxValidationRetriesPerWorkflow: 4, pauseAfterReviewFailure: false, pauseAfterValidationFailure: false, planProgressEnabled: true, planRuntimeEnabled: true, planShowProgressBar: true },
       standard: { enabled: true, autoTodoEnabled: true, todoProgressVisible: true, todoTriggerMode: "auto", clarificationEnabled: true, clarificationMode: "auto", maxClarificationQuestions: 1, interactiveClarificationEnabled: true, clarificationTiming: "after_initial_analysis", clarificationQualityGate: true, allowClarificationWithoutAnalysis: false, useSubagentsBeforeClarification: false, allowSubagents: true, subagentScope: "user", subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "forced", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 1, minPlanningWorkersForMaximum: 1, minExecutionWorkersForDeep: 2, minExecutionWorkersForMaximum: 2, minRepairWorkersForDeep: 2, minRepairWorkersForMaximum: 2, minReviewWorkersForDeep: 2, minReviewWorkersForMaximum: 2, minValidationWorkersForDeep: 2, minValidationWorkersForMaximum: 2 }, statusWidgetVisible: true, useSharedExecutorModel: true, useStandardSpecificModels: false, modelRole: "executor" },
       missions: { defaultAutonomy: "approval_gated", requireValidationPerMilestone: true, autoRunAfterApproval: true, continueAcrossMilestones: true, pauseBetweenMilestones: false, clarificationMode: "auto", maxClarificationQuestions: 3, planningDepth: "standard", useSubagentsBeforeClarification: true, autoRepairValidationFailures: true, validationRetryMode: "safe_only", maxValidationRetriesPerMilestone: 2, maxValidationRetriesPerMission: 6, finalValidationEnabled: false, autoRepairFinalValidationFailures: false, maxFinalValidationRetries: 1, subagentPolicy: "forced", minWorkersForDeep: 1, minWorkersForMaximum: 1 },
       subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "forced", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 1, minPlanningWorkersForMaximum: 1, minExecutionWorkersForDeep: 2, minExecutionWorkersForMaximum: 2, minRepairWorkersForDeep: 2, minRepairWorkersForMaximum: 2, minReviewWorkersForDeep: 2, minReviewWorkersForMaximum: 2, minValidationWorkersForDeep: 2, minValidationWorkersForMaximum: 2 },
@@ -887,7 +901,7 @@ export function builtInWorkflowPresets(): Record<string, WorkflowPresetBundle> {
       displayName: "Deep",
       description: "Careful end-to-end workflow for risky or codebase-heavy work with stronger clarification, automatic review/validation, final mission validation, and larger worker teams.",
       planning: { depth: "deep", clarificationMode: "always_for_nontrivial", maxClarificationQuestions: 5, interactiveClarificationEnabled: true, clarificationQualityGate: true, useSubagentsBeforeClarification: true },
-      workflow: { offerReviewerBeforeExecute: false, autoRunReviewerBeforeExecute: true, offerValidationAfterExecute: true, autoRunValidationAfterExecute: true, validateAfterExecution: true, requirePlanApprovalBeforeExecute: false, requireApprovalBeforeExecution: false, autoRepairReviewFailures: true, autoRepairValidationFailures: true, reviewRetryMode: "safe_only", validationRetryMode: "safe_only", maxReviewRetriesPerPlan: 3, maxReviewRetriesPerWorkflow: 6, maxValidationRetriesPerPlan: 3, maxValidationRetriesPerWorkflow: 6, pauseAfterReviewFailure: false, pauseAfterValidationFailure: false, planProgressEnabled: true, planRuntimeEnabled: true },
+      workflow: { offerReviewerBeforeExecute: false, autoRunReviewerBeforeExecute: true, offerValidationAfterExecute: true, autoRunValidationAfterExecute: true, validateAfterExecution: true, requirePlanApprovalBeforeExecute: false, requireApprovalBeforeExecution: false, autoRepairReviewFailures: true, autoRepairValidationFailures: true, reviewRetryMode: "safe_only", validationRetryMode: "safe_only", maxReviewRetriesPerPlan: 3, maxReviewRetriesPerWorkflow: 6, maxValidationRetriesPerPlan: 3, maxValidationRetriesPerWorkflow: 6, pauseAfterReviewFailure: false, pauseAfterValidationFailure: false, planProgressEnabled: true, planRuntimeEnabled: true, planShowProgressBar: true },
       standard: { enabled: true, autoTodoEnabled: true, todoProgressVisible: true, todoTriggerMode: "required", clarificationEnabled: true, clarificationMode: "always_for_nontrivial", maxClarificationQuestions: 2, interactiveClarificationEnabled: true, clarificationTiming: "after_initial_analysis", clarificationQualityGate: true, allowClarificationWithoutAnalysis: false, useSubagentsBeforeClarification: true, allowSubagents: true, subagentScope: "user", subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "forced", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 2, minPlanningWorkersForMaximum: 2, minExecutionWorkersForDeep: 3, minExecutionWorkersForMaximum: 3, minRepairWorkersForDeep: 2, minRepairWorkersForMaximum: 2, minReviewWorkersForDeep: 3, minReviewWorkersForMaximum: 3, minValidationWorkersForDeep: 3, minValidationWorkersForMaximum: 3 }, statusWidgetVisible: true, useSharedExecutorModel: true, useStandardSpecificModels: false, modelRole: "executor" },
       missions: { defaultAutonomy: "approval_gated", requireValidationPerMilestone: true, autoRunAfterApproval: true, continueAcrossMilestones: true, pauseBetweenMilestones: false, clarificationMode: "always_for_nontrivial", maxClarificationQuestions: 5, planningDepth: "deep", useSubagentsBeforeClarification: true, autoRepairValidationFailures: true, validationRetryMode: "safe_only", maxValidationRetriesPerMilestone: 3, maxValidationRetriesPerMission: 8, finalValidationEnabled: true, autoRepairFinalValidationFailures: true, maxFinalValidationRetries: 2, subagentPolicy: "forced", minWorkersForDeep: 3, minWorkersForMaximum: 3 },
       subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "forced", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 3, minPlanningWorkersForMaximum: 3, minExecutionWorkersForDeep: 3, minExecutionWorkersForMaximum: 3, minRepairWorkersForDeep: 2, minRepairWorkersForMaximum: 2, minReviewWorkersForDeep: 3, minReviewWorkersForMaximum: 3, minValidationWorkersForDeep: 3, minValidationWorkersForMaximum: 3 },
@@ -896,7 +910,7 @@ export function builtInWorkflowPresets(): Record<string, WorkflowPresetBundle> {
       displayName: "Maximum",
       description: "Highest-rigor end-to-end workflow with strongest clarification, automatic review/validation, final mission validation, aggressive in-scope repair, and maximum worker teams.",
       planning: { depth: "maximum", clarificationMode: "always_for_nontrivial", maxClarificationQuestions: 5, interactiveClarificationEnabled: true, clarificationQualityGate: true, useSubagentsBeforeClarification: true },
-      workflow: { offerReviewerBeforeExecute: false, autoRunReviewerBeforeExecute: true, offerValidationAfterExecute: true, autoRunValidationAfterExecute: true, validateAfterExecution: true, requirePlanApprovalBeforeExecute: false, requireApprovalBeforeExecution: false, autoRepairReviewFailures: true, autoRepairValidationFailures: true, reviewRetryMode: "aggressive_within_scope", validationRetryMode: "aggressive_within_scope", maxReviewRetriesPerPlan: 5, maxReviewRetriesPerWorkflow: 8, maxValidationRetriesPerPlan: 5, maxValidationRetriesPerWorkflow: 8, pauseAfterReviewFailure: false, pauseAfterValidationFailure: false, planProgressEnabled: true, planRuntimeEnabled: true },
+      workflow: { offerReviewerBeforeExecute: false, autoRunReviewerBeforeExecute: true, offerValidationAfterExecute: true, autoRunValidationAfterExecute: true, validateAfterExecution: true, requirePlanApprovalBeforeExecute: false, requireApprovalBeforeExecution: false, autoRepairReviewFailures: true, autoRepairValidationFailures: true, reviewRetryMode: "aggressive_within_scope", validationRetryMode: "aggressive_within_scope", maxReviewRetriesPerPlan: 5, maxReviewRetriesPerWorkflow: 8, maxValidationRetriesPerPlan: 5, maxValidationRetriesPerWorkflow: 8, pauseAfterReviewFailure: false, pauseAfterValidationFailure: false, planProgressEnabled: true, planRuntimeEnabled: true, planShowProgressBar: true },
       standard: { enabled: true, autoTodoEnabled: true, todoProgressVisible: true, todoTriggerMode: "required", clarificationEnabled: true, clarificationMode: "always_for_nontrivial", maxClarificationQuestions: 2, interactiveClarificationEnabled: true, clarificationTiming: "after_initial_analysis", clarificationQualityGate: true, allowClarificationWithoutAnalysis: false, useSubagentsBeforeClarification: true, allowSubagents: true, subagentScope: "user", subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "forced", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 3, minPlanningWorkersForMaximum: 3, minExecutionWorkersForDeep: 4, minExecutionWorkersForMaximum: 4, minRepairWorkersForDeep: 3, minRepairWorkersForMaximum: 3, minReviewWorkersForDeep: 4, minReviewWorkersForMaximum: 4, minValidationWorkersForDeep: 4, minValidationWorkersForMaximum: 4 }, statusWidgetVisible: true, useSharedExecutorModel: true, useStandardSpecificModels: false, modelRole: "executor" },
       missions: { defaultAutonomy: "supervised_auto", requireValidationPerMilestone: true, autoRunAfterApproval: true, continueAcrossMilestones: true, pauseBetweenMilestones: false, clarificationMode: "always_for_nontrivial", maxClarificationQuestions: 6, planningDepth: "maximum", useSubagentsBeforeClarification: true, autoRepairValidationFailures: true, validationRetryMode: "aggressive_within_scope", maxValidationRetriesPerMilestone: 4, maxValidationRetriesPerMission: 12, finalValidationEnabled: true, autoRepairFinalValidationFailures: true, maxFinalValidationRetries: 4, subagentPolicy: "forced", minWorkersForDeep: 4, minWorkersForMaximum: 4 },
       subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "forced", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 4, minPlanningWorkersForMaximum: 4, minExecutionWorkersForDeep: 4, minExecutionWorkersForMaximum: 4, minRepairWorkersForDeep: 3, minRepairWorkersForMaximum: 3, minReviewWorkersForDeep: 4, minReviewWorkersForMaximum: 4, minValidationWorkersForDeep: 4, minValidationWorkersForMaximum: 4 },

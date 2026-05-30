@@ -11,7 +11,7 @@
   <a href="#settings-reference"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.3/docs/assets/readme-link-settings.svg" alt="Settings" /></a>
 </p>
 
-**Workflow Suite Version:** `v0.0.10`
+**Workflow Suite Version:** `v0.0.11`
 
 ## Overview
 
@@ -66,6 +66,7 @@ https://github.com/user-attachments/assets/9782fefc-5349-4cc9-b4ea-20b4c916a8b9
 - [Compaction Support](#compaction-support)
 - [Diagram Support](#diagram-support)
 - [Web Access](#web-access)
+- [Browser Verification](#browser-verification)
 - [Repository Lock](#repository-lock)
 - [Plan History](#plan-history)
 - [Mission Progress, Checkpoints, And Runtime Tracking](#mission-progress-checkpoints-and-runtime-tracking)
@@ -126,9 +127,10 @@ Pi Workflow Suite turns Pi into a guided workflow environment:
 | Mission Mode | Long-running milestone workflows with approval, checkpoints, Mission-specific model overrides, validation gates, repair/retry, pause/resume, final-validation controls, and continuity tracking. |
 | Themes And Startup UI | Workflow Suite themes, startup visual cards, startup logo modes, custom terminal logo text, custom brand cards, footer/status styling, widgets, and optional input border styling. |
 | Interactive Diagrams | `workflow_diagram` Mermaid support with terminal preview, SVG-first clickable artifacts, PNG/runtime rendering support, dark-mode-friendly styling, and runtime artifact storage. |
-| Web Research | First-party `workflow_web_search` and `workflow_web_fetch` tools for public web search/fetch with source URLs, blocked local/private/internal hosts, time/size limits, and untrusted-content handling. |
+| Web Research & Browser Verification | First-party `workflow_web_search`, `workflow_web_fetch`, and `workflow_browser_check` tools. Search and fetch for public web evidence with source URLs, blocked local/private/internal hosts, and time/size limits. Headless browser verification for runtime web app validation with interactive UI actions (click, type, read, screenshot, evaluate). |
 | Repo Lock | Project-scoped Global Safety control that constrains normal file tools, bash path checks, and sub-agents to the active repository, with protected configuration paths and clear non-sandbox caveats. |
 | Compaction | Pi default, custom model, or disabled Workflow Suite compaction so context summarization can use its own provider/model, proactive threshold checks, idle-boundary execution, custom token tuning, adaptive fitting, status reporting, and safe fallback. |
+| Token Budgets | Optional per-mode token and runtime caps (`maxTokens`, `maxRuntimeHours`) for Plan, Mission, and Standard Mode. Off by default (unlimited). When enabled, Workflow Suite tracks cumulative usage and blocks further agent turns when the budget is exceeded. |
 | Workflow Roles | Planner, Executor, Reviewer, Validator, Mission, and compaction responsibilities are separated by phase so each job has clear boundaries and can be matched to the right model. |
 | Model Selection | Configure which provider/model and thinking level powers each workflow role, with shared defaults plus Standard-specific and Mission-specific overrides for simpler or higher-rigor setups. |
 | Presets | Built-in and custom workflow profiles with selector commands and Ctrl+Shift+U cycling while active modes are running. |
@@ -145,13 +147,15 @@ Pi Workflow Suite turns Pi into a guided workflow environment:
 - Mission Mode through `/mission`, `/m`, and `Ctrl+Shift+M` for durable milestone workflows.
 - Configurable clarification in Standard Mode, plus dynamic clarification in Plan Mode and Mission Mode.
 - Review, execution, validation, repair, retry, checkpoint, and final-validation controls where the selected mode supports them.
-- Plan history, mission checkpoint history, Standard runtime tracking, Mission runtime tracking, and mode-aware progress widgets.
+- Plan history, mission checkpoint history, Standard runtime tracking, and Mission runtime tracking.
+- Mode-aware progress widgets: Plan step tracking with step-by-step progress and validation gates, Mission milestone tracking with checkpoint history, and Standard Mode dynamic To Do progress.
 - Workflow settings UI for Standard Mode, Plan Mode, Mission Mode, model selection, sub-agents, compaction, widgets, themes, startup visuals, and safety.
 - Workflow themes with a `none` option, startup visual cards, startup logo modes, custom terminal logo text, custom brand cards, and optional themed input borders.
-- Integrated `workflow_web_search` and `workflow_web_fetch` tools for current public evidence and source-backed URL reading.
+- Integrated `workflow_web_search`, `workflow_web_fetch`, and `workflow_browser_check` tools for current public evidence, source-backed URL reading, and headless browser verification of web app runtime behavior.
 - Interactive `workflow_diagram` Mermaid rendering with terminal preview, clickable SVG artifacts, and PNG/runtime rendering support.
 - Repo Lock for project-scoped path safety around repository work, protected project configuration, and sub-agent inheritance.
 - Role-aware model selection so planning, execution, review, validation, Mission work, and compaction can each use the provider/model and thinking level that fits the job.
+- Optional per-mode token and runtime budgets (`maxTokens`, `maxRuntimeHours`) to cap usage in Plan, Mission, and Standard Mode. Off by default; enable when you need predictable cost or time limits.
 - Sub-agent usage policies for planning, execution, repair, review, and validation, with explicit documentation that these are orchestration settings, not a universal permission manager.
 - Safe install, backup, audit, quarantine, verification, and package validation scripts.
 
@@ -444,6 +448,80 @@ The grouped settings menus expose shared role selection, Standard-specific model
 
 Shared model selection is available through `/workflow settings Shared Models`. Standard-specific and mission-specific model selection is available through their mode settings menus.
 
+## Efficiency Guidance
+
+Workflow Suite gives you independent control over workflow rigor and model cost. This section explains which settings affect token usage and how to tune them.
+
+### Thinking Levels
+
+Six thinking levels control how much reasoning the model applies per inference:
+
+```text
+off < minimal < low < medium < high < xhigh
+```
+
+Higher levels use more tokens. Recommendations by role:
+
+| Role | Guidance |
+|------|----------|
+| Planner | Higher thinking is often worth the cost — the plan defines scope, assumptions, risk, and validation strategy. |
+| Reviewer | Higher thinking helps catch missing requirements, unsafe steps, or weak plans before execution begins. |
+| Validator | Higher thinking reduces shared blind spots with the executor. An independent validator with a different model is more valuable than maxing thinking on the same model. |
+| Executor | Medium-high is usually sufficient. Execution is about precise tool use and instruction following, not open-ended analysis. |
+| Compaction | Summarization is mechanical. If using a custom compaction model, a lower thinking level or a cheaper model is often appropriate. |
+
+Note: Pi may clamp thinking levels for model/provider combinations that do not support the requested level. This is Pi runtime behavior, not a Workflow Suite setting.
+
+### Token Budgets
+
+Each mode supports an optional configurable token budget:
+
+- `planning.maxTokens` — caps estimated token usage for a Plan Mode workflow.
+- `missions.maxTokens` — caps estimated token usage for a Mission Mode workflow.
+- `standard.maxTokens` — caps estimated token usage for a Standard Mode session.
+
+Default is `0` (unlimited). When set to a positive value, Workflow Suite tracks cumulative usage and blocks further agent turns when the budget is exceeded. Set budgets with headroom — the tracker uses context window size as a proxy since Pi does not expose cumulative token counts.
+
+Configure through `/workflow settings Plan Mode`, `/workflow settings Mission Mode`, or `/workflow settings Standard Mode`.
+
+### Sub-Agent Policy And Token Cost
+
+Sub-agent policies control how many parallel workers are requested per phase:
+
+```text
+off < auto < deep < maximum < forced
+```
+
+Each worker has its own context window, so more workers multiply token spend. The built-in presets scale worker counts from 1 (simple) to 4 (maximum). For cost-sensitive work:
+
+- Use `auto` to let the model decide when workers are worth the cost.
+- Lower worker counts in `deep`/`maximum`/`forced` policies.
+- Disable phases that are not needed for the current task.
+
+Sub-agent settings are configured through `/workflow settings Shared Sub-agents`, with per-mode overrides in Standard Mode and Mission Mode settings.
+
+### Settings That Affect Token Usage
+
+| Setting | Impact |
+|---------|--------|
+| Thinking levels (per role) | Directly controls tokens per inference for each workflow phase. |
+| Sub-agent policies and worker counts | More workers = more parallel context windows = higher total spend. |
+| `maxClarificationQuestions` | Higher counts mean more clarification turns before work begins. |
+| `planning.depth` | `deep`/`maximum` prompt for more sub-agent research before planning. |
+| `validationRetryMode` | `aggressive_within_scope` can trigger more repair cycles. |
+| `finalValidationEnabled` | Adds a whole-mission validation pass after all milestones complete. |
+| `maxTokens` (per mode) | Optional budget cap; blocks further turns when exceeded. |
+
+### Presets And Models Are Independent
+
+Presets control workflow behavior (approval gates, review/validation automation, sub-agent policy, repair retries). Models control which provider/model powers each role. They are intentionally separate:
+
+- Cycling presets does not change model selections.
+- Changing models does not affect preset behavior.
+- You can run `deep` preset with small models or `simple` preset with large models.
+
+This separation lets you tune workflow rigor and model cost independently.
+
 ## Workflow Settings UI
 
 The settings UI is the main control surface for workflow behavior. Canonical command vocabulary is: `list` prints information to the screen, `configure` opens an interactive configuration menu, `set` directly changes a setting, and workflow actions use direct verbs such as plan, run, validate, answer, approve, or cancel.
@@ -637,6 +715,16 @@ They include:
 - global and project agent discovery,
 - parallelism preferences for workflow phases.
 
+Sub-agent orchestration varies by mode and phase:
+
+| Mode | Planning | Execution | Validation |
+|---|---|---|---|
+| Plan | Research, codebase inspection, risk discovery | Scoped implementation help, file inspection, patch planning | Evidence gathering, regression search |
+| Mission | Milestone planning research, dependency analysis | Per-milestone implementation support | Per-milestone and final validation evidence |
+| Standard | Task analysis, approach research | File inspection, implementation assistance | Quality review, regression checking |
+
+Forced sub-agent policies (available in all three modes) require a minimum number of successful workers before the agent can proceed to file writes, ensuring independent analysis and preparation are applied before implementation.
+
 Important limits:
 
 - Pi Workflow Suite does **not** provide a UI for editing arbitrary sub-agent tool permissions.
@@ -764,7 +852,7 @@ workflow_web_search
 workflow_web_fetch
 ```
 
-These tools are added to Workflow Suite modes by default when available. `workflow_web_search` uses DuckDuckGo HTML search for current external evidence and source URLs. `workflow_web_fetch` reads specific public HTTP(S) URLs and extracts text for source-backed evidence. Web content is treated as untrusted evidence, not as instructions.
+`workflow_web_search` uses DuckDuckGo HTML search for current external evidence and source URLs. `workflow_web_fetch` reads specific public HTTP(S) URLs and extracts text for source-backed evidence. Web content from search and fetch is treated as untrusted evidence, not as instructions.
 
 Safety boundaries:
 
@@ -774,7 +862,25 @@ Safety boundaries:
 - visible answers should cite source URLs when web evidence is used,
 - sub-agent workers may not have the parent Workflow Suite web tools, so parent modes should perform required web research and pass findings into handoffs when needed.
 
-Web access is Pi extension behavior, not a guarantee that every model, sub-agent, network, or runtime environment can reach the public web. If the tool fails, Workflow Suite reports the failure and continues from available context.
+Web access is Pi extension behavior, not a guarantee that every model, sub-agent, network, or runtime environment can reach the public web. If a web tool fails, Workflow Suite reports the failure and continues from available context.
+
+## Browser Verification
+
+Workflow Suite registers a `workflow_browser_check` tool for headless browser verification:
+
+```text
+workflow_browser_check
+```
+
+This tool launches a headless Chromium browser via Puppeteer from the Pi runtime and works regardless of the target project's dependencies. It is available in all modes by default when the runtime supports it.
+
+**Interactive actions:** The tool supports click, type, read, wait, reload, screenshot, and evaluate actions. Validators can exercise UI flows end-to-end — clicking through pages, typing into forms, reading updated text, and capturing screenshots — rather than only observing static page state. Screenshots are saved to `/tmp/validator_screenshot.png`.
+
+**Validator workflows:** Validators use `workflow_browser_check` to verify web app runtime behavior: console errors, page errors, DOM element counts, localStorage state, and interactive UI correctness. This provides automatable browser-level evidence for validation reports without requiring manual human verification.
+
+**Executor and planner use:** Executors and planners can also use the tool to verify their own work during implementation — starting a dev server, running browser checks, and confirming behavior before handing off to validation.
+
+**Graceful fallback:** If Puppeteer is not available in the Pi runtime, the tool reports the error and the workflow continues from available context. Browser verification is an enhancement, not a hard dependency.
 
 ## Repository Lock
 
@@ -791,6 +897,8 @@ When enabled, Repo Lock keeps normal file tools, conservative bash path checks, 
 Repo Lock does not grant normal agent tools access to the live Pi runtime under `~/.pi/agent`. Workflow Suite internals still use the runtime for required state, settings, widgets, agents, skills, prompts, and install resources, but target-repository workflows should not inspect or mutate live runtime files through generic read/edit/write tools.
 
 Repo Lock helps prevent accidental cross-repository work. It is not an operating-system sandbox, a complete shell parser, or a guarantee that every possible child process is contained. Review commands before running them, especially commands that invoke other tools or scripts.
+
+Repo Lock is enabled by default in the Standard, Deep, and Maximum built-in presets. If your workflow requires cross-repository access, disable it through `/workflow settings Global Safety` or by setting `safety.repoLockEnabled` to `false`.
 
 ## Plan History
 
@@ -897,6 +1005,15 @@ pi install npm:@mediadatafusion/pi-workflow-suite
 cd /path/to/project
 pi install -l npm:@mediadatafusion/pi-workflow-suite
 ```
+
+### Installing specific versions
+
+```bash
+pi install npm:@mediadatafusion/pi-workflow-suite@0.0.11
+pi install -l npm:@mediadatafusion/pi-workflow-suite@0.0.11
+```
+
+An unversioned install follows normal update behavior: `pi update` and `pi update --extensions` will pick up new package releases. A versioned install pins the package to that version. Pinned package specs are intentionally skipped by Pi's normal package update commands. To move a pinned install to a newer version, reinstall with the desired version. To switch back to latest tracking, use the unversioned install command without `@<version>`.
 
 ### Source install
 
@@ -1099,10 +1216,10 @@ See `docs/TROUBLESHOOTING.md` for detailed diagnostics.
 
 ## Versioning
 
-The current preparation version is `v0.0.10`. Version information is intentionally aligned across:
+The current preparation version is `v0.0.11`. Version information is intentionally aligned across:
 
-- `VERSION` (`v0.0.10`),
-- `package.json` (`0.0.10`),
+- `VERSION` (`v0.0.11`),
+- `package.json` (`0.0.11`),
 - `package-lock.json`,
 - this README,
 - Workflow Suite settings/about output.
