@@ -2,6 +2,12 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.13] - 2026-06-08
+
+### Changed
+
+- Prepared the small runtime package to use the refreshed `0.0.12` npm-hosted package media while keeping promotional media assets out of the install payload.
+
 ## [0.0.12] - 2026-06-07
 
 ### Added
