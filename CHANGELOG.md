@@ -2,6 +2,12 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.14] - 2026-06-08
+
+### Fixed
+
+- Restored the npm/pi.dev publish preparation path so the package-safe README is active before npm publish starts, preserving the rendered package README while keeping media pinned to the published `0.0.12` assets.
+
 ## [0.0.13] - 2026-06-08
 
 ### Changed

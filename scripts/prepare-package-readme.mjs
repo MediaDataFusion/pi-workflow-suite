@@ -106,11 +106,25 @@ function check() {
   assertPackageReadme(readFileSync(readmePath, 'utf8'));
 }
 
+function ensurePublishReady() {
+  check();
+  if (!existsSync(publishMarkerPath)) {
+    throw new Error(
+      [
+        'package README is package-safe but publish marker is missing.',
+        'Run `npm run prepare:publish-readme` before `npm publish --access public` so npm sees the package README before publish starts.',
+        'If a previous publish failed, run `npm run cleanup:publish-readme` first.',
+      ].join(' '),
+    );
+  }
+}
+
 const command = process.argv[2];
 if (command === 'apply') apply();
 else if (command === 'restore') restore();
 else if (command === 'check') check();
+else if (command === 'ensure-publish-ready') ensurePublishReady();
 else {
-  console.error('Usage: prepare-package-readme.mjs apply|restore|check [--publish|--pack]');
+  console.error('Usage: prepare-package-readme.mjs apply|restore|check|ensure-publish-ready [--publish|--pack]');
   process.exit(1);
 }
