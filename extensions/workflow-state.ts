@@ -36,6 +36,13 @@ export interface WorkflowTypedHandoff {
   payload: Record<string, unknown>;
 }
 
+export interface WorkflowReviewHandoffSuppression {
+  kind: "plan_typed_initial_to_approval" | "plan_typed_review_to_execution" | "mission_typed_review_to_approval";
+  createdAt: string;
+  activePlanId?: string;
+  activeMissionId?: string;
+}
+
 export interface WorkflowRepairHistoryEntry {
   timestamp: string;
   retry: number;
@@ -91,7 +98,7 @@ export interface StandardRuntimeState {
   runtimeCounter: "running" | "paused" | "stopped";
 }
 
-export type PlanLifecycleStatus = "planning" | "awaiting_clarification" | "plan_ready" | "approved" | "reviewing" | "executing" | "validating" | "repairing" | "revalidating" | "completed" | "blocked";
+export type PlanLifecycleStatus = "planning" | "awaiting_clarification" | "plan_ready" | "approved" | "reviewing" | "reviewed" | "executing" | "validating" | "repairing" | "revalidating" | "completed" | "blocked";
 export type PlanStepStatus = "pending" | "active" | "completed" | "failed" | "blocked" | "skipped";
 export type PlanValidationStatus = "pending" | "running" | "pass" | "partial pass" | "fail" | "unknown";
 
@@ -180,6 +187,21 @@ export interface BlockedPlanResumeSnapshot {
   workflowValidationRetryCount?: number;
   planRuntime?: PlanRuntimeState;
   planProgress?: PlanProgressState;
+  reviewerReport?: string;
+  reviewerVerdict?: "PASS" | "NOTES" | "NEEDS REPAIR" | "FAIL" | "BLOCKED" | "UNKNOWN";
+  reviewHistory?: WorkflowReviewHistoryEntry[];
+  currentReviewRetry?: number;
+  workflowReviewRetryCount?: number;
+  lastReviewFailure?: string;
+  lastReviewAttempt?: string;
+  lastReviewRepairStatus?: "none" | "running" | "completed" | "failed" | "blocked";
+  reviewRepairInProgress?: boolean;
+  repairRetryState?: Partial<Record<RepairRetryGateName, RepairRetryGateState>>;
+  concreteRepairableIssue?: boolean;
+  manualVerificationRequired?: boolean;
+  evidenceGap?: boolean;
+  planTokensUsed?: number;
+  modelsUsed?: { planner?: string; executor?: string; validator?: string; reviewer?: string };
 }
 
 export interface WorkflowFinalStopSummary {
@@ -219,6 +241,7 @@ export interface WorkflowState {
   clarifyingQuestions?: ClarificationQuestion[];
   clarifyingAnswers?: ClarificationAnswer[];
   lastWorkflowHandoff?: WorkflowTypedHandoff;
+  reviewHandoffSuppression?: WorkflowReviewHandoffSuppression;
   clarificationAlreadyAsked?: boolean;
   clarificationRequiredBeforePlan?: boolean;
   clarificationRequirementReason?: string;
@@ -246,6 +269,9 @@ export interface WorkflowState {
   executionSummary?: string;
   validationReport?: string;
   validationVerdict?: "PASS" | "PARTIAL PASS" | "FAIL" | "UNKNOWN";
+  currentValidationHandoffRetry?: number;
+  maxValidationHandoffRetries?: number;
+  lastValidationHandoffFailure?: string;
   currentValidationRetry?: number;
   workflowValidationRetryCount?: number;
   maxValidationRetriesPerPlan?: number;
@@ -261,6 +287,7 @@ export interface WorkflowState {
   planStepValidationIndex?: number;
   planExecutionStepIndex?: number;
   planRuntime?: PlanRuntimeState;
+  planRuntimeHoldActive?: boolean;
   planProgress?: PlanProgressState;
   planProgressLastToolStep?: number;
   planProgressLastToolStatus?: PlanStepStatus;
@@ -346,6 +373,10 @@ export interface PlanSavingOptions {
   finalReport?: string;
   savePlanHistory?: boolean;
   planHistoryLimit?: number;
+}
+
+export interface MissionSavingOptions {
+  missionHistoryLimit?: number;
 }
 
 export type MissionStatus = "draft" | "planning" | "awaiting_clarification" | "planned" | "approved" | "running" | "paused" | "checkpointing" | "validating" | "repairing" | "revalidating" | "completed" | "failed" | "blocked" | "stopped";
@@ -439,6 +470,7 @@ export interface MissionState {
   heartbeatCount?: number;
   activeRuntimeMs?: number;
   activeRunStartedAt?: string | null;
+  runtimeHoldActive?: boolean;
   lastPausedAt?: string;
   lastResumedAt?: string;
   lastStoppedAt?: string;
@@ -469,10 +501,13 @@ export function emptyState(): WorkflowState {
   return { version: 1, mode: "idle", updatedAt: new Date().toISOString() };
 }
 
+const VALID_MODES = new Set<string>(["idle", "standard", "awaiting_plan_input", "awaiting_mission_input", "awaiting_clarification", "planning", "plan_draft", "plan_approved", "reviewing", "reviewed", "executing", "executed", "validating", "validated", "repairing", "revalidating", "mission_draft", "mission_awaiting_clarification", "mission_planning", "mission_plan_ready", "mission_approved", "mission_running", "mission_paused", "mission_checkpointing", "mission_validating", "mission_repairing", "mission_revalidating", "mission_final_validating", "mission_completed", "mission_failed", "mission_blocked", "mission_stopped", "cancelled"]);
+
 export function loadState(): WorkflowState {
   try {
     if (!existsSync(ACTIVE_STATE_FILE)) return emptyState();
     const parsed = JSON.parse(readFileSync(ACTIVE_STATE_FILE, "utf8")) as WorkflowState;
+    if (parsed.mode && !VALID_MODES.has(parsed.mode)) return emptyState();
     return { ...emptyState(), ...parsed, version: 1 };
   } catch {
     return emptyState();
@@ -710,6 +745,15 @@ export function isMissionRuntimeActiveStatus(status?: MissionStatus): boolean {
   return status === "planning" || status === "running" || status === "validating" || status === "repairing" || status === "revalidating" || status === "checkpointing";
 }
 
+export function isMissionRuntimeActive(mission?: MissionState): boolean {
+  if (!mission || mission.status === "completed" || mission.status === "failed" || mission.status === "stopped") return false;
+  return isMissionRuntimeActiveStatus(mission.status) || mission.runtimeHoldActive === true;
+}
+
+export function isMissionRuntimeHeldActive(mission?: MissionState): boolean {
+  return Boolean(mission && !isMissionRuntimeActiveStatus(mission.status) && mission.runtimeHoldActive === true);
+}
+
 function runtimeEndReason(status: MissionStatus): MissionRuntimeSegment["reasonEnded"] {
   if (status === "paused") return "paused";
   if (status === "blocked") return "blocked";
@@ -737,9 +781,18 @@ export function isPlanRuntimeActiveMode(mode?: WorkflowMode): boolean {
   return mode === "planning" || mode === "reviewing" || mode === "executing" || mode === "validating" || mode === "repairing" || mode === "revalidating";
 }
 
+export function isPlanRuntimeActive(state?: WorkflowState): boolean {
+  if (!state || state.mode === "idle" || state.mode === "cancelled") return false;
+  return isPlanRuntimeActiveMode(state.mode) || state.planRuntimeHoldActive === true;
+}
+
+export function isPlanRuntimeHeldActive(state?: WorkflowState): boolean {
+  return Boolean(state && !isPlanRuntimeActiveMode(state.mode) && state.planRuntimeHoldActive === true);
+}
+
 export function planRuntimeCounterState(state: WorkflowState): "running" | "paused" | "stopped" {
   if (state.mode === "idle" || state.mode === "cancelled") return "stopped";
-  if (isPlanRuntimeActiveMode(state.mode)) return "running";
+  if (isPlanRuntimeActive(state)) return "running";
   return "paused";
 }
 
@@ -784,8 +837,8 @@ export function applyPlanRuntimeAccounting(previous: WorkflowState | undefined, 
   const createdAt = currentRuntime?.createdAt ?? previousRuntime?.createdAt ?? nowIso;
   const baseRuntimeMs = safeRuntimeMs(currentRuntime?.activeRuntimeMs ?? previousRuntime?.activeRuntimeMs);
   const previousStartedAt = previousRuntime?.activeRunStartedAt ?? currentRuntime?.activeRunStartedAt ?? null;
-  const previousActive = isPlanRuntimeActiveMode(previous?.mode);
-  const nextActive = isPlanRuntimeActiveMode(state.mode);
+  const previousActive = isPlanRuntimeActive(previous);
+  const nextActive = isPlanRuntimeActive(state);
 
   let activeRuntimeMs = baseRuntimeMs;
   let activeRunStartedAt = currentRuntime?.activeRunStartedAt ?? previousStartedAt ?? null;
@@ -816,7 +869,7 @@ export function applyPlanRuntimeAccounting(previous: WorkflowState | undefined, 
 export function planActiveRuntimeMs(state: WorkflowState, now = new Date()): number {
   const runtime = state.planRuntime;
   const base = safeRuntimeMs(runtime?.activeRuntimeMs);
-  if (!runtime || !isPlanRuntimeActiveMode(state.mode)) return base;
+  if (!runtime || !isPlanRuntimeActive(state)) return base;
   return base + activeElapsedMs(runtime.activeRunStartedAt, now.getTime(), state.updatedAt);
 }
 
@@ -889,8 +942,8 @@ export function standardWallClockAgeMs(state: WorkflowState, now = new Date()): 
 export function applyMissionRuntimeAccounting(previous: MissionState | undefined, mission: MissionState, now = new Date()): MissionState {
   const nowIso = now.toISOString();
   const nowMs = now.getTime();
-  const previousActive = isMissionRuntimeActiveStatus(previous?.status);
-  const nextActive = isMissionRuntimeActiveStatus(mission.status);
+  const previousActive = isMissionRuntimeActive(previous);
+  const nextActive = isMissionRuntimeActive(mission);
   const previousStartedAt = previous?.activeRunStartedAt ?? mission.activeRunStartedAt ?? null;
   const baseRuntimeMs = safeRuntimeMs(mission.activeRuntimeMs ?? previous?.activeRuntimeMs);
   const baseSegments = mission.runtimeSegments ?? previous?.runtimeSegments ?? [];
@@ -929,7 +982,7 @@ export function applyMissionRuntimeAccounting(previous: MissionState | undefined
 
 export function missionActiveRuntimeMs(mission: MissionState, now = new Date()): number {
   const base = safeRuntimeMs(mission.activeRuntimeMs);
-  if (!isMissionRuntimeActiveStatus(mission.status)) return base;
+  if (!isMissionRuntimeActive(mission)) return base;
   return base + activeElapsedMs(mission.activeRunStartedAt, now.getTime(), mission.updatedAt);
 }
 
@@ -942,7 +995,7 @@ export function missionWallClockAgeMs(mission: MissionState, now = new Date()): 
 }
 
 export function missionRuntimeCounterState(mission: MissionState): "running" | "paused" | "blocked" | "stopped" | "completed" | "failed" | "waiting" {
-  if (isMissionRuntimeActiveStatus(mission.status)) return "running";
+  if (isMissionRuntimeActive(mission)) return "running";
   if (mission.status === "paused") return "paused";
   if (mission.status === "blocked") return "blocked";
   if (mission.status === "stopped") return "stopped";
@@ -951,7 +1004,7 @@ export function missionRuntimeCounterState(mission: MissionState): "running" | "
   return "waiting";
 }
 
-export function saveMissionState(mission: MissionState): MissionState {
+export function saveMissionState(mission: MissionState, options: MissionSavingOptions = {}): MissionState {
   mkdirSync(MISSION_HISTORY_DIR, { recursive: true });
   const savedAt = new Date();
   const accounted = applyMissionRuntimeAccounting(readExistingMissionState(mission.id), mission, savedAt);
@@ -959,6 +1012,7 @@ export function saveMissionState(mission: MissionState): MissionState {
   const content = JSON.stringify(next, null, 2) + "\n";
   writeFileSync(join(MISSION_HISTORY_DIR, `${next.id}.json`), content, { encoding: "utf8", mode: 0o600 });
   writeFileSync(LATEST_MISSION_FILE, content, { encoding: "utf8", mode: 0o600 });
+  clearOldMissionStates(options.missionHistoryLimit ?? 50);
   return next;
 }
 
@@ -984,6 +1038,19 @@ export function listMissionStates(): MissionState[] {
     } catch { /* skip unreadable mission */ }
   }
   return missions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+export function clearOldMissionStates(limit = 50): number {
+  const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
+  const missions = listMissionStates();
+  let removed = 0;
+  for (const mission of missions.slice(safeLimit)) {
+    try {
+      unlinkSync(join(MISSION_HISTORY_DIR, `${mission.id}.json`));
+      removed++;
+    } catch { /* ignore */ }
+  }
+  return removed;
 }
 
 export function addMissionCheckpoint(mission: MissionState, summary: string, nextAction: string, milestoneId?: string, details: { filesChanged?: string[]; validationResult?: string; errors?: string[] } = {}): MissionState {

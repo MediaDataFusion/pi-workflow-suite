@@ -54,7 +54,7 @@ while IFS= read -r -d '' path; do
       ;;
   esac
   move_rel "$rel"
-done < <(find "$LIVE_DIR" -maxdepth 3 \( -name '*.backup.*' -o -name '*.broken.*' -o -name '.DS_Store' -o -name '*.log' \) -print0 2>/dev/null)
+done < <(find "$LIVE_DIR" -maxdepth 3 \( -name '*.bak' -o -name '*.backup.*' -o -name '*.broken.*' -o -name '.DS_Store' -o -name '*.log' \) -print0 2>/dev/null)
 
 # Known stale/development directories from earlier manual repair flows. These are
 # quarantined whole only when present. Review the dry-run output first.

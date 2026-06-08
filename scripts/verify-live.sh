@@ -37,13 +37,21 @@ warn_stale_files() {
 
 warn_unexpected_loadable_extensions() {
   local expected actual unexpected
+  # Keep aligned with package/runtime extension-surface files. Some helper
+  # modules have no-op default exports so Pi's broad discovery can load them
+  # safely; they are intentional live files, not stale extension candidates.
   expected="$(cat <<'TEXT'
 extensions/subagent/index.ts
 extensions/workflow-model-router.ts
 extensions/workflow-modes.ts
+extensions/workflow-parsers.ts
+extensions/workflow-settings-capabilities.ts
 extensions/workflow-state.ts
+extensions/workflow-subagent-policy.ts
 extensions/workflow-summary.ts
 extensions/workflow-tool-guard.ts
+extensions/workflow-validation-classifier.ts
+extensions/workflow-web-tools.ts
 TEXT
 )"
   actual="$(
@@ -54,7 +62,7 @@ TEXT
   )"
   unexpected="$(comm -13 <(printf '%s\n' "$expected" | sort) <(printf '%s\n' "$actual" | sort) || true)"
   if [[ -n "$unexpected" ]]; then
-    printf 'warning: unexpected loadable extension candidates found:\n%s\n' "$unexpected" >&2
+    printf 'warning: unexpected files in extension load surface found:\n%s\n' "$unexpected" >&2
     warning=1
   fi
 }

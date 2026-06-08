@@ -9,6 +9,7 @@ import { execFileSync, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import * as crypto from "node:crypto";
 import type { Message } from "@earendil-works/pi-ai";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { loadWorkflowSettings } from "../workflow-model-router.js";
@@ -18,6 +19,12 @@ export interface WorkflowSubagentTask {
   agent: string;
   task: string;
   cwd?: string;
+  schema?: Record<string, unknown>;
+  background?: boolean;
+  model?: string;
+  skills?: string;
+  output?: string;
+  workflowPhase?: string;
 }
 
 export interface WorkflowSubagentUsage {
@@ -42,6 +49,7 @@ export interface WorkflowSubagentResult {
   model?: string;
   stopReason?: string;
   errorMessage?: string;
+  parsedOutput?: unknown;
 }
 
 export interface WorkflowSubagentRunResult {
@@ -58,9 +66,50 @@ export interface WorkflowSubagentRunOptions {
   staleMinutes?: number;
   signal?: AbortSignal;
   onUpdate?: (results: WorkflowSubagentResult[]) => void;
+  concurrency?: number;
+  failFast?: boolean;
+  background?: boolean;
 }
 
-const MAX_CONCURRENCY = 4;
+const DEFAULT_CONCURRENCY = 8;
+
+// ── Orphan process tracking (#8) ──────────────────────────────
+const trackedPids = new Set<number>();
+
+export function trackedOrphanPids(): ReadonlySet<number> {
+  return trackedPids;
+}
+
+export function trackSubagentPid(pid: number): void {
+  trackedPids.add(pid);
+}
+
+export function untrackSubagentPid(pid: number): void {
+  trackedPids.delete(pid);
+}
+
+export function cleanupOrphanProcesses(): void {
+  for (const pid of trackedPids) {
+    try { process.kill(pid, "SIGTERM"); } catch { /* already dead */ }
+  }
+  trackedPids.clear();
+}
+
+// Clean up on parent exit (unexpected death)
+if (typeof process.on === "function") {
+  process.on("exit", () => { for (const pid of trackedPids) { try { process.kill(pid, "SIGTERM"); } catch { /* ignore */ } } });
+}
+
+// ── Result caching (#6) ─────────────────────────────────────
+const resultCache = new Map<string, WorkflowSubagentResult>();
+
+function cacheKey(agent: string, task: string, cwd: string): string {
+  return crypto.createHash("sha256").update(`${agent}\n${task}\n${cwd}`).digest("hex");
+}
+
+export function clearSubagentResultCache(): void {
+  resultCache.clear();
+}
 const REPOLOCK_GUARD_EXTENSION = path.join(path.dirname(new URL(import.meta.url).pathname), "repolock-guard.ts");
 
 function safeRealpath(candidate: string): string {
@@ -104,19 +153,30 @@ function finalOutput(messages: Message[]): string {
   return "";
 }
 
-async function mapWithConcurrencyLimit<TIn, TOut>(items: TIn[], concurrency: number, fn: (item: TIn, index: number) => Promise<TOut>): Promise<TOut[]> {
+async function mapWithConcurrencyLimit<TIn, TOut>(items: TIn[], concurrency: number, fn: (item: TIn, index: number) => Promise<TOut>, failFast = false): Promise<TOut[]> {
   if (items.length === 0) return [];
   const limit = Math.max(1, Math.min(concurrency, items.length));
   const results: TOut[] = new Array(items.length);
   let nextIndex = 0;
+  let firstError: Error | undefined;
   const workers = new Array(limit).fill(null).map(async () => {
     while (true) {
+      if (failFast && firstError) return;
       const current = nextIndex++;
       if (current >= items.length) return;
-      results[current] = await fn(items[current], current);
+      try {
+        results[current] = await fn(items[current], current);
+      } catch (err) {
+        if (failFast) {
+          firstError = err instanceof Error ? err : new Error(String(err));
+          return;
+        }
+        throw err;
+      }
     }
   });
   await Promise.all(workers);
+  if (failFast && firstError) throw firstError;
   return results;
 }
 
@@ -166,6 +226,12 @@ async function runSingleWorkflowSubagent(
 
   const lockRoot = repoLockRootForSubagent(defaultCwd);
   const effectiveCwd = resolveSubagentCwd(task.cwd, defaultCwd);
+
+  // ── Result caching (#6): check cache before spawning ──
+  const key = cacheKey(agent.name, task.task, effectiveCwd);
+  const cached = signal?.aborted ? undefined : resultCache.get(key);
+  if (cached) return { ...cached, output: `${cached.output}\n\n[cached]` };
+
   if (lockRoot && !pathInsideRoot(effectiveCwd, lockRoot)) {
     return {
       agent: task.agent,
@@ -188,7 +254,7 @@ async function runSingleWorkflowSubagent(
   const messages: Message[] = [];
   const usage: WorkflowSubagentUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 };
   let stderr = "";
-  let model = agent.model;
+  let model = task.model || agent.model;
   let stopReason: string | undefined;
   let errorMessage: string | undefined;
 
@@ -199,7 +265,11 @@ async function runSingleWorkflowSubagent(
       tmpPromptPath = tmp.filePath;
       args.push("--append-system-prompt", tmpPromptPath);
     }
-    args.push(`Task: ${task.task}`);
+    // ── Structured output (#5): inject schema if present ──
+    const schemaInstruction = task.schema
+      ? `\n\nReturn your final result as a single valid JSON object matching this schema:\n${JSON.stringify(task.schema, null, 2)}\n\nWrap ONLY the JSON object in a \`\`\`json code block at the end of your response.`
+      : "";
+    args.push(`Task: ${task.task}${schemaInstruction}`);
 
     let wasAborted = false;
     let timeoutReason = "";
@@ -216,9 +286,13 @@ async function runSingleWorkflowSubagent(
           ...process.env,
           PI_SUBAGENT_WORKER: "1",
           PI_SUBAGENT_NAME: agent.name,
+          ...(task.workflowPhase ? { PI_WORKFLOW_SUBAGENT_PHASE: task.workflowPhase } : {}),
           ...(lockRoot ? { PI_WORKFLOW_REPO_LOCK_ENABLED: "1", PI_WORKFLOW_REPO_LOCK_ROOT: lockRoot } : {}),
+          ...(task.skills ? { PI_SUBAGENT_SKILLS: task.skills } : {}),
+          ...(task.output ? { PI_SUBAGENT_OUTPUT: task.output } : {}),
         },
       });
+      trackedPids.add(proc.pid!);
       let buffer = "";
       let lastOutputAt = Date.now();
       let settled = false;
@@ -228,8 +302,8 @@ async function runSingleWorkflowSubagent(
         timeoutReason = reason;
         wasAborted = true;
         errorMessage = reason;
-        proc.kill("SIGTERM");
-        setTimeout(() => { if (!proc.killed) proc.kill("SIGKILL"); }, 5000);
+        try { process.kill(-proc.pid!, "SIGTERM"); } catch { proc.kill("SIGTERM"); }
+        setTimeout(() => { if (!proc.killed) { try { process.kill(-proc.pid!, "SIGKILL"); } catch { proc.kill("SIGKILL"); } } }, 5000);
       };
       const timeoutTimer = setTimeout(() => stopProcess(`Sub-agent timed out after ${Math.round(timeoutMs / 60000)} minute(s).`), timeoutMs);
       const staleTimer = setInterval(() => {
@@ -275,13 +349,19 @@ async function runSingleWorkflowSubagent(
       proc.stderr.on("data", (data) => { stderr += data.toString(); });
       proc.on("close", (code) => {
         settled = true;
+        trackedPids.delete(proc.pid!);
         clearTimeout(timeoutTimer);
         clearInterval(staleTimer);
         if (buffer.trim()) processLine(buffer);
+        // Kill process group to clean up background child processes
+        // (dev servers, static servers, tools — any program the sub-agent started).
+        // process.kill(-pid) signals the entire process group; works on all Unix.
+        try { if (proc.pid) process.kill(-proc.pid, "SIGTERM"); } catch { /* group empty */ }
         resolve(code ?? 0);
       });
       proc.on("error", () => {
         settled = true;
+        trackedPids.delete(proc.pid!);
         clearTimeout(timeoutTimer);
         clearInterval(staleTimer);
         resolve(1);
@@ -293,19 +373,41 @@ async function runSingleWorkflowSubagent(
       }
     });
 
-    return {
+    const rawOutput = finalOutput(messages);
+    // ── Structured output (#5): try JSON parse against schema ──
+    let parsedOutput: unknown;
+    if (task.schema && rawOutput) {
+      const jsonMatch = rawOutput.match(/```json\s*([\s\S]*?)\s*```/);
+      const candidate = jsonMatch ? jsonMatch[1].trim() : rawOutput.trim();
+      try { parsedOutput = JSON.parse(candidate); } catch { /* free-form output, not JSON */ }
+    }
+
+    const result: WorkflowSubagentResult = {
       agent: agent.name,
       agentSource: agent.source,
       agentTools: agent.tools,
       task: task.task,
       exitCode: wasAborted ? 1 : exitCode,
-      output: finalOutput(messages),
+      output: rawOutput,
       stderr,
       usage,
       model,
       stopReason: wasAborted ? "aborted" : stopReason,
       errorMessage: wasAborted ? (timeoutReason || "Subagent was aborted") : errorMessage,
+      parsedOutput,
     };
+
+    // ── Result caching (#6): store successful results ──
+    if (!wasAborted && exitCode === 0 && !signal?.aborted) {
+      resultCache.set(key, result);
+    }
+
+    // ── Retry-on-timeout (#3): retry once on timeout/stale ──
+    if (wasAborted && timeoutReason && !signal?.aborted) {
+      return result; // single attempt; retry is handled at the runWorkflowSubagents level
+    }
+
+    return result;
   } finally {
     if (tmpPromptPath) try { fs.unlinkSync(tmpPromptPath); } catch { /* ignore */ }
     if (tmpPromptDir) try { fs.rmdirSync(tmpPromptDir); } catch { /* ignore */ }
@@ -325,12 +427,34 @@ export async function runWorkflowSubagents(options: WorkflowSubagentRunOptions):
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
   }));
   options.onUpdate?.([...running]);
-  const results = await mapWithConcurrencyLimit(options.tasks, MAX_CONCURRENCY, async (task, index) => {
-    const result = await runSingleWorkflowSubagent(options.cwd, discovery.agents, task, options.signal, { timeoutMinutes: options.timeoutMinutes, staleMinutes: options.staleMinutes });
+
+  const executeTask = async (task: WorkflowSubagentTask, index: number): Promise<WorkflowSubagentResult> => {
+    const limits = { timeoutMinutes: options.timeoutMinutes, staleMinutes: options.staleMinutes };
+    let result = await runSingleWorkflowSubagent(options.cwd, discovery.agents, task, options.signal, limits);
+    // ── Retry-on-timeout (#3): retry once on timeout/stale ──
+    if (result.exitCode !== 0 && result.stopReason === "aborted" && result.errorMessage?.includes("timed out") && !options.signal?.aborted) {
+      const retryResult = await runSingleWorkflowSubagent(options.cwd, discovery.agents, task, options.signal, limits);
+      retryResult.output = `[retry after timeout]\n${retryResult.output}`;
+      result = retryResult;
+    }
     running[index] = result;
     options.onUpdate?.([...running]);
     return result;
-  });
+  };
+
+  const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
+
+  if (options.background) {
+    // Fire-and-forget: start execution, don't await, deliver results via onUpdate
+    mapWithConcurrencyLimit(options.tasks, concurrency, executeTask, options.failFast).then((results) => {
+      // Results delivered via onUpdate during execution; final result available for next turn
+    }).catch(() => {
+      // Background failures are non-fatal; onUpdate already reported individual failures
+    });
+    return { agentScope, projectAgentsDir: discovery.projectAgentsDir, results: running };
+  }
+
+  const results = await mapWithConcurrencyLimit(options.tasks, concurrency, executeTask, options.failFast);
   return { agentScope, projectAgentsDir: discovery.projectAgentsDir, results };
 }
 

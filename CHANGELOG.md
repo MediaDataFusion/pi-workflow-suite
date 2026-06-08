@@ -2,6 +2,42 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.12] - 2026-06-07
+
+### Added
+
+- Added `workflow_stop_server` for platform-aware cleanup of temporary dev and static servers after validation checks.
+- Added independent text-style controls for workflow widgets and startup visuals.
+- Added Mission saved-history retention with a dedicated Mission History settings surface.
+- Added clearer sub-agent worker policy controls for Standard, Plan, and Mission workflow phases.
+
+### Changed
+
+- Refined Standard, Plan, and Mission widgets with clearer top/bottom status, progress, model route, runtime, repair, and validation context.
+- Improved Standard Mode To Do, clarification, and status behavior for direct active work.
+- Improved sub-agent orchestration language and behavior around planning, execution preparation, review, validation, and repair support.
+- Clarified token and runtime tradeoffs for worker-backed workflows and deeper sub-agent policies.
+- Clarified presets as workflow behavior profiles that do not change model, provider, auth, session, or shared compaction settings.
+- Rebalanced Plan and Mission reviewer routing so safe, executable work preserves reviewer findings as notes unless a true blocker requires repair.
+
+### Hardened
+
+- Hardened Plan handoffs across reviewer, executor, validator, repair, and re-review phases.
+- Hardened Mission recovery so provider, API, rate-limit, or no-output interruptions preserve repair evidence, validation reports, retry counts, and next actions.
+- Hardened forced sub-agent policies and worker lifecycle cleanup.
+- Hardened parent-owned workflow boundaries so background worker evidence supports the active phase without replacing the main workflow controller.
+- Hardened Repo Lock and tool guards around protected files, temporary evidence, skill reads, screenshot paths, and destructive commands.
+- Hardened validation evidence classification for browser, runtime, endpoint, and localStorage evidence gaps.
+
+### Fixed
+
+- Fixed Standard clarification answer routing and menu handoffs.
+- Fixed Standard status display so user-facing states are shown instead of internal phase labels.
+- Fixed Plan reviewer PASS/NOTES handoff recovery and progress widget drift.
+- Fixed Mission validation interruptions that could obscure completed repair or PASS evidence.
+- Fixed preset operations that could affect user-owned model/provider or compaction state.
+- Fixed reviewer repair recovery paths so reviewer blockers are not confused with validation repair.
+
 ## [0.0.11] - 2026-05-30
 
 ### Added

@@ -2,26 +2,21 @@
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { packageMediaUrl, packageMediaUrls } from './package-media-config.mjs';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, '..');
 const readmePath = resolve(repoRoot, 'README.md');
 const backupPath = resolve(repoRoot, '.package-readme.source.md');
 const publishMarkerPath = resolve(repoRoot, '.package-readme.publish');
-const mediaVersion = '0.0.6';
-
-function mediaCdn(assetPath) {
-  return `https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@${mediaVersion}/${assetPath}`;
-}
-
 function buildPackageReadme(sourceReadme) {
   const headerBlock = `# Pi Workflow Suite\n\n${
-    `![Pi Workflow Suite — structured workflow orchestration for Pi](${mediaCdn('docs/assets/pi-workflow-suite-header.png')})`
+    `![Pi Workflow Suite — structured workflow orchestration for Pi](${packageMediaUrls.header})`
   }\n\n${[
-    `[![Install](${mediaCdn('docs/assets/readme-link-install.svg')})](#installation)`,
-    `[![Quick Start](${mediaCdn('docs/assets/readme-link-quick-start.svg')})](#quick-start)`,
-    `[![Commands](${mediaCdn('docs/assets/readme-link-commands.svg')})](#core-commands)`,
-    `[![Settings](${mediaCdn('docs/assets/readme-link-settings.svg')})](#settings-reference)`,
+    `[![Install](${packageMediaUrls.readmeInstall})](#installation)`,
+    `[![Quick Start](${packageMediaUrls.readmeQuickStart})](#quick-start)`,
+    `[![Commands](${packageMediaUrls.readmeCommands})](#core-commands)`,
+    `[![Settings](${packageMediaUrls.readmeSettings})](#settings-reference)`,
   ].join(' ')}\n\n**Workflow Suite Version:** `;
 
   let readme = sourceReadme.replace(
@@ -29,7 +24,7 @@ function buildPackageReadme(sourceReadme) {
     headerBlock,
   );
 
-  const packageMediaBlock = `## Quick Demo\n\nSee Pi Workflow Suite in action: structured workflow modes, settings, runtime status, and guided execution inside Pi.\n\n[![Watch the Pi Workflow Suite quick demo](${mediaCdn('docs/assets/pi-workflow-suite-demo.gif')})](${mediaCdn('docs/assets/pi-workflow-suite-demo.mp4')})\n\n## Screenshots\n\n${[
+  const packageMediaBlock = `## Quick Demo\n\nSee Pi Workflow Suite in action: structured workflow modes, settings, runtime status, and guided execution inside Pi.\n\n[![Watch the Pi Workflow Suite quick demo](${packageMediaUrls.demoGif})](${packageMediaUrls.demoMp4})\n\n## Screenshots\n\n${[
     ['Pi Workflow Suite Mission Home with workflow graphs', 'docs/assets/screenshots/00-mission-home.png'],
     ['Pi Workflow Suite startup logo', 'docs/assets/screenshots/01-startup-Logo.png'],
     ['Workflow Suite theme settings', 'docs/assets/screenshots/02-theme-settings.png'],
@@ -37,18 +32,18 @@ function buildPackageReadme(sourceReadme) {
     ['Workflow Suite shared sub-agent settings', 'docs/assets/screenshots/04-SharedSubAgentsSettings.png'],
     ['Mission Mode milestone progress', 'docs/assets/screenshots/05-mission-mode.png'],
     ['Workflow Suite Mermaid diagram output', 'docs/assets/screenshots/06-diagram-mermaid.png'],
-  ].map(([alt, path]) => `![${alt}](${mediaCdn(path)})`).join('\n\n')}\n\n`;
+  ].map(([alt, path]) => `![${alt}](${packageMediaUrl(path)})`).join('\n\n')}\n\n`;
 
   return readme.replace(/## Quick Demo[\s\S]*?## Contents\n/, `${packageMediaBlock}## Contents\n`);
 }
 
 function assertPackageReadme(readme) {
   const required = [
-    mediaCdn('docs/assets/pi-workflow-suite-header.png'),
-    mediaCdn('docs/assets/pi-workflow-suite-demo.gif'),
-    mediaCdn('docs/assets/pi-workflow-suite-demo.mp4'),
-    mediaCdn('docs/assets/screenshots/00-mission-home.png'),
-    mediaCdn('docs/assets/screenshots/06-diagram-mermaid.png'),
+    packageMediaUrls.header,
+    packageMediaUrls.demoGif,
+    packageMediaUrls.demoMp4,
+    packageMediaUrls.screenshots.missionHome,
+    packageMediaUrls.screenshots.diagramMermaid,
     '[![Watch the Pi Workflow Suite quick demo]',
   ];
   for (const needle of required) {
@@ -62,6 +57,12 @@ function assertPackageReadme(readme) {
   }
   if (readme.includes('src="docs/assets/screenshots/') || readme.includes('](docs/assets/screenshots/')) {
     throw new Error('package README still contains source-relative screenshot paths');
+  }
+  if (readme.includes('@mediadatafusion/pi-workflow-suite@0.0.6/docs/assets')) {
+    throw new Error('package README still contains old 0.0.6 package media URLs');
+  }
+  if (readme.includes('raw.githubusercontent.com/MediaDataFusion/pi-workflow-suite/v0.0.12/docs/assets')) {
+    throw new Error('package README points at raw GitHub media instead of the established jsDelivr npm CDN');
   }
 }
 

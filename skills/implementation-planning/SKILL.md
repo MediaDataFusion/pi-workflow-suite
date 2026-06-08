@@ -5,7 +5,7 @@ description: Convert a user task into an execution-ready implementation plan wit
 
 # Implementation Planning
 
-Produce concrete plans only. Ask follow-up questions when required. Include task summary, assumptions, files likely to change, off-limits files, implementation steps, risks, validation steps, rollback notes, and readiness status.
+Produce concrete plans only. Ask follow-up questions when required. Include task summary, assumptions, files likely to change, allowed new file locations, off-limits files, implementation steps, risks, validation steps, rollback notes, and readiness status. Do not plan arbitrary repository-root files unless the exact root path is approved and justified; otherwise route new artifacts to conventional project directories.
 
 Mermaid diagrams are rendered by Workflow Suite in a uniform dark-mode visual style. For user-facing workflows, export/share paths, request lifecycles, architecture, data flow, multi-step sequences, state transitions, dependencies, validation flow, or implementation phases, include a meaningful Mermaid diagram plus concise prose unless the user requested prose only or the response is trivial. Use concise labels and the right diagram type; do not hardcode random style/classDef/light-theme overrides unless the user explicitly asks.
 ## Professional Constraints

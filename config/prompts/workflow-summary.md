@@ -8,16 +8,13 @@ Summarize the current workflow.
 Output:
 # Workflow Summary
 ## Target Application Context
-## Pi Workflow Suite Context
 ## Original Task
 ## Approved Plan
 ## Execution Summary
 ## Changed Files
 ## Validation Result
-## Public Safety / Runtime Sync Status
 ## Remaining Risks
 ## Exact Resume Instructions
 ## Recommended Next Action
-## Suggested Commit Message
 
-Keep the target application repo, the Workflow Suite DEV worktree, the live Pi runtime, and the public main package mirror distinct. Do not commit or push.
+Summarize the workflow outcome clearly. Include only user-relevant project context: target repo, branch, changed files, validation results, and actionable next steps.

@@ -28,7 +28,7 @@ while IFS= read -r rel; do
     printf 'MISSING: %s\n' "$rel"
     missing=1
   fi
-done < <(cd "$REPO_DIR" && find agents skills extensions config -type f ! -name '.DS_Store' ! -name '*.backup.*' ! -name '*.broken.*' | sort)
+done < <(cd "$REPO_DIR" && find agents skills extensions config -type f ! -name '.DS_Store' ! -name '*.bak' ! -name '*.backup.*' ! -name '*.broken.*' | sort)
 if [[ "$missing" -eq 0 ]]; then
   printf 'OK: no missing canonical managed files\n'
 fi

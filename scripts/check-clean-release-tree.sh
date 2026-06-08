@@ -11,6 +11,7 @@ report() {
 }
 
 if [[ -e AGENTS.md && -n "$(git ls-files AGENTS.md)" ]]; then report 'AGENTS.md must not be present on clean release main'; fi
+if [[ -e CLAUDE.md && -n "$(git ls-files CLAUDE.md)" ]]; then report 'CLAUDE.md must not be present on clean release main'; fi
 if [[ -e .github && -n "$(git ls-files .github)" ]]; then report '.github/ must not be tracked on clean release main'; fi
 if [[ -e .factory && -n "$(git ls-files .factory)" ]]; then report '.factory/ must not be tracked on clean release main'; fi
 if [[ -e .kilo && -n "$(git ls-files .kilo)" ]]; then report '.kilo/ must not be tracked on clean release main'; fi
@@ -18,7 +19,7 @@ if [[ -e .cursor && -n "$(git ls-files .cursor)" ]]; then report '.cursor/ must 
 
 while IFS= read -r path; do
   case "$path" in
-    agents/*|config/*|extensions/*|skills/*|docs/assets/*|themes/*|scripts/install-to-live.sh|scripts/verify-live.sh|scripts/audit-live.sh|scripts/quarantine-live-junk.sh|scripts/backup-live.sh|scripts/audit-settings.sh|scripts/bootstrap-project.sh|scripts/check-clean-release-tree.sh|scripts/check-package-size.mjs|scripts/prepare-package-readme.mjs|scripts/build-package-export.mjs|README.md|CHANGELOG.md|CONTRIBUTING.md|LICENSE.md|NOTICE|SECURITY.md|SUPPORT.md|TRADEMARKS.md|VERSION|package.json|package-lock.json|tsconfig.json|.gitignore)
+    agents/*|config/*|extensions/*|skills/*|docs/assets/*|themes/*|scripts/install-to-live.sh|scripts/verify-live.sh|scripts/audit-live.sh|scripts/quarantine-live-junk.sh|scripts/backup-live.sh|scripts/audit-settings.sh|scripts/bootstrap-project.sh|scripts/check-clean-release-tree.sh|scripts/check-package-size.mjs|scripts/check-package-media.mjs|scripts/package-media-config.mjs|scripts/prepare-package-readme.mjs|scripts/build-package-export.mjs|README.md|CHANGELOG.md|CONTRIBUTING.md|LICENSE.md|NOTICE|SECURITY.md|SUPPORT.md|TRADEMARKS.md|VERSION|package.json|package-lock.json|tsconfig.json|.gitignore)
       ;;
     docs/*)
       report "non-asset docs file is not allowed: $path"
@@ -26,7 +27,7 @@ while IFS= read -r path; do
     scripts/test-*|scripts/sync-from-live.sh)
       report "internal script is not allowed: $path"
       ;;
-    .github/*|AGENTS.md|.factory/*|.kilo/*|.cursor/*)
+    .github/*|AGENTS.md|CLAUDE.md|.factory/*|.kilo/*|.cursor/*)
       report "internal path is not allowed: $path"
       ;;
     *auth.json|*settings.json|*workflow-settings.json|*active.json|workflows/*|*sessions/*|*missions/*|*plans/*|*logs/*|*.env|*.env.*|*.DS_Store)

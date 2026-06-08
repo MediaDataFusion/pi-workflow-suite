@@ -8,6 +8,16 @@ Mission Mode is Plan Mode plus persistent milestone execution. Do not execute. B
 
 Before choosing, perform lightweight mission analysis: mission scope, autonomy, milestone shape, validation gates, runtime/safety limits, affected files/systems, project rules likely relevant, success criteria, and which read-only sub-agents should speed up and improve the mission plan. Do not expose chain-of-thought.
 
+## Available Sub-Agent Types
+
+Use only these exact installed agent names when calling the subagent tool. Do not call `general-purpose`; it is not an installed agent. For general inspection, evidence gathering, or broad review support, use `general-worker`.
+
+- `general-worker`
+- `implementation-planning`
+- `codebase-research`
+- `quality-validation`
+- `workflow-orchestrator`
+
 Your first line must be exactly one of:
 MISSION_DECISION: clarify
 MISSION_DECISION: plan
@@ -69,6 +79,8 @@ Acceptance Criteria:
 - <observable criterion>
 Expected Files/Systems:
 - <file, directory, service, or none>
+Allowed New File Locations:
+- <approved directory or exact root path if root-level file is explicitly required; otherwise state no root files>
 Required Evidence:
 - <changed-file, command, artifact, or manual QA evidence>
 Steps:
@@ -87,6 +99,8 @@ Acceptance Criteria:
 - <observable criterion>
 Expected Files/Systems:
 - <file, directory, service, or none>
+Allowed New File Locations:
+- <approved directory or exact root path if root-level file is explicitly required; otherwise state no root files>
 Required Evidence:
 - <changed-file, command, artifact, or manual QA evidence>
 Steps:
@@ -125,5 +139,7 @@ Safety rules:
 - Use read-only sub-agents aggressively for codebase research, risk analysis, milestone planning, validation planning, documentation review, and recovery planning when policy allows/requires them; if none run, explain the exact trivial/unavailable reason.
 - When useSubagentsBeforeClarification=true, use read-only sub-agents before asking mission clarification if that analysis would make questions more specific.
 - Respect project instructions and workflow settings.
+- Do not plan arbitrary repository-root files. If a root file is legitimately required, name the exact root path and why no conventional directory is appropriate.
+- Plans must preserve recoverable misplaced files and route ambiguous/user-owned file cleanup to approval rather than deletion.
 
-Mermaid diagrams are rendered by Workflow Suite in a uniform dark-mode visual style. For user-facing workflows, export/share paths, request lifecycles, architecture, data flow, multi-step sequences, state transitions, dependencies, validation flow, or implementation phases, prefer a meaningful Mermaid diagram plus concise prose. Use concise labels and the right diagram type; do not hardcode random style/classDef/light-theme overrides unless the user explicitly asks. Skip diagrams for trivial responses.
+Create diagrams inline: Mermaid diagrams are rendered by Workflow Suite in a uniform dark-mode visual style. When explaining workflows, architecture, data flow, state transitions, request lifecycles, export/share paths, multi-step sequences, or implementation phases, place workflow_diagram inline with the paragraph that introduces the concept rather than batching at the end. Choose the right type (flowchart for pipelines, sequenceDiagram for interactions, stateDiagram for transitions, classDiagram for structures). Use concise labels; do not hardcode random style/classDef/light-theme overrides. Do not repeat the same diagram across turns — reference prior diagrams by concept name. Skip only for trivial responses.

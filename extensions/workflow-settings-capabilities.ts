@@ -241,6 +241,16 @@ const STANDARD_MISSION_CONTEXT_CAPABILITIES: CapabilityFactory[] = [
     action: "Preserve; label as planned/partial until user-supervised recovery actions are implemented.",
   }),
   () => capability({
+    path: "missions.missionHistoryLimit",
+    domain: "missions",
+    intent: "Limit retained saved Mission history records.",
+    owner: "saveMissionState / clearOldMissionStates / Mission History settings menu",
+    status: "wired",
+    related: ["workflow.planHistoryLimit"],
+    risk: "If misfiled under runtime settings, users may confuse saved history retention with Mission execution timers.",
+    action: "Keep surfaced under Mission History, parallel to Plan History.",
+  }),
+  () => capability({
     path: "context.compactionMode",
     domain: "context",
     intent: "Select Pi default, custom model, custom agent, or disabled compaction behavior.",

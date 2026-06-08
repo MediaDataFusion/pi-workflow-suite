@@ -6,6 +6,16 @@ Task: $ARGUMENTS
 
 Before choosing, perform lightweight task analysis: likely files/systems, project rules to read, runtime vs repo target, scope ambiguity, risk, validation needs, permission boundaries, and which read-only sub-agents should speed up and improve the plan. Do not expose chain-of-thought.
 
+## Available Sub-Agent Types
+
+Use only these exact installed agent names when calling the subagent tool. Do not call `general-purpose`; it is not an installed agent. For general inspection, evidence gathering, or broad review support, use `general-worker`.
+
+- `general-worker`
+- `implementation-planning`
+- `codebase-research`
+- `quality-validation`
+- `workflow-orchestrator`
+
 MANDATORY: Your VERY FIRST LINE must be exactly one of:
 PLAN_DECISION: clarify
 PLAN_DECISION: plan
@@ -90,4 +100,4 @@ Sub-agent planning policy:
 - Parallel planning/review/validation/execution-prep agents are distinct from parallel file writes.
 - Parallel editing is unsafe and must remain blocked unless conflict protection exists.
 
-Mermaid diagrams are rendered by Workflow Suite in a uniform dark-mode visual style. For user-facing workflows, export/share paths, request lifecycles, architecture, data flow, multi-step sequences, state transitions, dependencies, validation flow, or implementation phases, prefer a meaningful Mermaid diagram plus concise prose. Use concise labels and the right diagram type; do not hardcode random style/classDef/light-theme overrides unless the user explicitly asks. Skip diagrams for trivial responses.
+Create diagrams inline: Mermaid diagrams are rendered by Workflow Suite in a uniform dark-mode visual style. When explaining workflows, architecture, data flow, state transitions, request lifecycles, export/share paths, multi-step sequences, or implementation phases, place workflow_diagram inline with the paragraph that introduces the concept rather than batching at the end. Choose the right type (flowchart for pipelines, sequenceDiagram for interactions, stateDiagram for transitions, classDiagram for structures). Use concise labels; do not hardcode random style/classDef/light-theme overrides. Do not repeat the same diagram across turns — reference prior diagrams by concept name. Skip only for trivial responses.

@@ -4,7 +4,7 @@ import { isAbsolute, resolve, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadWorkflowSettings } from "./workflow-model-router.js";
-import type { WorkflowState } from "./workflow-state.js";
+import { loadMissionState, type WorkflowState } from "./workflow-state.js";
 
 export const PLAN_TOOLS = ["read", "grep", "find", "ls"];
 export const WORKFLOW_PROGRESS_TOOL = "workflow_progress";
@@ -25,7 +25,8 @@ export const REPAIR_RESULT_TOOLS = [WORKFLOW_REPAIR_RESULT_TOOL];
 export const STANDARD_RESULT_TOOLS = [STANDARD_HANDOFF_RESULT_TOOL];
 export const BASE_EXECUTE_TOOLS = ["read", "grep", "find", "ls", "edit", "write", "bash", WORKFLOW_DIAGRAM_TOOL];
 export const EXECUTE_TOOLS = [...BASE_EXECUTE_TOOLS, WORKFLOW_PROGRESS_TOOL, ...EXECUTION_RESULT_TOOLS, ...REPAIR_RESULT_TOOLS];
-export const VALIDATOR_TOOLS = ["read", "grep", "find", "ls", "bash", "write", WORKFLOW_DIAGRAM_TOOL, ...REVIEW_RESULT_TOOLS, ...VALIDATION_RESULT_TOOLS];
+export const REVIEW_TOOLS = ["read", "grep", "find", "ls", WORKFLOW_DIAGRAM_TOOL, ...REVIEW_RESULT_TOOLS];
+export const VALIDATOR_TOOLS = ["read", "grep", "find", "ls", "bash", WORKFLOW_DIAGRAM_TOOL, ...VALIDATION_RESULT_TOOLS];
 
 
 const PATH_SCOPED_TOOLS = new Set(["read", "grep", "find", "ls", "edit", "write"]);
@@ -92,16 +93,77 @@ function packageInstructionPath(candidate: string): boolean {
     || rel === "themes" || rel.startsWith("themes/");
 }
 
+function piClipboardImageTempFile(candidate: string): boolean {
+  const base = candidate.split(/[\\/]/).pop() ?? "";
+  return /^pi-clipboard-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:png|jpg|jpeg|gif|webp|bmp|tiff|heic)$/i.test(base);
+}
+
+function piCodingAgentPackageRoot(): string | undefined {
+  try {
+    const resolver = (import.meta as ImportMeta & { resolve?: (specifier: string) => string }).resolve;
+    if (!resolver) return undefined;
+    const entry = fileURLToPath(resolver("@earendil-works/pi-coding-agent"));
+    return safeRealpath(resolve(dirname(entry), ".."));
+  } catch {
+    return undefined;
+  }
+}
+
+function piCodingAgentDocsPath(candidate: string): boolean {
+  const root = piCodingAgentPackageRoot();
+  if (!root || !pathInsideRoot(candidate, root)) return false;
+  const rel = candidate === root ? "" : candidate.slice(root.length + 1);
+  return rel === "docs" || rel.startsWith("docs/");
+}
+
+function userInstalledSkillPath(candidate: string): boolean {
+  const home = process.env.HOME;
+  if (!home) return false;
+  const root = safeRealpath(join(home, ".agents", "skills"));
+  if (!pathInsideRoot(candidate, root)) return false;
+  const rel = candidate === root ? "" : candidate.slice(root.length + 1);
+  const skillName = rel.split(/[\\/]/)[0];
+  return Boolean(skillName && skillName !== "." && skillName !== ".." && !skillName.startsWith("."));
+}
+
+function workflowStateReadPath(candidate: string): boolean {
+  const root = safeRealpath(getAgentDir());
+  if (!pathInsideRoot(candidate, root)) return false;
+  const rel = candidate === root ? "" : candidate.slice(root.length + 1);
+  return rel === "workflows/active.json"
+    || rel === "workflows/plans/latest.json"
+    || rel === "workflows/missions/latest.json";
+}
+
 function repoLockPathBlock(pathValue: unknown, cwd: string, tool: string): string | undefined {
   const root = repoLockRoot(cwd);
   const candidate = resolveCandidatePath(typeof pathValue === "string" && pathValue.trim() ? pathValue.trim() : ".", cwd);
   if (!pathInsideRoot(candidate, root)) {
-    if ((tool === "read" || tool === "grep" || tool === "find" || tool === "ls") && (piRuntimeInstructionPath(candidate) || packageInstructionPath(candidate))) return undefined;
+    if ((tool === "read" || tool === "grep" || tool === "find" || tool === "ls") && (piRuntimeInstructionPath(candidate) || packageInstructionPath(candidate) || piCodingAgentDocsPath(candidate) || userInstalledSkillPath(candidate) || workflowStateReadPath(candidate) || piClipboardImageTempFile(candidate))) return undefined;
     if (candidate.startsWith("/private/tmp/") || candidate.startsWith("/tmp/") || candidate.startsWith("/var/tmp/")) return undefined;
-    return `Repo Lock blocked path outside current repository: ${candidate} (repo root: ${root})`;
+    return "Path outside repository";
   }
-  if ((tool === "edit" || tool === "write") && protectedRepoPath(candidate, root)) return `Repo Lock blocked ${tool} for protected project control path: ${candidate}`;
+  if ((tool === "edit" || tool === "write") && protectedRepoPath(candidate, root)) return "Protected path — use settings to disable Repo Lock";
   return undefined;
+}
+
+function stripQuotedSlashes(command: string): string {
+  return command
+    .replace(/'([^']*)'/g, (_full, content: string) => {
+      // If content starts with /regex/ or /regex/flags (awk/sed address pattern), mask slashes
+      if (/^\/[^/]+\/(?:[gimp]*$|\s)/.test(content)) return "'" + content.replace(/\//g, " ") + "'";
+      // If content starts with /, it's a quoted absolute path — preserve
+      if (content.startsWith('/')) return _full;
+      // Content contains / but is not a path — mask (sed expression, prose, etc.)
+      if (content.includes('/')) return "'" + content.replace(/\//g, " ") + "'";
+      return _full;
+    })
+    .replace(/"([^"]*)"/g, (_full, content: string) => {
+      if (/^\/[^/]+\/(?:[gimp]*$|\s)/.test(content)) return '"' + content.replace(/\//g, " ") + '"';
+      if (content.startsWith('/')) return _full;
+      if (content.includes('/')) return '"' + content.replace(/\//g, " ") + '"';
+      return _full;
+    });
 }
 
 function stripHereDocBodies(command: string): string {
@@ -124,14 +186,89 @@ function stripUriTokens(command: string): string {
 }
 
 function bashPathCandidates(command: string): string[] {
-  const trimmed = stripUriTokens(stripHereDocBodies(command)).trim();
+  const trimmed = stripUriTokens(stripHereDocBodies(stripQuotedSlashes(command))).trim();
   if (!trimmed) return [];
   return Array.from(trimmed.matchAll(/(?:^|[\s=:'"`])((?:\.{1,2}|~|\/)[^\s'"`;&|)]*)/g)).map((match) => match[1]).filter(Boolean);
+}
+
+function hasShellControlOperator(command: string): boolean {
+  let quote: "'" | '"' | undefined;
+  for (let i = 0; i < command.length; i += 1) {
+    const char = command[i];
+    if (char === "\\") { i += 1; continue; }
+    if (quote) {
+      if (char === quote) quote = undefined;
+      continue;
+    }
+    if (char === "'" || char === '"') { quote = char; continue; }
+    if (char === ";" || char === "|" || char === "&" || char === "<" || char === ">" || char === "\n") return true;
+  }
+  return quote !== undefined;
+}
+
+function shellWords(command: string): string[] | undefined {
+  const words: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | undefined;
+  for (let i = 0; i < command.length; i += 1) {
+    const char = command[i];
+    if (char === "\\") {
+      i += 1;
+      current += command[i] ?? "";
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = undefined;
+      else current += char;
+      continue;
+    }
+    if (char === "'" || char === '"') { quote = char; continue; }
+    if (/\s/.test(char)) {
+      if (current) { words.push(current); current = ""; }
+      continue;
+    }
+    current += char;
+  }
+  if (quote) return undefined;
+  if (current) words.push(current);
+  return words;
+}
+
+function simpleCpSourceOperands(command: string): Set<string> | undefined {
+  if (hasShellControlOperator(command)) return undefined;
+  const words = shellWords(command);
+  if (!words || words.length < 3) return undefined;
+  const commandName = words[0].split(/[\\/]/).pop();
+  if (commandName !== "cp") return undefined;
+  const operands: string[] = [];
+  let endOfOptions = false;
+  for (const word of words.slice(1)) {
+    if (!endOfOptions && word === "--") { endOfOptions = true; continue; }
+    if (!endOfOptions && word.startsWith("-")) continue;
+    operands.push(word);
+  }
+  if (operands.length < 2) return undefined;
+  return new Set(operands.slice(0, -1));
+}
+
+function simpleReadOnlyBashAllowed(command: string): boolean {
+  if (hasShellControlOperator(command)) return false;
+  const words = shellWords(command);
+  if (!words?.length) return false;
+  const commandName = words[0].split(/[\\/]/).pop();
+  if (commandName === "cat" || commandName === "ls" || commandName === "grep" || commandName === "rg") return true;
+  if (commandName !== "find") return false;
+  return !words.some((word) => word === "-delete" || word === "-exec" || word === "-execdir" || word === "-ok" || word === "-okdir" || word === "-fprint" || word === "-fprintf");
+}
+
+function piCodingAgentDocsBashReadAllowed(command: string): boolean {
+  return simpleReadOnlyBashAllowed(command);
 }
 
 function repoLockBashBlock(command: string, cwd: string): string | undefined {
   const root = repoLockRoot(cwd);
   const pathCandidates = bashPathCandidates(command);
+  const cpSourceOperands = simpleCpSourceOperands(command);
   for (const raw of pathCandidates) {
     if (raw === "." || raw === "./" || raw === "/") continue;
     const cleaned = raw.replace(/[),]+$/, "");
@@ -139,7 +276,13 @@ function repoLockBashBlock(command: string, cwd: string): string | undefined {
     if (cleaned.startsWith("/dev/")) continue;
     if (cleaned.startsWith("/tmp/") || cleaned.startsWith("/private/tmp/") || cleaned.startsWith("/var/tmp/")) continue;
     const candidate = resolveCandidatePath(cleaned, cwd);
-    if (!pathInsideRoot(candidate, root)) return `Repo Lock blocked bash path outside current repository: ${cleaned} -> ${candidate} (repo root: ${root})`;
+    if (!pathInsideRoot(candidate, root)) {
+      if (piCodingAgentDocsPath(candidate) && piCodingAgentDocsBashReadAllowed(command)) continue;
+      if (userInstalledSkillPath(candidate) && simpleReadOnlyBashAllowed(command)) continue;
+      if (workflowStateReadPath(candidate) && simpleReadOnlyBashAllowed(command)) continue;
+      if (piClipboardImageTempFile(candidate) && cpSourceOperands?.has(cleaned)) continue;
+      return "Path outside repository";
+    }
   }
   return undefined;
 }
@@ -199,8 +342,36 @@ function isPlanMode(mode: WorkflowState["mode"]): boolean {
   return mode === "awaiting_plan_input" || mode === "awaiting_clarification" || mode === "planning" || mode === "plan_draft" || mode === "plan_approved";
 }
 
+function isReviewMode(mode: WorkflowState["mode"]): boolean {
+  return mode === "reviewing" || mode === "reviewed";
+}
+
+function missionReviewActive(state: WorkflowState): boolean {
+  if (state.mode !== "mission_plan_ready") return false;
+  const mission = state.activeMissionId ? loadMissionState(state.activeMissionId) : loadMissionState();
+  return mission?.currentStep === "reviewer" && mission.reviewRepairInProgress !== true && mission.lastReviewRepairStatus !== "running";
+}
+
+function missionReviewAlreadyAccepted(state: WorkflowState): boolean {
+  if (state.mode !== "mission_plan_ready" || state.lastWorkflowHandoff?.type !== WORKFLOW_REVIEW_RESULT_TOOL) return false;
+  const mission = state.activeMissionId ? loadMissionState(state.activeMissionId) : loadMissionState();
+  return mission?.currentStep !== "reviewer" && (mission?.reviewerVerdict === "PASS" || mission?.reviewerVerdict === "NOTES");
+}
+
+function initialPlanHandoffAlreadyAccepted(state: WorkflowState): boolean {
+  return state.mode === "plan_draft"
+    && state.reviewHandoffSuppression?.kind === "plan_typed_initial_to_approval"
+    && state.lastWorkflowHandoff?.type === WORKFLOW_PLAN_RESULT_TOOL;
+}
+
+function reviewPhaseSubagentCall(input: unknown): boolean {
+  if (!input || typeof input !== "object") return false;
+  const workflowPhase = String((input as { workflowPhase?: unknown }).workflowPhase ?? "").toLowerCase();
+  return workflowPhase === "review";
+}
+
 function isValidatorMode(mode: WorkflowState["mode"]): boolean {
-  return mode === "reviewing" || mode === "reviewed" || mode === "validating" || mode === "revalidating" || mode === "mission_validating" || mode === "mission_revalidating" || mode === "mission_final_validating";
+  return mode === "validating" || mode === "revalidating" || mode === "mission_validating" || mode === "mission_revalidating" || mode === "mission_final_validating";
 }
 
 function isValidationResultMode(mode: WorkflowState["mode"]): boolean {
@@ -264,13 +435,58 @@ function stripSafePreamble(command: string): string {
   return command.replace(/^(?:set\s+[-+][euxo]+(?:\s+[^\n]*)?|export\s+\w+=["']?[^\n"']*["']?|\w+=\S+)\s*\n+/gm, "").trim() || command;
 }
 
+function stripBenignValidationRedirections(command: string): string {
+  return command
+    .replace(/\s+\d?>&\d\b/g, "")
+    .replace(/\s+\d?>\s*(?:\/tmp|\/private\/tmp|\/dev\/null)\/?\S*/g, "")
+    .replace(/\s+\d?>>\s*(?:\/tmp|\/private\/tmp|\/dev\/null)\/?\S*/g, "")
+    .replace(/\s+&\s*$/g, "")
+    .trim();
+}
+
+function validationWriteVectorBlocked(command: string): boolean {
+  if (/<<[-~]?\s*['"]?\w+/i.test(command)) return true;
+  if (/(?:\btee\b|\bsed\s+-i\b|\bperl\s+-pi\b|\bcat\s*>)/i.test(command)) return true;
+  if (/(?:^|\s)(?:>|>>)\s*(?!\/tmp\/|\/private\/tmp\/|\/dev\/null\b|&\d\b)\S+/i.test(command)) return true;
+  if (/\b(?:python3?|node|perl|ruby|bash|sh)\s+(?:\/tmp|\/private\/tmp)\/\S+/i.test(command)) return true;
+  if (/\bpython3?\s+-c\b[\s\S]*(?:open\s*\([^)]*,\s*['"][wa+]|write\s*\()/i.test(command)) return true;
+  if (/\bnode\s+(?:-e|--eval)\b[\s\S]*(?:writeFile|appendFile|rmSync|mkdirSync|renameSync|copyFileSync)/i.test(command)) return true;
+  if (/\bperl\s+-e\b[\s\S]*(?:open\s*\([^)]*[>]|print\s+\w+\s+)/i.test(command)) return true;
+  if (/\bruby\s+-e\b[\s\S]*(?:File\.(?:write|open|delete|rename)|IO\.write)/i.test(command)) return true;
+  return false;
+}
+
+function validatorSafeReadOnlySegment(segment: string): boolean {
+  const cleaned = stripBenignValidationRedirections(stripTimeoutPrefix(segment.trim()));
+  return Boolean(cleaned) && standardSafeReadOnlyBash(cleaned);
+}
+
+function validatorSafeReadOnlyPipeline(command: string): boolean {
+  const parts = command.split("|").map((part) => part.trim()).filter(Boolean);
+  return parts.length > 1 && parts.every(validatorSafeReadOnlySegment);
+}
+
+function validatorSafeDevServerComposite(command: string): boolean {
+  const lines = command.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 2) return false;
+  const first = lines[0];
+  const serverStart = /^(?:(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|start|preview|serve)\b|npx\s+(?:vite|next|serve|http-server|lite-server)\b|python3?\s+-m\s+http\.server\b)/i.test(first);
+  const safeOutput = /\s(?:>|>>)\s*(?:\/tmp\/|\/private\/tmp\/|\/dev\/null\b)/.test(first) || /(?:^|\s)&\s*$/.test(first);
+  if (!serverStart || !safeOutput || !/(?:^|\s)&\s*$/.test(first)) return false;
+  return lines.slice(1).every((line) => line.split("&&").map((part) => part.trim()).filter(Boolean).every(validatorSafeReadOnlySegment));
+}
+
 function validatorSafeEvidenceBash(command: string): boolean {
   const trimmed = command.trim();
   if (!trimmed) return false;
   const cmd = stripSafePreamble(stripTimeoutPrefix(trimmed));
   if (isBlockedExecuteCommand(cmd)) return false;
   if (DESTRUCTIVE_WORD_RE.test(cmd)) return false;
-  return true;
+  if (validationWriteVectorBlocked(cmd)) return false;
+  if (standardSafeReadOnlyBash(stripBenignValidationRedirections(cmd))) return true;
+  if (validatorSafeReadOnlyPipeline(cmd)) return true;
+  if (validatorSafeDevServerComposite(cmd)) return true;
+  return false;
 }
 
 function standardTodoTitleLooksGeneric(title: string): boolean {
@@ -297,7 +513,7 @@ function standardRequiredTodoMissing(state: WorkflowState, settings: ReturnType<
 }
 
 function planProgressRelevantWorkTool(tool: string, input: unknown): boolean {
-  if (tool === "edit" || tool === "write") return true;
+  if (tool === "read" || tool === "grep" || tool === "find" || tool === "ls" || tool === "edit" || tool === "write" || tool === "subagent") return true;
   if (tool !== "bash") return false;
   const command = String((input as { command?: unknown } | undefined)?.command ?? "");
   return Boolean(command.trim()) && !standardSafeReadOnlyBash(command);
@@ -313,10 +529,22 @@ function currentPlanProgressStepNumber(state: WorkflowState): number | undefined
 }
 
 function planProgressToolRequiredBlock(state: WorkflowState, tool: string, input: unknown): string | undefined {
-  if (state.mode !== "executing" && state.mode !== "repairing") return undefined;
   if (!planProgressRelevantWorkTool(tool, input)) return undefined;
+  const stalePlanExecutionWait =
+    (state.mode === "reviewed" || state.mode === "plan_approved" || state.mode === "validated")
+    && Boolean(state.approvedPlan)
+    && Boolean(state.planProgress?.steps?.length)
+    && state.planProgress?.lifecycleStatus !== "completed";
+  if (stalePlanExecutionWait) {
+    const stepNumber = currentPlanProgressStepNumber(state);
+    if (!stepNumber) return `Plan ${tool} is blocked while the approved Plan is in ${state.mode} with lifecycleStatus=${state.planProgress?.lifecycleStatus ?? "unknown"}. Use the appropriate Plan command to arm a fresh workflow phase before running work tools.`;
+    return `Plan execution ${tool} is blocked until the workflow re-enters execution and workflow_progress({ step: ${stepNumber}, status: "active" }) is called for the current approved Plan step. Run /plan continue to arm a fresh executor turn.`;
+  }
   const stepNumber = currentPlanProgressStepNumber(state);
   if (!stepNumber) return undefined;
+  if (state.mode !== "executing" && state.mode !== "repairing") return undefined;
+  // Only the explicit workflow_progress tool call can satisfy this gate.
+  // Display/fallback active steps are widget state, not execution proof.
   if (state.planProgressLastToolStatus === "active" && state.planProgressLastToolStep === stepNumber) return undefined;
   return `Plan execution ${tool} is blocked until workflow_progress({ step: ${stepNumber}, status: "active" }) is called for the current approved Plan step.`;
 }
@@ -346,35 +574,78 @@ export function registerToolGuard(pi: ExtensionAPI, getState: () => WorkflowStat
     }
 
     if (isSubagentWorker()) {
+      const workerPhase = String(process.env.PI_WORKFLOW_SUBAGENT_PHASE ?? "").toLowerCase();
+      const workerReadOnlyPhase = workerPhase === "validation" || workerPhase === "review";
+      if (workerReadOnlyPhase && (tool === "edit" || tool === "write")) {
+        return { block: true, reason: `${tool} blocked — ${workerPhase} sub-agent workers are read-only` };
+      }
       if (tool === "bash") {
         const command = String((event.input as { command?: unknown }).command ?? "");
-        if (commandBlocked(command, ctx.cwd)) return { block: true, reason: `Workflow safety blocked destructive sub-agent bash command: ${command}` };
+        if (workerReadOnlyPhase && !validatorSafeEvidenceBash(command)) return { block: true, reason: `Bash blocked — unsafe command in ${workerPhase} sub-agent worker` };
+        if (commandBlocked(command, ctx.cwd)) return { block: true, reason: "Destructive command blocked" };
       }
       return;
     }
 
-    if (tool === STANDARD_HANDOFF_RESULT_TOOL && state.mode !== "standard") return { block: true, reason: "Standard handoff result is only available while Standard Mode is active." };
+    if (tool === STANDARD_HANDOFF_RESULT_TOOL && state.mode !== "standard") return { block: true, reason: "Standard handoff unavailable outside Standard Mode" };
 
-    if (tool === WORKFLOW_PLAN_RESULT_TOOL && state.mode !== "planning" && state.mode !== "executing" && state.mode !== "repairing") return { block: true, reason: `${tool} is only available during its planning phase.` };
-    if (tool === MISSION_PLAN_RESULT_TOOL && state.mode !== "mission_planning") return { block: true, reason: `${tool} is only available during its planning phase.` };
-    if (tool === WORKFLOW_REVIEW_RESULT_TOOL && state.mode !== "reviewing" && state.mode !== "mission_plan_ready") return { block: true, reason: "workflow_review_result is only available during review phases." };
-    if (tool === WORKFLOW_EXECUTION_RESULT_TOOL && state.mode !== "executing") return { block: true, reason: "workflow_execution_result is only available during Plan execution." };
-    if (tool === MISSION_MILESTONE_RESULT_TOOL && state.mode !== "mission_running") return { block: true, reason: "mission_milestone_result is only available during Mission execution." };
-    if (tool === WORKFLOW_VALIDATION_RESULT_TOOL && !isValidationResultMode(state.mode)) return { block: true, reason: "workflow_validation_result is only available during validation phases." };
-    if (tool === WORKFLOW_REPAIR_RESULT_TOOL && state.mode !== "repairing" && state.mode !== "mission_repairing") return { block: true, reason: "workflow_repair_result is only available during repair phases." };
+    if (tool === WORKFLOW_PLAN_RESULT_TOOL && state.mode !== "planning" && state.mode !== "executing" && state.mode !== "repairing") return { block: true, reason: `${tool} unavailable outside planning phase` };
+    if (tool === MISSION_PLAN_RESULT_TOOL && state.mode !== "mission_planning") return { block: true, reason: "mission_plan_result is only for mission planning. Use mission_milestone_result to submit milestone execution checkpoints." };
+    const staleAcceptedPlanReviewResult = tool === WORKFLOW_REVIEW_RESULT_TOOL
+      && state.mode !== "reviewing"
+      && !missionReviewActive(state)
+      && (
+        state.reviewHandoffSuppression?.kind === "plan_typed_review_to_execution"
+        || (state.lastWorkflowHandoff?.type === WORKFLOW_REVIEW_RESULT_TOOL && (state.mode === "reviewed" || state.reviewRepairInProgress === true || state.lastReviewRepairStatus === "running"))
+      );
+    const staleAcceptedMissionReviewResult = tool === WORKFLOW_REVIEW_RESULT_TOOL && missionReviewAlreadyAccepted(state);
+    if (tool === WORKFLOW_REVIEW_RESULT_TOOL && !staleAcceptedPlanReviewResult && !staleAcceptedMissionReviewResult && state.mode !== "reviewing" && !missionReviewActive(state)) return { block: true, reason: "Review handoff unavailable outside review phase" };
+    if (tool === WORKFLOW_EXECUTION_RESULT_TOOL && state.mode !== "executing") return { block: true, reason: "Execution handoff unavailable outside execution phase" };
+    if (tool === MISSION_MILESTONE_RESULT_TOOL && state.mode !== "mission_running") return { block: true, reason: "Milestone handoff unavailable outside Mission execution" };
+    if (tool === WORKFLOW_VALIDATION_RESULT_TOOL && !isValidationResultMode(state.mode)) return { block: true, reason: "Validation handoff unavailable outside validation phase" };
+    if (tool === WORKFLOW_REPAIR_RESULT_TOOL && state.mode !== "repairing" && state.mode !== "mission_repairing") return { block: true, reason: "Repair handoff unavailable outside repair phase" };
 
-    if (tool === WORKFLOW_PROGRESS_TOOL && state.mode !== "executing" && state.mode !== "repairing") return { block: true, reason: "Plan step progress tracking is only available during Plan execution." };
+    if (tool === WORKFLOW_PROGRESS_TOOL && state.mode !== "executing" && state.mode !== "repairing") return { block: true, reason: "Progress tracking unavailable outside Plan execution" };
+
+    if (initialPlanHandoffAlreadyAccepted(state) && planProgressRelevantWorkTool(tool, event.input)) {
+      return { block: true, reason: "Plan already accepted; execution must start from the queued executor or approval path." };
+    }
+
+    if (tool === "subagent" && state.reviewHandoffSuppression?.kind === "plan_typed_review_to_execution" && reviewPhaseSubagentCall(event.input)) {
+      return { block: true, reason: "Plan review already accepted; stale Review-phase sub-agent call ignored. Execution has started." };
+    }
+    if (tool === "subagent" && state.mode === "reviewed" && state.lastWorkflowHandoff?.type === WORKFLOW_REVIEW_RESULT_TOOL) {
+      return { block: true, reason: "Plan review already accepted; stale review sub-agent call ignored. Execution remains queued." };
+    }
+    if (tool === "subagent" && state.reviewRepairInProgress === true && state.lastWorkflowHandoff?.type === WORKFLOW_REVIEW_RESULT_TOOL) {
+      return { block: true, reason: "Plan review handoff is already accepted; do not launch more review sub-agents. Workflow Suite will continue from the accepted review state." };
+    }
+    if (tool === "subagent" && missionReviewAlreadyAccepted(state)) {
+      return { block: true, reason: "Mission review already accepted; stale review sub-agent call ignored. Mission approval remains queued." };
+    }
+    if (tool === "subagent" && state.mode === "mission_plan_ready" && !missionReviewActive(state)) {
+      return { block: true, reason: "Mission review is not active; start the reviewer with /mission review or the Mission review menu before launching review sub-agents." };
+    }
 
     if (tool === "standard_todo") {
-      if (state.mode !== "standard") return { block: true, reason: "Standard Mode To Do is only available while Standard Mode is active." };
-      if (state.standardClarificationPending || state.standardClarificationStage === "drafting" || state.standardClarificationStage === "awaiting_answer") return { block: true, reason: "Standard Mode To Do is blocked until the pending Standard clarification is answered." };
+      if (state.mode !== "standard") return { block: true, reason: "To Do unavailable outside Standard Mode" };
     }
 
     if (state.mode === "standard" && tool !== "standard_todo" && standardRequiredTodoMissing(state, settings)) {
-      if (tool === "edit" || tool === "write" || tool === "subagent") return { block: true, reason: `Standard Mode ${tool} is blocked until required dynamic task-specific To Do tracking is initialized with standard_todo.` };
+      if (tool === "edit" || tool === "write") return { block: true, reason: `${tool} blocked — To Do required` };
       if (tool === "bash") {
         const command = String((event.input as { command?: unknown }).command ?? "");
-        if (!standardSafeReadOnlyBash(command)) return { block: true, reason: "Standard Mode bash is blocked until required dynamic task-specific To Do tracking is initialized with standard_todo." };
+        if (!standardSafeReadOnlyBash(command)) return { block: true, reason: "Bash blocked — To Do required" };
+      }
+    }
+
+    if (state.mode === "standard" && state.standardClarificationPending) {
+      if (tool === "edit" || tool === "write")
+        return { block: true, reason: `${tool} blocked — Standard Mode clarification is pending. Answer the clarification questions first.` };
+      if (tool === "bash") {
+        const command = String((event.input as { command?: unknown }).command ?? "");
+        if (!standardSafeReadOnlyBash(command))
+          return { block: true, reason: "Bash blocked — Standard Mode clarification is pending. Answer the clarification questions first." };
       }
     }
 
@@ -383,21 +654,31 @@ export function registerToolGuard(pi: ExtensionAPI, getState: () => WorkflowStat
 
     if (isPlanMode(state.mode)) {
       if (state.mode === "plan_approved" && state.approvedPlan) return;
-      if (tool === "edit" || tool === "write") return { block: true, reason: `Workflow Plan Mode blocks ${tool}. Allowed tools: ${PLAN_TOOLS.join(", ")}${settings.safety.disableBashInPlanMode === false ? ", bash (safe commands)" : ""}` };
-      if (tool === "bash" && settings.safety.disableBashInPlanMode !== false) return { block: true, reason: `Workflow Plan Mode blocks bash. Allowed tools: ${PLAN_TOOLS.join(", ")}` };
+      if (tool === "edit" || tool === "write") return { block: true, reason: `${tool} not available in Plan mode` };
+      if (tool === "bash" && settings.safety.disableBashInPlanMode !== false) return { block: true, reason: "Bash not available in Plan mode" };
+    }
+
+    if (isReviewMode(state.mode)) {
+      if (tool === "edit" || tool === "write") return { block: true, reason: `${tool} not available in review mode` };
+      if (tool === "bash") return { block: true, reason: "Bash not available in review mode" };
+    }
+
+    if (state.mode === "mission_plan_ready") {
+      if (tool === "edit" || tool === "write") return { block: true, reason: `${tool} not available during mission plan review` };
+      if (tool === "bash") return { block: true, reason: "Bash not available during mission plan review" };
     }
 
     if (isValidatorMode(state.mode)) {
-      if (tool === "edit") return { block: true, reason: `Workflow Review/Validator Mode blocks ${tool}. Allowed tools: ${VALIDATOR_TOOLS.join(", ")}` };
+      if (tool === "edit" || tool === "write") return { block: true, reason: `${tool} not available in validation mode` };
       if (tool === "bash" && settings.safety.disableBashInValidatorMode !== false) {
         const command = String((event.input as { command?: unknown }).command ?? "");
-        if (!validatorSafeEvidenceBash(command)) return { block: true, reason: `Workflow Review/Validator Mode blocks unsafe bash. Allowed bash is limited to safe read-only evidence commands.` };
+        if (!validatorSafeEvidenceBash(command)) return { block: true, reason: "Bash blocked — unsafe command in validation mode" };
       }
     }
 
-    if ((isExecutionMode(state.mode) || isPlanMode(state.mode) || isValidatorMode(state.mode)) && tool === "bash") {
+    if ((isExecutionMode(state.mode) || isPlanMode(state.mode) || isValidatorMode(state.mode) || isReviewMode(state.mode)) && tool === "bash") {
       const command = String((event.input as { command?: unknown }).command ?? "");
-      if (commandBlocked(command, ctx.cwd)) return { block: true, reason: `Workflow safety blocked destructive or out-of-scope bash command: ${command}` };
+      if (commandBlocked(command, ctx.cwd)) return { block: true, reason: "Destructive or out-of-scope command blocked" };
     }
   });
 
@@ -406,7 +687,11 @@ export function registerToolGuard(pi: ExtensionAPI, getState: () => WorkflowStat
     const settings = loadWorkflowSettings(ctx.cwd);
 
     if (isSubagentWorker()) {
-      if (commandBlocked(event.command, ctx.cwd)) return { result: { output: `Workflow safety blocked destructive sub-agent command: ${event.command}`, exitCode: 1, cancelled: false, truncated: false } };
+      const workerPhase = String(process.env.PI_WORKFLOW_SUBAGENT_PHASE ?? "").toLowerCase();
+      if ((workerPhase === "validation" || workerPhase === "review") && !validatorSafeEvidenceBash(event.command)) {
+        return { result: { output: `Workflow ${workerPhase} sub-agent blocks unsafe user bash: ${event.command}`, exitCode: 1, cancelled: false, truncated: false } };
+      }
+      if (commandBlocked(event.command, ctx.cwd)) return { result: { output: "Destructive command blocked", exitCode: 1, cancelled: false, truncated: false } };
       return;
     }
 
@@ -418,11 +703,17 @@ export function registerToolGuard(pi: ExtensionAPI, getState: () => WorkflowStat
     if (isPlanMode(state.mode) && settings.safety.disableBashInPlanMode !== false) {
       return { result: { output: `Workflow ${state.mode} blocks user bash: ${event.command}`, exitCode: 1, cancelled: false, truncated: false } };
     }
+    if (isReviewMode(state.mode)) {
+      return { result: { output: `Workflow ${state.mode} blocks user bash during read-only review: ${event.command}`, exitCode: 1, cancelled: false, truncated: false } };
+    }
+    if (state.mode === "mission_plan_ready") {
+      return { result: { output: `Workflow ${state.mode} blocks user bash during mission plan review: ${event.command}`, exitCode: 1, cancelled: false, truncated: false } };
+    }
     if (isValidatorMode(state.mode) && !validatorSafeEvidenceBash(event.command)) {
       return { result: { output: `Workflow ${state.mode} blocks unsafe user bash: ${event.command}`, exitCode: 1, cancelled: false, truncated: false } };
     }
-    if ((isExecutionMode(state.mode) || isPlanMode(state.mode) || isValidatorMode(state.mode)) && commandBlocked(event.command, ctx.cwd)) {
-      return { result: { output: `Workflow safety blocked destructive command: ${event.command}`, exitCode: 1, cancelled: false, truncated: false } };
+    if ((isExecutionMode(state.mode) || isPlanMode(state.mode) || isValidatorMode(state.mode) || isReviewMode(state.mode)) && commandBlocked(event.command, ctx.cwd)) {
+      return { result: { output: "Destructive command blocked", exitCode: 1, cancelled: false, truncated: false } };
     }
   });
 }

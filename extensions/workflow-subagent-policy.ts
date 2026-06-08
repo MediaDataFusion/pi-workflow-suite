@@ -21,7 +21,7 @@ export interface SubagentToolProfile {
   source?: string;
 }
 
-const MUTATING_SUBAGENT_TOOLS = new Set(["edit", "write"]);
+const MUTATING_SUBAGENT_TOOLS = new Set(["edit"]);
 const ORCHESTRATOR_AGENT_NAME = "workflow-orchestrator";
 
 export function subagentToolsAllowMutation(tools?: string[]): boolean {
@@ -174,6 +174,18 @@ export function forcedSubagentPolicySatisfiedGuidance(label: string): string {
 export function planningNeedsOrchestrator(settings: WorkflowSettings, _mode: "plan" | "mission"): boolean {
   const orchestrationPolicy = (settings.subagents as typeof settings.subagents & { planningOrchestrationPolicy?: string }).planningOrchestrationPolicy ?? "orchestrator_first";
   return orchestrationPolicy === "orchestrator_first" || orchestrationPolicy === "forced_orchestrated";
+}
+
+// ── Uniform error classification (#9) ──────────────────────────
+export type SubagentErrorClass = "transient" | "permanent" | "policy";
+
+export function classifySubagentError(result: { exitCode: number; stopReason?: string; errorMessage?: string; stderr?: string }): SubagentErrorClass {
+  const reason = (result.errorMessage ?? result.stderr ?? "").toLowerCase();
+  if (/timed out|stale watchdog|aborted/i.test(reason) || (result.stopReason === "aborted" && /time/i.test(reason))) return "transient";
+  if (/repo lock|outside current repository/i.test(reason)) return "policy";
+  if (/unknown agent|not installed|not found/i.test(reason)) return "permanent";
+  if (result.exitCode === 0) return "transient"; // success
+  return "permanent";
 }
 
 // No-op default export so this helper module can be safely auto-discovered as a Pi extension.

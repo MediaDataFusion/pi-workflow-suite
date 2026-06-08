@@ -72,6 +72,7 @@ install_dir() {
     ! -name '.DS_Store' \
     ! -name '*.log' \
     ! -name '*.tmp' \
+    ! -name '*.bak' \
     ! -name '*.backup.*' \
     ! -name '*.broken.*' \
     -print0)
@@ -79,6 +80,7 @@ install_dir() {
 
 atomic_install_file "package.json"
 atomic_install_file "package-lock.json"
+atomic_install_file "VERSION"
 install_dir "extensions"
 install_dir "agents"
 install_dir "skills"

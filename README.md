@@ -11,7 +11,7 @@
   <a href="#settings-reference"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.3/docs/assets/readme-link-settings.svg" alt="Settings" /></a>
 </p>
 
-**Workflow Suite Version:** `v0.0.11`
+**Workflow Suite Version:** `v0.0.12`
 
 ## Overview
 
@@ -23,7 +23,7 @@ Pi itself is intentionally minimal and extensible. Pi Workflow Suite layers an o
 
 See Pi Workflow Suite in action: structured workflow modes, settings, runtime status, and guided execution inside Pi.
 
-https://github.com/user-attachments/assets/9782fefc-5349-4cc9-b4ea-20b4c916a8b9
+https://github.com/user-attachments/assets/77ba0456-1a44-477a-ad9e-d389fedfc753
 
 ## Screenshots
 
@@ -149,6 +149,7 @@ Pi Workflow Suite turns Pi into a guided workflow environment:
 - Review, execution, validation, repair, retry, checkpoint, and final-validation controls where the selected mode supports them.
 - Plan history, mission checkpoint history, Standard runtime tracking, and Mission runtime tracking.
 - Mode-aware progress widgets: Plan step tracking with step-by-step progress and validation gates, Mission milestone tracking with checkpoint history, and Standard Mode dynamic To Do progress.
+- Configurable widget and startup visual text styling, with clearer top/bottom workflow status for active, ready, progress, validation, repair, and runtime states.
 - Workflow settings UI for Standard Mode, Plan Mode, Mission Mode, model selection, sub-agents, compaction, widgets, themes, startup visuals, and safety.
 - Workflow themes with a `none` option, startup visual cards, startup logo modes, custom terminal logo text, custom brand cards, and optional themed input borders.
 - Integrated `workflow_web_search`, `workflow_web_fetch`, and `workflow_browser_check` tools for current public evidence, source-backed URL reading, and headless browser verification of web app runtime behavior.
@@ -498,6 +499,8 @@ Each worker has its own context window, so more workers multiply token spend. Th
 - Lower worker counts in `deep`/`maximum`/`forced` policies.
 - Disable phases that are not needed for the current task.
 
+Worker-backed phases can improve coverage and speed, but each worker uses its own context window, so deeper sub-agent policies should be balanced against token budget and runtime goals.
+
 Sub-agent settings are configured through `/workflow settings Shared Sub-agents`, with per-mode overrides in Standard Mode and Mission Mode settings.
 
 ### Settings That Affect Token Usage
@@ -666,7 +669,9 @@ Workflow Theme
 How the pieces fit together:
 
 - **Theme** changes Workflow Suite colors for widgets, footer/status text, startup visuals, and optional input border styling.
+- **Widget Text Style** controls the text treatment used by active workflow widgets.
 - **Startup Visual** chooses the startup card layout: `none`, `minimal`, `workflow_duo`, `mission_control`, `diagnostic_center`, `data_stream`, `neural_grid`, or `custom_brand`.
+- **Startup Text Style** controls startup visual text independently from active workflow widgets.
 - **Startup Logo** chooses what appears above the startup card: `none`, `pi`, or `custom`.
 - **Custom Logo** uses short terminal text from `logo-text`; it is not an image, SVG, or file path.
 - **Custom Brand** is for the `custom_brand` startup card. `brand text` sets the card text and `brand base` selects the card template.
@@ -706,6 +711,8 @@ Bundled skills include:
 - `find-skills`
 
 Sub-agent settings are workflow orchestration policy, not a universal permissions UI. They influence when Pi Workflow Suite asks to use sub-agents during planning, execution, repair, review, and validation, and how aggressively it should do so. Standard Mode can use its own phase-specific overrides while inheriting shared sub-agent settings by default. Built-in presets intentionally force sub-agent use so independent workers become the normal path, especially for execution.
+
+Sub-agent policies let users choose how much background assistance each workflow phase should request. Lighter policies keep workflows simpler and cheaper; deeper or forced policies can add independent research, implementation preparation, challenge review, validation evidence, and repair planning before the parent workflow proceeds.
 
 They include:
 
@@ -880,6 +887,8 @@ This tool launches a headless Chromium browser via Puppeteer from the Pi runtime
 
 **Executor and planner use:** Executors and planners can also use the tool to verify their own work during implementation — starting a dev server, running browser checks, and confirming behavior before handing off to validation.
 
+**Server cleanup:** Validator prompts can pair browser checks with `workflow_stop_server` so temporary dev or static servers can be cleaned up after runtime validation.
+
 **Graceful fallback:** If Puppeteer is not available in the Pi runtime, the tool reports the error and the workflow continues from available context. Browser verification is an enhancement, not a hard dependency.
 
 ## Repository Lock
@@ -1009,8 +1018,8 @@ pi install -l npm:@mediadatafusion/pi-workflow-suite
 ### Installing specific versions
 
 ```bash
-pi install npm:@mediadatafusion/pi-workflow-suite@0.0.11
-pi install -l npm:@mediadatafusion/pi-workflow-suite@0.0.11
+pi install npm:@mediadatafusion/pi-workflow-suite@0.0.12
+pi install -l npm:@mediadatafusion/pi-workflow-suite@0.0.12
 ```
 
 An unversioned install follows normal update behavior: `pi update` and `pi update --extensions` will pick up new package releases. A versioned install pins the package to that version. Pinned package specs are intentionally skipped by Pi's normal package update commands. To move a pinned install to a newer version, reinstall with the desired version. To switch back to latest tracking, use the unversioned install command without `@<version>`.
@@ -1216,10 +1225,10 @@ See `docs/TROUBLESHOOTING.md` for detailed diagnostics.
 
 ## Versioning
 
-The current preparation version is `v0.0.11`. Version information is intentionally aligned across:
+The current preparation version is `v0.0.12`. Version information is intentionally aligned across:
 
-- `VERSION` (`v0.0.11`),
-- `package.json` (`0.0.11`),
+- `VERSION` (`v0.0.12`),
+- `package.json` (`0.0.12`),
 - `package-lock.json`,
 - this README,
 - Workflow Suite settings/about output.
@@ -1249,7 +1258,7 @@ The intended package and repository identities are:
 https://github.com/MediaDataFusion/pi-workflow-suite
 ```
 
-Private DEV, private main, and the clean public release repository should carry the same approved package version before publication.
+Source repositories and published package metadata should carry the same approved package version before publication.
 
 Published public package versions are installed from npm with:
 

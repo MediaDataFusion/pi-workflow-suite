@@ -5,7 +5,7 @@ description: Keep code changes bound to an approved plan, avoid unrelated refact
 
 # Safe Execution
 
-Execute only the approved plan. Restate expected files before editing. Prefer surgical edits. Do not commit, push, switch branches, install dependencies, deploy, or run destructive commands. Stop and ask if the approved plan is insufficient.
+Execute only the approved plan. Restate expected files and allowed new file locations before editing. Prefer surgical edits. Do not create arbitrary repository-root files; a root file requires an exact approved root path. Inspect project conventions and use established source, test, docs, config, script, or feature-local directories. If a current-task-created file is misplaced, preserve and move it to the correct approved path instead of deleting it. Treat untracked or unexpected files as possibly user-owned and stop/report before moving or deleting them. Do not commit, push, switch branches, install dependencies, deploy, or run destructive commands. Stop and ask if the approved plan is insufficient.
 
 Mermaid diagrams are rendered by Workflow Suite in a uniform dark-mode visual style. For user-facing workflows, export/share paths, request lifecycles, architecture, data flow, multi-step sequences, state transitions, dependencies, validation flow, or implementation phases, include a meaningful Mermaid diagram plus concise prose unless the user requested prose only or the response is trivial. Use concise labels and the right diagram type; do not hardcode random style/classDef/light-theme overrides unless the user explicitly asks.
 ## Professional Constraints

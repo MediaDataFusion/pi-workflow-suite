@@ -1,6 +1,6 @@
 {
   "name": "@mediadatafusion/pi-workflow-suite",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "description": "Structured workflow orchestration suite for Pi with Standard, Plan, Mission, compaction, diagrams, web access, repo lock, and safety gates.",
   "license": "Apache-2.0",
   "repository": {
@@ -41,6 +41,7 @@
     "agents/",
     "config/",
     "themes/",
+    "docs/assets/",
     "scripts/install-to-live.sh",
     "scripts/verify-live.sh",
     "scripts/audit-live.sh",
@@ -50,6 +51,8 @@
     "scripts/bootstrap-project.sh",
     "scripts/check-clean-release-tree.sh",
     "scripts/check-package-size.mjs",
+    "scripts/check-package-media.mjs",
+    "scripts/package-media-config.mjs",
     "scripts/prepare-package-readme.mjs",
     "scripts/build-package-export.mjs",
     "README.md",
@@ -78,8 +81,8 @@
     "themes": [
       "./themes"
     ],
-    "image": "https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.6/docs/assets/pi-workflow-suite-header.png",
-    "video": "https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.6/docs/assets/pi-workflow-suite-demo.mp4"
+    "image": "https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.12/docs/assets/pi-workflow-suite-header.png",
+    "video": "https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.12/docs/assets/pi-workflow-suite-demo.mp4"
   },
   "peerDependencies": {
     "@earendil-works/pi-agent-core": "*",
@@ -104,9 +107,10 @@
     "typescript": "^6.0.3"
   },
   "scripts": {
-    "check:ts": "tsc --noEmit --noCheck",
+    "check:ts": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "validate": "npm run check:ts && ./scripts/test-workflow-forced-subagent-regression.sh && ./scripts/test-agent-skill-boundary-regression.sh && ./scripts/test-startup-visual-mode-entry-regression.sh && ./scripts/test-settings-health-regression.sh && ./scripts/test-handoff-visibility-regression.sh && ./scripts/test-mission-milestone-handoff-regression.sh && ./scripts/test-plan-handoff-chain-regression.sh && ./scripts/test-plan-step-progress-regression.sh && ./scripts/test-standard-mode-regression.sh && ./scripts/test-final-handoff-summary-regression.sh && ./scripts/test-clarification-answer-handoff-regression.sh && ./scripts/test-validation-evidence-contract-regression.sh && ./scripts/test-mermaid-guidance-regression.sh && ./scripts/test-runtime-web-tools-regression.sh && ./scripts/test-repolock-scope-regression.sh && ./scripts/test-repo-lock-version-regression.sh && ./scripts/test-package-menu-surface.sh && npm run check:package-size && git diff --check",
+    "validate": "npm run check:ts && npm run check:package-media && npm run check:package-size && git diff --check",
+    "check:package-media": "node scripts/check-package-media.mjs",
     "check:package-size": "node scripts/check-package-size.mjs",
     "prepack": "node scripts/prepare-package-readme.mjs apply",
     "postpack": "node scripts/prepare-package-readme.mjs restore --pack",

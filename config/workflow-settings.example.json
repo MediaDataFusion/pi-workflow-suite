@@ -161,7 +161,7 @@
   "missions": {
     "enabled": true,
     "defaultAutonomy": "approval_gated",
-    "maxRuntimeHours": 8,
+    "maxRuntimeHours": 13,
     "checkpointIntervalMinutes": 30,
     "requireApprovalForDestructiveActions": true,
     "requireValidationPerMilestone": true,
@@ -170,14 +170,15 @@
     "autoRunAfterApproval": true,
     "offerReviewerBeforeApprove": false,
     "autoRunReviewerBeforeApprove": false,
-    "autoRepairReviewFailures": false,
-    "reviewRetryMode": "off",
-    "maxReviewRetriesPerMission": 0,
+    "autoRepairReviewFailures": true,
+    "reviewRetryMode": "safe_only",
+    "maxReviewRetriesPerMission": 2,
     "continueAcrossMilestones": true,
     "pauseBetweenMilestones": false,
     "progressWidgetEnabled": true,
     "progressOutputMode": "compact",
     "showProgressBar": true,
+    "missionHistoryLimit": 50,
     "heartbeatEnabled": true,
     "watchdogEnabled": false,
     "watchdogStaleMinutes": 30,
@@ -232,10 +233,11 @@
     "useSubagentsBeforeClarification": true
   },
   "safety": {
-    "repoLockEnabled": false,
-    "disableBashInPlanMode": true,
+    "repoLockEnabled": true,
+    "disableBashInPlanMode": false,
     "disableBashInValidatorMode": true,
-    "blockDestructiveCommands": true
+    "blockDestructiveCommands": true,
+    "allowPackageInstallInExecution": true
   },
   "ui": {
     "showWorkflowStatus": true,
@@ -263,7 +265,8 @@
     "startupVisualOnSessionStart": true,
     "customBrandEnabled": false,
     "customBrandText": "",
-    "customBrandBaseVisual": "mission_control"
+    "customBrandBaseVisual": "mission_control",
+    "debugPlanStepTracking": false
   },
   "shortcuts": {
     "planMode": null
@@ -303,7 +306,8 @@
     "requireParallelEditConflictProtection": true,
     "planningOrchestrationPolicy": "orchestrator_first",
     "subagentTimeoutMinutes": 20,
-    "subagentStaleMinutes": 8
+    "subagentStaleMinutes": 8,
+    "allowBackgroundSubagents": true
   },
   "planning": {
     "clarificationMode": "auto",
@@ -321,8 +325,6 @@
     "compactionModel": "",
     "compactionAgent": "",
     "customCompactionEnabled": false,
-    "autoCompactionEnabled": false,
-    "compactionTriggerPercent": 85,
     "compactionCooldownMinutes": 5,
     "customCompactionReserveTokens": 16384,
     "customCompactionKeepRecentTokens": 20000,

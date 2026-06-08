@@ -100,15 +100,6 @@ function gitChangedFilesLine(status: string | undefined): string {
   return `${files.length} changed/untracked file(s): ${preview}${files.length > 16 ? ", ..." : ""}`;
 }
 
-function workflowSuitePublicImpact(root: string, pkg: Record<string, unknown> | undefined, status: string | undefined): string {
-  if (pkg?.name !== "@mediadatafusion/pi-workflow-suite") return "not applicable unless the target repo is the Pi Workflow Suite package";
-  const files = (status ?? "").split("\n").map((line) => line.trim().slice(3).trim()).filter(Boolean);
-  if (!files.length) return "Pi Workflow Suite package repo detected; no current git changes detected";
-  const publicPrefixes = ["extensions/", "agents/", "skills/", "config/", "docs/", "scripts/", "README.md", "LICENSE.md", "package.json", "package-lock.json", "tsconfig.json", "AGENTS.md"];
-  const publicFiles = files.filter((file) => publicPrefixes.some((prefix) => file === prefix || file.startsWith(prefix)));
-  return publicFiles.length ? `yes — public/live package files touched: ${publicFiles.slice(0, 12).join(", ")}${publicFiles.length > 12 ? ", ..." : ""}` : "Pi Workflow Suite package repo detected; changed files are not in public package paths";
-}
-
 export function renderHandoffProjectContext(cwd?: string): string {
   const current = cwd ?? process.cwd();
   const repoRoot = safeGit(current, ["rev-parse", "--show-toplevel"]);
@@ -118,7 +109,6 @@ export function renderHandoffProjectContext(cwd?: string): string {
   const head = safeGit(root, ["rev-parse", "--short", "HEAD"]);
   const status = safeGit(root, ["status", "--short"]);
   const instructions = detectedInstructionFiles(root);
-  const isSuite = pkg?.name === "@mediadatafusion/pi-workflow-suite";
   return `## Target Application Context
 - CWD: ${current}
 - Git root: ${repoRoot ?? "not detected"}
@@ -126,14 +116,7 @@ export function renderHandoffProjectContext(cwd?: string): string {
 - HEAD: ${head ?? "unknown"}
 - Application profile: ${detectProjectProfile(root, pkg)}
 - Project instructions detected: ${instructions.length ? instructions.join(", ") : "none"}
-- Changed files: ${gitChangedFilesLine(status)}
-
-## Pi Workflow Suite Context
-- Target is Pi Workflow Suite package repo: ${isSuite ? "yes" : "no"}
-- Context boundary: keep the target application repo, the Workflow Suite DEV worktree, the live Pi runtime, and the public main package mirror distinct.
-- Public package impact: ${workflowSuitePublicImpact(root, pkg, status)}
-- Live runtime sync: only confirmed when scripts/install-to-live.sh has been run and reports auth/settings/sessions/workflow state were not touched.
-- Promotion expectation for suite package changes: validate on DEV, sync live when requested, promote the same public-safe files to main, validate main, push both branches, then verify origin/main..origin/DEV parity.`;
+- Changed files: ${gitChangedFilesLine(status)}`;
 }
 
 function planNeedsClarification(text?: string): boolean {
@@ -145,9 +128,15 @@ function planNeedsClarification(text?: string): boolean {
 }
 
 function planStatus(state: WorkflowState): string {
+  if (state.planProgress?.lifecycleStatus === "blocked") return "Blocked";
+  if (planReviewRepairActive(state)) return "Repairing";
   if (state.approvedPlan) return "Approved";
   if (state.draftPlan) return "Draft";
   return "None";
+}
+
+function planReviewRepairActive(state: WorkflowState): boolean {
+  return state.reviewRepairInProgress === true || state.lastReviewRepairStatus === "running" || state.repairRetryState?.review?.inProgress === true;
 }
 
 function isMissionMode(mode: string): boolean {
@@ -374,7 +363,7 @@ export function renderWorkflowSummary(state: WorkflowState, cwd?: string): strin
   if (finalStop && (state.mode === "awaiting_plan_input" || state.mode === "awaiting_mission_input" || state.mode === "validated" || state.mode === "mission_blocked" || state.mode === "mission_completed" || state.mode === "mission_failed" || state.mode === "mission_stopped")) {
     return `# Workflow Summary\n\n${finalStop}`;
   }
-  return `# Workflow Summary\n\n${renderHandoffProjectContext(cwd)}\n\n## Original Task\n${state.task ?? "(none)"}\n\n## Models Used\n- Planner: ${state.modelsUsed?.planner ?? "(not recorded)"}\n- Executor: ${state.modelsUsed?.executor ?? "(not recorded)"}\n- Validator: ${state.modelsUsed?.validator ?? "(not run)"}\n- Reviewer: ${state.modelsUsed?.reviewer ?? "(not run)"}\n\n## Current Model Configuration\n${renderWorkflowModels(settings)}\n\n## Approved Plan\n${compact(state.approvedPlan, 2200)}\n\n## Execution Summary\n${compact(state.executionSummary, 1800)}\n\n## Validation Result\n${state.validationVerdict ?? "(not validated)"}\n\n${compact(state.validationReport, 1800)}\n\n## Remaining Risks\nReview validation notes, unrun tests, changed files, and public/internal package impact before committing or promoting.\n\n## Recommended Next Action\nRun project checks manually if they were not run, then review the target repo diff. For Pi Workflow Suite package work, complete DEV validation, live sync if requested, main promotion, main validation, and branch parity verification.\n\n## Exact Resume Instructions\n- Re-open the target repo shown above and confirm branch/status.\n- Run /workflow status before continuing.\n- Review this summary alongside the saved plan record when available.\n- Re-read detected project instruction files before any new edits.\n\n## Suggested Commit Message\nImplement approved workflow plan`;
+  return `# Workflow Summary\n\n${renderHandoffProjectContext(cwd)}\n\n## Original Task\n${state.task ?? "(none)"}\n\n## Models Used\n- Planner: ${state.modelsUsed?.planner ?? "(not recorded)"}\n- Executor: ${state.modelsUsed?.executor ?? "(not recorded)"}\n- Validator: ${state.modelsUsed?.validator ?? "(not run)"}\n- Reviewer: ${state.modelsUsed?.reviewer ?? "(not run)"}\n\n## Current Model Configuration\n${renderWorkflowModels(settings)}\n\n## Approved Plan\n${compact(state.approvedPlan, 2200)}\n\n## Execution Summary\n${compact(state.executionSummary, 1800)}\n\n## Validation Result\n${state.validationVerdict ?? "(not validated)"}\n\n${compact(state.validationReport, 1800)}\n\n## Remaining Risks\nReview validation notes, unrun tests, and changed files before committing or promoting.\n\n## Recommended Next Action\nRun project checks manually if they were not run, then review the target repo diff.\n\n## Exact Resume Instructions\n- Re-open the target repo shown above and confirm branch/status.\n- Run /workflow status before continuing.\n- Review this summary alongside the saved plan record when available.\n- Re-read detected project instruction files before any new edits.`;
 }
 
 // No-op default export so this helper module can be safely auto-discovered as a Pi extension.

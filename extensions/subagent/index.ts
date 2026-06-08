@@ -26,6 +26,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, getAgentDir, getMarkdownTheme, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { loadWorkflowSettings } from "../workflow-model-router.js";
+import { trackSubagentPid, untrackSubagentPid } from "./runner.js";
 import { type AgentConfig, type AgentScope, type AgentSource, discoverAgents } from "./agents.js";
 
 const requireFromExtension = createRequire(import.meta.url);
@@ -106,8 +107,8 @@ class SafeContainer {
 	}
 }
 
-const MAX_PARALLEL_TASKS = 8;
-const MAX_CONCURRENCY = 4;
+const MAX_PARALLEL_TASKS = 16;
+const DEFAULT_CONCURRENCY = 8;
 const COLLAPSED_ITEM_COUNT = 10;
 const REPOLOCK_GUARD_EXTENSION = path.join(path.dirname(new URL(import.meta.url).pathname), "repolock-guard.ts");
 
@@ -359,6 +360,7 @@ async function runSingleAgent(
 	agentName: string,
 	task: string,
 	cwd: string | undefined,
+	workflowPhase: string | undefined,
 	step: number | undefined,
 	signal: AbortSignal | undefined,
 	limits: { timeoutMinutes?: number; staleMinutes?: number } | undefined,
@@ -449,9 +451,11 @@ async function runSingleAgent(
 					...process.env,
 					PI_SUBAGENT_WORKER: "1",
 					PI_SUBAGENT_NAME: agent.name,
+					...(workflowPhase ? { PI_WORKFLOW_SUBAGENT_PHASE: workflowPhase } : {}),
 					...(lockRoot ? { PI_WORKFLOW_REPO_LOCK_ENABLED: "1", PI_WORKFLOW_REPO_LOCK_ROOT: lockRoot } : {}),
 				},
 			});
+			if (proc.pid) trackSubagentPid(proc.pid);
 			let buffer = "";
 			let lastOutputAt = Date.now();
 			let settled = false;
@@ -460,9 +464,9 @@ async function runSingleAgent(
 				timeoutReason = reason;
 				wasAborted = true;
 				currentResult.errorMessage = reason;
-				proc.kill("SIGTERM");
+				try { process.kill(-proc.pid!, "SIGTERM"); } catch { proc.kill("SIGTERM"); }
 				setTimeout(() => {
-					if (!proc.killed) proc.kill("SIGKILL");
+					if (!proc.killed) { try { process.kill(-proc.pid!, "SIGKILL"); } catch { proc.kill("SIGKILL"); } }
 				}, 5000);
 			};
 			const timeoutTimer = setTimeout(() => stopProcess(`Sub-agent timed out after ${Math.round(timeoutMs / 60000)} minute(s).`), timeoutMs);
@@ -520,11 +524,15 @@ async function runSingleAgent(
 				currentResult.stderr += data.toString();
 			});
 
-			proc.on("close", (code) => {
+			proc.on("close", (code) => { if (proc.pid) untrackSubagentPid(proc.pid);
 				settled = true;
 				clearTimeout(timeoutTimer);
 				clearInterval(staleTimer);
 				if (buffer.trim()) processLine(buffer);
+				// Kill process group to clean up background child processes
+				// (dev servers, static servers, tools — any program the sub-agent started).
+				// process.kill(-pid) signals the entire process group; works on all Unix.
+				try { if (proc.pid) process.kill(-proc.pid, "SIGTERM"); } catch { /* group empty */ }
 				resolve(code ?? 0);
 			});
 
@@ -598,7 +606,8 @@ const SubagentParams = Type.Object({
 		Type.Boolean({ description: "Prompt before running project-local agents. Default: true.", default: true }),
 	),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process (single mode)" })),
-});
+		concurrency: Type.Optional(Type.Number({ description: "Max concurrent sub-agents for parallel mode. Default: 8.", minimum: 1, maximum: 16 })),
+		failFast: Type.Optional(Type.Boolean({ description: "Stop remaining tasks on first failure. Default: false.", default: false })),});
 
 export default function (pi: ExtensionAPI) {
 	pi.registerTool({
@@ -713,10 +722,13 @@ export default function (pi: ExtensionAPI) {
 			if (params.chain && params.chain.length > 0) {
 				const results: SingleResult[] = [];
 				let previousOutput = "";
+				const chainOutputs: Record<string, string> = {};
 
 				for (let i = 0; i < params.chain.length; i++) {
 					const step = params.chain[i];
-					const taskWithContext = step.task.replace(/\{previous\}/g, previousOutput);
+					let taskWithContext = step.task.replace(/\{previous\}/g, previousOutput);
+					// Replace {outputs.name} with named outputs from prior steps
+					taskWithContext = taskWithContext.replace(/\{outputs\.([^}]+)\}/g, (_match, name: string) => chainOutputs[name.trim()] ?? `{outputs.${name}}`);
 
 					// Create update callback that includes all previous results
 					const chainUpdate: OnUpdateCallback | undefined = onUpdate
@@ -739,6 +751,7 @@ export default function (pi: ExtensionAPI) {
 						step.agent,
 						taskWithContext,
 						step.cwd,
+						params.workflowPhase,
 						i + 1,
 						signal,
 						subagentLimits,
@@ -747,22 +760,29 @@ export default function (pi: ExtensionAPI) {
 					);
 					results.push(result);
 
+					// ── Chain mode resiliency (#2): continue on individual failure ──
 					const isError =
 						result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";
-					if (isError) {
-						const errorMsg =
-							result.errorMessage || result.stderr || getFinalOutput(result.messages) || "(no output)";
-						return {
-							content: [{ type: "text", text: `Chain stopped at step ${i + 1} (${step.agent}): ${errorMsg}` }],
-							details: makeDetails("chain")(results),
-							isError: true,
-						};
+					const stepOutput = isError
+						? result.errorMessage || result.stderr || getFinalOutput(result.messages) || "(step failed)"
+						: getFinalOutput(result.messages);
+					previousOutput = stepOutput;
+					// Store named output for downstream {outputs.name} references
+					const stepAs = (step as Record<string, unknown>).as;
+					if (typeof stepAs === "string" && stepAs.trim()) {
+						chainOutputs[stepAs.trim()] = stepOutput;
 					}
-					previousOutput = getFinalOutput(result.messages);
 				}
+				// Report all results — successes and failures
+				const failedSteps = results.filter((r) => r.exitCode !== 0 || r.stopReason === "error" || r.stopReason === "aborted");
+				const successCount = results.length - failedSteps.length;
+				const summaryText = successCount === results.length
+					? getFinalOutput(results[results.length - 1].messages) || "(no output)"
+					: `${successCount}/${results.length} steps succeeded. Failed: ${failedSteps.map((r, i) => `step ${i + 1} (${r.agent}): ${r.errorMessage || r.stderr || "(no output)"}`).join("; ")}`;
 				return {
-					content: [{ type: "text", text: getFinalOutput(results[results.length - 1].messages) || "(no output)" }],
+					content: [{ type: "text", text: summaryText }],
 					details: makeDetails("chain")(results),
+					isError: failedSteps.length > 0 ? true : undefined,
 				};
 			}
 
@@ -807,13 +827,15 @@ export default function (pi: ExtensionAPI) {
 					}
 				};
 
-				const results = await mapWithConcurrencyLimit(params.tasks, MAX_CONCURRENCY, async (t, index) => {
+				const concurrency = typeof params.concurrency === "number" && params.concurrency >= 1 ? params.concurrency : DEFAULT_CONCURRENCY;
+				const results = await mapWithConcurrencyLimit(params.tasks, concurrency, async (t, index) => {
 					const result = await runSingleAgent(
 						ctx.cwd,
 						agents,
 						t.agent,
 						t.task,
 						t.cwd,
+						params.workflowPhase,
 						undefined,
 						signal,
 						subagentLimits,
@@ -855,6 +877,7 @@ export default function (pi: ExtensionAPI) {
 					params.agent,
 					params.task,
 					params.cwd,
+					params.workflowPhase,
 					undefined,
 					signal,
 					subagentLimits,

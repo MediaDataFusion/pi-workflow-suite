@@ -35,6 +35,8 @@ build/
 # Private local context
 .factory/
 .cursor/
+.claude/
+.kilo/
 AGENTS.md
 CLAUDE.md
 memories.md
