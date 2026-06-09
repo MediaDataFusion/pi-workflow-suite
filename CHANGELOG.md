@@ -2,6 +2,20 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.16] - 2026-06-09
+
+### Fixed
+
+- Fixed Plan Mode recovery so interrupted or resumed workflows return to the correct state more reliably.
+- Fixed Standard Mode completion cleanup to prevent stale active-status indicators after work is complete.
+- Fixed workflow preset behavior so presets preserve user-selected model-routing preferences.
+- Improved compaction recovery for continued workflow sessions.
+- Refined repair flow handling so advisory follow-up notes do not unnecessarily block continued progress.
+
+### Improved
+
+- Improved overall workflow reliability across Plan, Standard, and repair flows.
+
 ## [0.0.15] - 2026-06-09
 
 ### Improved

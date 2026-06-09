@@ -1,6 +1,6 @@
 {
   "name": "@mediadatafusion/pi-workflow-suite",
-  "version": "0.0.15",
+  "version": "0.0.16",
   "description": "Structured workflow orchestration suite for Pi with Standard, Plan, Mission, compaction, diagrams, web access, repo lock, and safety gates.",
   "license": "Apache-2.0",
   "repository": {

@@ -280,8 +280,8 @@ export interface WorkflowPresetBundle {
   description?: string;
   planning?: Partial<WorkflowSettings["planning"]>;
   workflow?: Partial<WorkflowSettings["workflow"]>;
-  standard?: Partial<Omit<WorkflowSettings["standard"], "models">> & { models?: Partial<Record<WorkflowRole, RoleModelSettings>> };
-  missions?: Partial<Omit<WorkflowSettings["missions"], "models">>;
+  standard?: Partial<Omit<WorkflowSettings["standard"], "models" | "useSharedExecutorModel" | "useStandardSpecificModels" | "modelRole">>;
+  missions?: Partial<Omit<WorkflowSettings["missions"], "models" | "useMissionSpecificModels">>;
   subagents?: Partial<WorkflowSettings["subagents"]>;
   ui?: Partial<WorkflowSettings["ui"]>;
 }
@@ -801,29 +801,55 @@ interface UpdateSettingsOptions {
   preserveActivePreset?: boolean;
 }
 
-export const WORKFLOW_MANUAL_PRESET = "custom";
+export const WORKFLOW_CUSTOM_PRESET_MARKER = "custom";
+
+function standardSettingsWithoutModelRouting(standard?: Partial<WorkflowSettings["standard"]>): Partial<WorkflowSettings["standard"]> {
+  const {
+    models: _ignoredModels,
+    useSharedExecutorModel: _ignoredUseSharedExecutorModel,
+    useStandardSpecificModels: _ignoredUseStandardSpecificModels,
+    modelRole: _ignoredModelRole,
+    ...standardWithoutModelRouting
+  } = standard ?? {};
+  return standardWithoutModelRouting;
+}
+
+function missionSettingsWithoutModelRouting(missions?: Partial<WorkflowSettings["missions"]>): Partial<WorkflowSettings["missions"]> {
+  const {
+    models: _ignoredModels,
+    useMissionSpecificModels: _ignoredUseMissionSpecificModels,
+    ...missionsWithoutModelRouting
+  } = missions ?? {};
+  return missionsWithoutModelRouting;
+}
 
 function presetOwnedSettingsSignature(settings: WorkflowSettings): string {
-  const { models: _ignoredStandardModels, ...standardWithoutModels } = settings.standard;
-  const { models: _ignoredMissionModels, ...missionsWithoutModels } = settings.missions;
   return JSON.stringify({
     planning: settings.planning,
     workflow: settings.workflow,
-    standard: standardWithoutModels,
-    missions: missionsWithoutModels,
+    standard: standardSettingsWithoutModelRouting(settings.standard),
+    missions: missionSettingsWithoutModelRouting(settings.missions),
     subagents: settings.subagents,
   });
 }
 
 function applyActivePresetOverlay(settings: WorkflowSettings): WorkflowSettings {
-  const active = settings.presets?.activePreset ?? WORKFLOW_MANUAL_PRESET;
-  if (active === WORKFLOW_MANUAL_PRESET) return settings;
+  const active = settings.presets?.activePreset ?? WORKFLOW_CUSTOM_PRESET_MARKER;
+  if (active === WORKFLOW_CUSTOM_PRESET_MARKER) return settings;
   const preset = workflowPresetCatalog(settings)[active];
   if (!preset) return settings;
   const defaults = defaultWorkflowSettings();
   const normalized = normalizeWorkflowPresetBundle(preset);
-  const currentStandardModels = settings.standard.models;
-  const currentMissionModels = settings.missions.models;
+  const currentStandardModelRouting = {
+    models: settings.standard.models,
+    useSharedExecutorModel: settings.standard.useSharedExecutorModel,
+    useStandardSpecificModels: settings.standard.useStandardSpecificModels,
+    modelRole: settings.standard.modelRole,
+  };
+  const currentMissionModelRouting = {
+    models: settings.missions.models,
+    useMissionSpecificModels: settings.missions.useMissionSpecificModels,
+  };
   return {
     ...settings,
     planning: normalized.planning ? { ...settings.planning, ...normalized.planning } : settings.planning,
@@ -833,9 +859,9 @@ function applyActivePresetOverlay(settings: WorkflowSettings): WorkflowSettings 
       ...settings.standard,
       ...normalized.standard,
       subagents: { ...(defaults.standard.subagents ?? {}), ...(settings.standard.subagents ?? {}), ...(normalized.standard.subagents ?? {}) },
-      models: currentStandardModels,
+      ...currentStandardModelRouting,
     },
-    missions: normalized.missions ? { ...settings.missions, ...normalized.missions, models: currentMissionModels } : settings.missions,
+    missions: normalized.missions ? { ...settings.missions, ...normalized.missions, ...currentMissionModelRouting } : settings.missions,
     subagents: normalized.subagents ? { ...settings.subagents, ...normalized.subagents } : settings.subagents,
     presets: settings.presets,
   };
@@ -923,12 +949,12 @@ export function createProjectSettingsOverride(cwd: string): SettingsWriteResult 
 export function updateSettings(cwd: string, requestedScope: WorkflowSettingsScope | undefined, updater: (settings: WorkflowSettings) => void, options: UpdateSettingsOptions = {}): SettingsWriteResult {
   const target = getWriteTarget(cwd, requestedScope);
   const settings = target.scope === "global" ? loadGlobalSettings() : loadEffectiveSettings(cwd).settings;
-  const beforePreset = settings.presets?.activePreset ?? WORKFLOW_MANUAL_PRESET;
+  const beforePreset = settings.presets?.activePreset ?? WORKFLOW_CUSTOM_PRESET_MARKER;
   const beforePresetOwned = presetOwnedSettingsSignature(settings);
   updater(settings);
   const afterPresetOwned = presetOwnedSettingsSignature(settings);
-  if (!options.preserveActivePreset && beforePreset !== WORKFLOW_MANUAL_PRESET && settings.presets?.activePreset === beforePreset && beforePresetOwned !== afterPresetOwned) {
-    settings.presets = { ...(settings.presets ?? {}), activePreset: WORKFLOW_MANUAL_PRESET, items: { ...(settings.presets?.items ?? {}) } };
+  if (!options.preserveActivePreset && beforePreset !== WORKFLOW_CUSTOM_PRESET_MARKER && settings.presets?.activePreset === beforePreset && beforePresetOwned !== afterPresetOwned) {
+    settings.presets = { ...(settings.presets ?? {}), activePreset: WORKFLOW_CUSTOM_PRESET_MARKER, items: { ...(settings.presets?.items ?? {}) } };
   }
   saveSettingsFile(target.file, settings);
   return { settings, scope: target.scope, file: target.file };
@@ -941,7 +967,7 @@ export function builtInWorkflowPresets(): Record<string, WorkflowPresetBundle> {
       description: "Fast end-to-end Plan/Mission/Standard workflow with minimal ceremony, automatic validation when work runs, low safe repair retries, and one-worker sub-agent support.",
       planning: { depth: "fast", clarificationMode: "auto", maxClarificationQuestions: 2, interactiveClarificationEnabled: true, clarificationQualityGate: false, useSubagentsBeforeClarification: true },
       workflow: { offerReviewerBeforeExecute: false, autoRunReviewerBeforeExecute: false, offerValidationAfterExecute: true, autoRunValidationAfterExecute: true, validateAfterExecution: true, requirePlanApprovalBeforeExecute: false, requireApprovalBeforeExecution: false, autoRepairReviewFailures: false, autoRepairValidationFailures: true, reviewRetryMode: "off", validationRetryMode: "safe_only", maxReviewRetriesPerPlan: 0, maxReviewRetriesPerWorkflow: 0, maxValidationRetriesPerPlan: 1, maxValidationRetriesPerWorkflow: 2, pauseAfterReviewFailure: true, pauseAfterValidationFailure: false, planProgressEnabled: true, planRuntimeEnabled: true, planShowProgressBar: true },
-      standard: { enabled: true, autoTodoEnabled: true, todoProgressVisible: true, todoTriggerMode: "auto", clarificationEnabled: true, clarificationMode: "auto", maxClarificationQuestions: 1, interactiveClarificationEnabled: true, clarificationTiming: "after_initial_analysis", clarificationQualityGate: false, allowClarificationWithoutAnalysis: false, useSubagentsBeforeClarification: false, allowSubagents: true, subagentScope: "user", subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "auto", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 1, minPlanningWorkersForMaximum: 1, minExecutionWorkersForDeep: 1, minExecutionWorkersForMaximum: 1, minRepairWorkersForDeep: 1, minRepairWorkersForMaximum: 1, minReviewWorkersForDeep: 1, minReviewWorkersForMaximum: 1, minValidationWorkersForDeep: 1, minValidationWorkersForMaximum: 1 }, statusWidgetVisible: true, useSharedExecutorModel: true, useStandardSpecificModels: false, modelRole: "executor" },
+      standard: { enabled: true, autoTodoEnabled: true, todoProgressVisible: true, todoTriggerMode: "auto", clarificationEnabled: true, clarificationMode: "auto", maxClarificationQuestions: 1, interactiveClarificationEnabled: true, clarificationTiming: "after_initial_analysis", clarificationQualityGate: false, allowClarificationWithoutAnalysis: false, useSubagentsBeforeClarification: false, allowSubagents: true, subagentScope: "user", subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "auto", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 1, minPlanningWorkersForMaximum: 1, minExecutionWorkersForDeep: 1, minExecutionWorkersForMaximum: 1, minRepairWorkersForDeep: 1, minRepairWorkersForMaximum: 1, minReviewWorkersForDeep: 1, minReviewWorkersForMaximum: 1, minValidationWorkersForDeep: 1, minValidationWorkersForMaximum: 1 }, statusWidgetVisible: true },
       missions: { defaultAutonomy: "approval_gated", requireValidationPerMilestone: true, autoRunAfterApproval: true, continueAcrossMilestones: true, pauseBetweenMilestones: false, clarificationMode: "auto", maxClarificationQuestions: 2, planningDepth: "fast", useSubagentsBeforeClarification: true, autoRepairReviewFailures: false, reviewRetryMode: "off", maxReviewRetriesPerMission: 0, autoRepairValidationFailures: true, validationRetryMode: "safe_only", maxValidationRetriesPerMilestone: 1, maxValidationRetriesPerMission: 2, finalValidationEnabled: false, autoRepairFinalValidationFailures: false, maxFinalValidationRetries: 0, subagentPolicy: "forced", minWorkersForDeep: 1, minWorkersForMaximum: 1 },
       subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "auto", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 1, minPlanningWorkersForMaximum: 1, minExecutionWorkersForDeep: 1, minExecutionWorkersForMaximum: 1, minRepairWorkersForDeep: 1, minRepairWorkersForMaximum: 1, minReviewWorkersForDeep: 1, minReviewWorkersForMaximum: 1, minValidationWorkersForDeep: 1, minValidationWorkersForMaximum: 1, allowBackgroundSubagents: false },
     },
@@ -950,7 +976,7 @@ export function builtInWorkflowPresets(): Record<string, WorkflowPresetBundle> {
       description: "Default end-to-end workflow with useful clarification, automatic execution/validation after approval, safe repair retries, and balanced worker support.",
       planning: { depth: "standard", clarificationMode: "auto", maxClarificationQuestions: 3, interactiveClarificationEnabled: true, clarificationQualityGate: true, useSubagentsBeforeClarification: true },
       workflow: { offerReviewerBeforeExecute: false, autoRunReviewerBeforeExecute: false, offerValidationAfterExecute: true, autoRunValidationAfterExecute: true, validateAfterExecution: true, requirePlanApprovalBeforeExecute: false, requireApprovalBeforeExecution: false, autoRepairReviewFailures: true, autoRepairValidationFailures: true, reviewRetryMode: "safe_only", validationRetryMode: "safe_only", maxReviewRetriesPerPlan: 2, maxReviewRetriesPerWorkflow: 4, maxValidationRetriesPerPlan: 2, maxValidationRetriesPerWorkflow: 4, pauseAfterReviewFailure: false, pauseAfterValidationFailure: false, planProgressEnabled: true, planRuntimeEnabled: true, planShowProgressBar: true },
-      standard: { enabled: true, autoTodoEnabled: true, todoProgressVisible: true, todoTriggerMode: "auto", clarificationEnabled: true, clarificationMode: "auto", maxClarificationQuestions: 1, interactiveClarificationEnabled: true, clarificationTiming: "after_initial_analysis", clarificationQualityGate: true, allowClarificationWithoutAnalysis: false, useSubagentsBeforeClarification: false, allowSubagents: true, subagentScope: "user", subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "forced", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 1, minPlanningWorkersForMaximum: 1, minExecutionWorkersForDeep: 2, minExecutionWorkersForMaximum: 2, minRepairWorkersForDeep: 2, minRepairWorkersForMaximum: 2, minReviewWorkersForDeep: 2, minReviewWorkersForMaximum: 2, minValidationWorkersForDeep: 2, minValidationWorkersForMaximum: 2 }, statusWidgetVisible: true, useSharedExecutorModel: true, useStandardSpecificModels: false, modelRole: "executor" },
+      standard: { enabled: true, autoTodoEnabled: true, todoProgressVisible: true, todoTriggerMode: "auto", clarificationEnabled: true, clarificationMode: "auto", maxClarificationQuestions: 1, interactiveClarificationEnabled: true, clarificationTiming: "after_initial_analysis", clarificationQualityGate: true, allowClarificationWithoutAnalysis: false, useSubagentsBeforeClarification: false, allowSubagents: true, subagentScope: "user", subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "forced", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 1, minPlanningWorkersForMaximum: 1, minExecutionWorkersForDeep: 2, minExecutionWorkersForMaximum: 2, minRepairWorkersForDeep: 2, minRepairWorkersForMaximum: 2, minReviewWorkersForDeep: 2, minReviewWorkersForMaximum: 2, minValidationWorkersForDeep: 2, minValidationWorkersForMaximum: 2 }, statusWidgetVisible: true },
       missions: { defaultAutonomy: "approval_gated", requireValidationPerMilestone: true, autoRunAfterApproval: true, continueAcrossMilestones: true, pauseBetweenMilestones: false, clarificationMode: "auto", maxClarificationQuestions: 3, planningDepth: "standard", useSubagentsBeforeClarification: true, autoRepairReviewFailures: true, reviewRetryMode: "safe_only", maxReviewRetriesPerMission: 2, autoRepairValidationFailures: true, validationRetryMode: "safe_only", maxValidationRetriesPerMilestone: 2, maxValidationRetriesPerMission: 6, finalValidationEnabled: false, autoRepairFinalValidationFailures: false, maxFinalValidationRetries: 1, subagentPolicy: "forced", minWorkersForDeep: 1, minWorkersForMaximum: 1 },
       subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "forced", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 1, minPlanningWorkersForMaximum: 1, minExecutionWorkersForDeep: 2, minExecutionWorkersForMaximum: 2, minRepairWorkersForDeep: 2, minRepairWorkersForMaximum: 2, minReviewWorkersForDeep: 2, minReviewWorkersForMaximum: 2, minValidationWorkersForDeep: 2, minValidationWorkersForMaximum: 2, allowBackgroundSubagents: false },
     },
@@ -959,7 +985,7 @@ export function builtInWorkflowPresets(): Record<string, WorkflowPresetBundle> {
       description: "Careful end-to-end workflow for risky or codebase-heavy work with stronger clarification, manual Plan review, automatic validation, final mission validation, and larger worker teams.",
       planning: { depth: "deep", clarificationMode: "always_for_nontrivial", maxClarificationQuestions: 5, interactiveClarificationEnabled: true, clarificationQualityGate: true, useSubagentsBeforeClarification: true },
       workflow: { offerReviewerBeforeExecute: false, autoRunReviewerBeforeExecute: false, offerValidationAfterExecute: true, autoRunValidationAfterExecute: true, validateAfterExecution: true, requirePlanApprovalBeforeExecute: false, requireApprovalBeforeExecution: false, autoRepairReviewFailures: true, autoRepairValidationFailures: true, reviewRetryMode: "safe_only", validationRetryMode: "safe_only", maxReviewRetriesPerPlan: 3, maxReviewRetriesPerWorkflow: 6, maxValidationRetriesPerPlan: 3, maxValidationRetriesPerWorkflow: 6, pauseAfterReviewFailure: false, pauseAfterValidationFailure: false, planProgressEnabled: true, planRuntimeEnabled: true, planShowProgressBar: true },
-      standard: { enabled: true, autoTodoEnabled: true, todoProgressVisible: true, todoTriggerMode: "auto", clarificationEnabled: true, clarificationMode: "auto", maxClarificationQuestions: 2, interactiveClarificationEnabled: true, clarificationTiming: "after_initial_analysis", clarificationQualityGate: true, allowClarificationWithoutAnalysis: false, useSubagentsBeforeClarification: true, allowSubagents: true, subagentScope: "user", subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "forced", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 2, minPlanningWorkersForMaximum: 2, minExecutionWorkersForDeep: 3, minExecutionWorkersForMaximum: 3, minRepairWorkersForDeep: 2, minRepairWorkersForMaximum: 2, minReviewWorkersForDeep: 3, minReviewWorkersForMaximum: 3, minValidationWorkersForDeep: 3, minValidationWorkersForMaximum: 3 }, statusWidgetVisible: true, useSharedExecutorModel: true, useStandardSpecificModels: false, modelRole: "executor" },
+      standard: { enabled: true, autoTodoEnabled: true, todoProgressVisible: true, todoTriggerMode: "auto", clarificationEnabled: true, clarificationMode: "auto", maxClarificationQuestions: 2, interactiveClarificationEnabled: true, clarificationTiming: "after_initial_analysis", clarificationQualityGate: true, allowClarificationWithoutAnalysis: false, useSubagentsBeforeClarification: true, allowSubagents: true, subagentScope: "user", subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "forced", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 2, minPlanningWorkersForMaximum: 2, minExecutionWorkersForDeep: 3, minExecutionWorkersForMaximum: 3, minRepairWorkersForDeep: 2, minRepairWorkersForMaximum: 2, minReviewWorkersForDeep: 3, minReviewWorkersForMaximum: 3, minValidationWorkersForDeep: 3, minValidationWorkersForMaximum: 3 }, statusWidgetVisible: true },
       missions: { defaultAutonomy: "approval_gated", requireValidationPerMilestone: true, autoRunAfterApproval: true, continueAcrossMilestones: true, pauseBetweenMilestones: false, clarificationMode: "always_for_nontrivial", maxClarificationQuestions: 5, planningDepth: "deep", useSubagentsBeforeClarification: true, autoRepairReviewFailures: true, reviewRetryMode: "safe_only", maxReviewRetriesPerMission: 3, autoRepairValidationFailures: true, validationRetryMode: "safe_only", maxValidationRetriesPerMilestone: 3, maxValidationRetriesPerMission: 8, finalValidationEnabled: true, autoRepairFinalValidationFailures: true, maxFinalValidationRetries: 2, subagentPolicy: "forced", minWorkersForDeep: 3, minWorkersForMaximum: 3 },
       subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "forced", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 3, minPlanningWorkersForMaximum: 3, minExecutionWorkersForDeep: 3, minExecutionWorkersForMaximum: 3, minRepairWorkersForDeep: 2, minRepairWorkersForMaximum: 2, minReviewWorkersForDeep: 3, minReviewWorkersForMaximum: 3, minValidationWorkersForDeep: 3, minValidationWorkersForMaximum: 3, allowBackgroundSubagents: true },
     },
@@ -968,7 +994,7 @@ export function builtInWorkflowPresets(): Record<string, WorkflowPresetBundle> {
       description: "Highest-rigor end-to-end workflow with strongest clarification, automatic review/validation, final mission validation, aggressive in-scope repair, and maximum worker teams.",
       planning: { depth: "maximum", clarificationMode: "always_for_nontrivial", maxClarificationQuestions: 5, interactiveClarificationEnabled: true, clarificationQualityGate: true, useSubagentsBeforeClarification: true },
       workflow: { offerReviewerBeforeExecute: false, autoRunReviewerBeforeExecute: true, offerValidationAfterExecute: true, autoRunValidationAfterExecute: true, validateAfterExecution: true, requirePlanApprovalBeforeExecute: false, requireApprovalBeforeExecution: false, autoRepairReviewFailures: true, autoRepairValidationFailures: true, reviewRetryMode: "aggressive_within_scope", validationRetryMode: "aggressive_within_scope", maxReviewRetriesPerPlan: 5, maxReviewRetriesPerWorkflow: 8, maxValidationRetriesPerPlan: 5, maxValidationRetriesPerWorkflow: 8, pauseAfterReviewFailure: false, pauseAfterValidationFailure: false, planProgressEnabled: true, planRuntimeEnabled: true, planShowProgressBar: true },
-      standard: { enabled: true, autoTodoEnabled: true, todoProgressVisible: true, todoTriggerMode: "auto", clarificationEnabled: true, clarificationMode: "auto", maxClarificationQuestions: 2, interactiveClarificationEnabled: true, clarificationTiming: "after_initial_analysis", clarificationQualityGate: true, allowClarificationWithoutAnalysis: false, useSubagentsBeforeClarification: true, allowSubagents: true, subagentScope: "user", subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "forced", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 3, minPlanningWorkersForMaximum: 3, minExecutionWorkersForDeep: 4, minExecutionWorkersForMaximum: 4, minRepairWorkersForDeep: 3, minRepairWorkersForMaximum: 3, minReviewWorkersForDeep: 4, minReviewWorkersForMaximum: 4, minValidationWorkersForDeep: 4, minValidationWorkersForMaximum: 4 }, statusWidgetVisible: true, useSharedExecutorModel: true, useStandardSpecificModels: false, modelRole: "executor" },
+      standard: { enabled: true, autoTodoEnabled: true, todoProgressVisible: true, todoTriggerMode: "auto", clarificationEnabled: true, clarificationMode: "auto", maxClarificationQuestions: 2, interactiveClarificationEnabled: true, clarificationTiming: "after_initial_analysis", clarificationQualityGate: true, allowClarificationWithoutAnalysis: false, useSubagentsBeforeClarification: true, allowSubagents: true, subagentScope: "user", subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "forced", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 3, minPlanningWorkersForMaximum: 3, minExecutionWorkersForDeep: 4, minExecutionWorkersForMaximum: 4, minRepairWorkersForDeep: 3, minRepairWorkersForMaximum: 3, minReviewWorkersForDeep: 4, minReviewWorkersForMaximum: 4, minValidationWorkersForDeep: 4, minValidationWorkersForMaximum: 4 }, statusWidgetVisible: true },
       missions: { defaultAutonomy: "supervised_auto", requireValidationPerMilestone: true, autoRunAfterApproval: true, continueAcrossMilestones: true, pauseBetweenMilestones: false, clarificationMode: "always_for_nontrivial", maxClarificationQuestions: 6, planningDepth: "maximum", useSubagentsBeforeClarification: true, autoRepairReviewFailures: true, reviewRetryMode: "aggressive_within_scope", maxReviewRetriesPerMission: 5, autoRepairValidationFailures: true, validationRetryMode: "aggressive_within_scope", maxValidationRetriesPerMilestone: 4, maxValidationRetriesPerMission: 12, finalValidationEnabled: true, autoRepairFinalValidationFailures: true, maxFinalValidationRetries: 4, subagentPolicy: "forced", minWorkersForDeep: 4, minWorkersForMaximum: 4 },
       subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "forced", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 4, minPlanningWorkersForMaximum: 4, minExecutionWorkersForDeep: 4, minExecutionWorkersForMaximum: 4, minRepairWorkersForDeep: 3, minRepairWorkersForMaximum: 3, minReviewWorkersForDeep: 4, minReviewWorkersForMaximum: 4, minValidationWorkersForDeep: 4, minValidationWorkersForMaximum: 4, allowBackgroundSubagents: true },
     },
@@ -977,35 +1003,43 @@ export function builtInWorkflowPresets(): Record<string, WorkflowPresetBundle> {
 
 function normalizeWorkflowPresetBundle(preset: WorkflowPresetBundle): WorkflowPresetBundle & { standard: WorkflowSettings["standard"] } {
   const defaults = defaultWorkflowSettings();
-  const { models: _ignoredPresetStandardModels, ...standardWithoutModels } = (preset.standard ?? {}) as Partial<WorkflowSettings["standard"]>;
+  const standardWithoutModelRouting = standardSettingsWithoutModelRouting(preset.standard as Partial<WorkflowSettings["standard"]> | undefined);
   return {
     ...preset,
     // Legacy custom presets saved before Standard Mode do not contain a
     // standard section. Hydrate it from safe defaults during apply so stale
     // Standard settings from the previously active preset cannot leak forward.
-    standard: normalizeStandardSettings(defaults, defaults.standard, standardWithoutModels as Partial<WorkflowSettings>["standard"] | undefined),
+    standard: normalizeStandardSettings(defaults, defaults.standard, standardWithoutModelRouting as Partial<WorkflowSettings>["standard"] | undefined),
+    missions: missionSettingsWithoutModelRouting(preset.missions as Partial<WorkflowSettings["missions"]> | undefined),
   };
 }
 
 function workflowPresetBundleWithoutUserOwnedSettings(preset: WorkflowPresetBundle): WorkflowPresetBundle {
   const { context: _ignoredContext, ...presetWithoutContext } = preset as WorkflowPresetBundle & { context?: unknown };
-  const { models: _ignoredStandardModels, ...standardWithoutModels } = (preset.standard ?? {}) as Partial<WorkflowSettings["standard"]>;
-  const { models: _ignoredMissionModels, ...missionsWithoutModels } = (preset.missions ?? {}) as Partial<WorkflowSettings["missions"]>;
   return {
     ...presetWithoutContext,
-    standard: { ...standardWithoutModels },
-    missions: { ...missionsWithoutModels },
+    standard: { ...standardSettingsWithoutModelRouting(preset.standard as Partial<WorkflowSettings["standard"]> | undefined) },
+    missions: { ...missionSettingsWithoutModelRouting(preset.missions as Partial<WorkflowSettings["missions"]> | undefined) },
   };
 }
 
 function applyPresetBundle(settings: WorkflowSettings, preset: WorkflowPresetBundle, name: string): void {
   const defaults = defaultWorkflowSettings();
   const normalized = normalizeWorkflowPresetBundle(preset);
-  const currentStandardModels = settings.standard.models;
+  const currentStandardModelRouting = {
+    models: settings.standard.models,
+    useSharedExecutorModel: settings.standard.useSharedExecutorModel,
+    useStandardSpecificModels: settings.standard.useStandardSpecificModels,
+    modelRole: settings.standard.modelRole,
+  };
+  const currentMissionModelRouting = {
+    models: settings.missions.models,
+    useMissionSpecificModels: settings.missions.useMissionSpecificModels,
+  };
   if (normalized.planning) settings.planning = { ...settings.planning, ...normalized.planning };
   if (normalized.workflow) settings.workflow = { ...settings.workflow, ...normalized.workflow };
-  settings.standard = { ...defaults.standard, ...normalized.standard, subagents: { ...(defaults.standard.subagents ?? {}), ...(normalized.standard?.subagents ?? {}) }, models: currentStandardModels };
-  if (normalized.missions) settings.missions = { ...settings.missions, ...normalized.missions, models: settings.missions.models };
+  settings.standard = { ...defaults.standard, ...normalized.standard, subagents: { ...(defaults.standard.subagents ?? {}), ...(normalized.standard?.subagents ?? {}) }, ...currentStandardModelRouting };
+  if (normalized.missions) settings.missions = { ...settings.missions, ...normalized.missions, ...currentMissionModelRouting };
   if (normalized.subagents) settings.subagents = { ...settings.subagents, ...normalized.subagents };
   if (normalized.ui) settings.ui = { ...settings.ui, ...normalized.ui };
   settings.presets = { ...(settings.presets ?? {}), activePreset: name, items: { ...(settings.presets?.items ?? {}) } };
@@ -1017,34 +1051,34 @@ export function normalizeWorkflowPresetName(name: string): string {
 
 export function workflowPresetCatalog(settings: WorkflowSettings = loadGlobalSettings()): Record<string, WorkflowPresetBundle> {
   const items = { ...(settings.presets?.items ?? {}) };
-  delete items[WORKFLOW_MANUAL_PRESET];
+  delete items[WORKFLOW_CUSTOM_PRESET_MARKER];
   return { ...builtInWorkflowPresets(), ...items };
 }
 
 export function workflowPresetNames(settings: WorkflowSettings = loadGlobalSettings()): string[] {
   const builtIns = ["simple", "standard", "deep", "maximum"];
   const custom = Object.keys(settings.presets?.items ?? {}).sort((a, b) => a.localeCompare(b));
-  return [...builtIns, ...custom.filter((name) => name !== WORKFLOW_MANUAL_PRESET && !builtIns.includes(name))];
+  return [...builtIns, ...custom.filter((name) => name !== WORKFLOW_CUSTOM_PRESET_MARKER && !builtIns.includes(name))];
 }
 
 export function workflowPresetLabel(name: string, preset?: WorkflowPresetBundle): string {
-  if (name === WORKFLOW_MANUAL_PRESET) return "Manual settings";
+  if (name === WORKFLOW_CUSTOM_PRESET_MARKER) return "No active preset";
   return preset?.displayName?.trim() || name;
 }
 
 export function workflowPresetTitle(name: string, preset?: WorkflowPresetBundle): string {
-  if (name === WORKFLOW_MANUAL_PRESET) return "Manual settings — no saved preset active";
+  if (name === WORKFLOW_CUSTOM_PRESET_MARKER) return "No active preset";
   return preset?.displayName?.trim() || name;
 }
 
 export function activeWorkflowPresetLabel(settings: WorkflowSettings): string {
-  const active = settings.presets?.activePreset ?? WORKFLOW_MANUAL_PRESET;
-  if (active === WORKFLOW_MANUAL_PRESET) return "Manual settings";
+  const active = settings.presets?.activePreset ?? WORKFLOW_CUSTOM_PRESET_MARKER;
+  if (active === WORKFLOW_CUSTOM_PRESET_MARKER) return "No active preset";
   return workflowPresetLabel(active, workflowPresetCatalog(settings)[active]);
 }
 
 function assertValidCustomPresetName(name: string, safe: string): void {
-  if (safe === WORKFLOW_MANUAL_PRESET) throw new Error(`Reserved workflow preset name: ${name}. Use a specific preset name instead of custom.`);
+  if (safe === WORKFLOW_CUSTOM_PRESET_MARKER) throw new Error(`Reserved workflow preset name: ${name}. Use a specific preset name instead of custom.`);
 }
 
 function sectionCoverage(section: unknown): "configured" | "missing" {
@@ -1052,9 +1086,9 @@ function sectionCoverage(section: unknown): "configured" | "missing" {
 }
 
 export function workflowPresetDiagnostics(name: string, preset?: WorkflowPresetBundle): string[] {
-  if (name === WORKFLOW_MANUAL_PRESET) return ["Diagnostic: manual settings marker; no saved preset bundle is active."];
+  if (name === WORKFLOW_CUSTOM_PRESET_MARKER) return ["Diagnostic: reserved custom marker; no saved preset bundle is active."];
   const lines: string[] = [];
-  if (normalizeWorkflowPresetName(name) === WORKFLOW_MANUAL_PRESET) lines.push("Diagnostic: reserved-name collision; rename this preset before use.");
+  if (normalizeWorkflowPresetName(name) === WORKFLOW_CUSTOM_PRESET_MARKER) lines.push("Diagnostic: reserved-name collision; rename this preset before use.");
   const standard = sectionCoverage(preset?.standard);
   const planning = sectionCoverage(preset?.planning);
   const workflow = sectionCoverage(preset?.workflow);
@@ -1084,8 +1118,8 @@ export function workflowPresetPickerLabel(name: string, preset?: WorkflowPresetB
 }
 
 export function workflowPresetMeaningLines(name: string, preset?: WorkflowPresetBundle): string[] {
-  if (name === WORKFLOW_MANUAL_PRESET) return [
-    "Name: Manual settings — no saved preset active",
+  if (name === WORKFLOW_CUSTOM_PRESET_MARKER) return [
+    "Name: No active preset",
     "Purpose: uses the current workflow settings exactly as saved; this is not a built-in speed or rigor profile.",
     "Applies to: the Standard, Plan, Mission, and shared sub-agent settings currently saved in workflow-settings.json.",
     "Standard Mode: uses the saved Standard Mode To Do, clarification, continuation, and sub-agent settings.",
@@ -1160,11 +1194,11 @@ export function renderWorkflowPresetCard(name: string, preset?: WorkflowPresetBu
 }
 
 export function renderActiveWorkflowPresetSummary(settings: WorkflowSettings): string {
-  const active = settings.presets?.activePreset ?? WORKFLOW_MANUAL_PRESET;
-  const preset = active === WORKFLOW_MANUAL_PRESET ? undefined : workflowPresetCatalog(settings)[active];
+  const active = settings.presets?.activePreset ?? WORKFLOW_CUSTOM_PRESET_MARKER;
+  const preset = active === WORKFLOW_CUSTOM_PRESET_MARKER ? undefined : workflowPresetCatalog(settings)[active];
   const lines = workflowPresetMeaningLines(active, preset);
   lines.push("Effective Settings: detailed current values are listed below.");
-  if (active !== WORKFLOW_MANUAL_PRESET) lines.push(`Reapply Command: /workflow presets apply ${active}`);
+  if (active !== WORKFLOW_CUSTOM_PRESET_MARKER) lines.push(`Reapply Command: /workflow presets apply ${active}`);
   return lines.join("\n");
 }
 
@@ -1184,10 +1218,10 @@ export function resolveWorkflowPresetName(settings: WorkflowSettings, input: str
 
 export function renderWorkflowPresets(settings: WorkflowSettings = loadGlobalSettings()): string {
   const catalog = workflowPresetCatalog(settings);
-  const active = settings.presets?.activePreset ?? WORKFLOW_MANUAL_PRESET;
+  const active = settings.presets?.activePreset ?? WORKFLOW_CUSTOM_PRESET_MARKER;
   const names = workflowPresetNames(settings);
-  const cards = [renderWorkflowPresetCard(WORKFLOW_MANUAL_PRESET, undefined, active === WORKFLOW_MANUAL_PRESET), ...names.map((name) => renderWorkflowPresetCard(name, catalog[name], name === active))];
-  return `# Workflow Presets\n\nActive Preset: ${activeWorkflowPresetLabel(settings)}\nShortcut: Ctrl+Shift+U cycles saved presets while Plan/Mission/Standard Mode is active\nSelector: /workflow presets\n\n${cards.join("\n\n") || "No presets available."}\n\nQuick commands:\n- /workflow presets list\n- /workflow presets apply <name>\n- /workflow presets next\n- /workflow presets prev\n- /workflow presets manual\n- /workflow presets save <name>\n- /workflow presets create <name> from simple|standard|deep|maximum\n- /workflow presets edit <name>\n- /workflow presets rename <old> to <new>\n- /workflow presets delete <name>\n\nBuilt-in presets are package-defined and sync with the extension. User-named custom presets are saved entries in workflow-settings.json and stay in hotkey cycling. Manual settings is only the no-saved-preset-active marker; extension updates preserve workflow-settings.json and do not overwrite custom presets. Presets adjust workflow behavior only and preserve model/provider choices, API keys, auth/session files, runtime workflow state, and shared compaction settings.`;
+  const cards = [renderWorkflowPresetCard(WORKFLOW_CUSTOM_PRESET_MARKER, undefined, active === WORKFLOW_CUSTOM_PRESET_MARKER), ...names.map((name) => renderWorkflowPresetCard(name, catalog[name], name === active))];
+  return `# Workflow Presets\n\nActive Preset: ${activeWorkflowPresetLabel(settings)}\nShortcut: Ctrl+Shift+U cycles saved presets while Plan/Mission/Standard Mode is active\nSelector: /workflow presets\n\n${cards.join("\n\n") || "No presets available."}\n\nQuick commands:\n- /workflow presets list\n- /workflow presets apply <name>\n- /workflow presets next\n- /workflow presets prev\n- /workflow presets save <name>\n- /workflow presets create <name> from simple|standard|deep|maximum\n- /workflow presets edit <name>\n- /workflow presets rename <old> to <new>\n- /workflow presets delete <name>\n\nBuilt-in presets are package-defined and sync with the extension. User-named custom presets are saved entries in workflow-settings.json and stay in hotkey cycling. The reserved custom marker only means no built-in or user-named preset is active. Extension updates preserve workflow-settings.json and do not overwrite custom presets. Presets adjust workflow behavior only and preserve model/provider choices, API keys, auth/session files, runtime workflow state, and shared compaction settings.`;
 }
 
 export function applyWorkflowPreset(cwd: string, requestedScope: WorkflowSettingsScope | undefined, name: string): SettingsWriteResult {
@@ -1205,14 +1239,13 @@ export function saveCurrentWorkflowPreset(cwd: string, requestedScope: WorkflowS
   assertValidCustomPresetName(name, safe);
   return updateSettings(cwd, requestedScope, (settings) => {
     settings.presets = { ...(settings.presets ?? {}), activePreset: safe, items: { ...(settings.presets?.items ?? {}) } };
-    const { models: _ignoredStandardModels, ...standardPreset } = settings.standard;
     settings.presets.items![safe] = {
       displayName: name.trim(),
       description: "Custom saved workflow preset.",
       planning: { ...settings.planning },
       workflow: { ...settings.workflow },
-      standard: { ...standardPreset },
-      missions: { ...settings.missions, models: undefined } as WorkflowPresetBundle["missions"],
+      standard: { ...standardSettingsWithoutModelRouting(settings.standard) } as WorkflowPresetBundle["standard"],
+      missions: { ...missionSettingsWithoutModelRouting(settings.missions) } as WorkflowPresetBundle["missions"],
       subagents: { ...settings.subagents },
       ui: { showWorkflowStatus: settings.ui.showWorkflowStatus, showPlanModeIndicator: settings.ui.showPlanModeIndicator, planTopWidgetVisible: settings.ui.planTopWidgetVisible, planBottomWidgetVisible: settings.ui.planBottomWidgetVisible, missionTopWidgetVisible: settings.ui.missionTopWidgetVisible, missionBottomWidgetVisible: settings.ui.missionBottomWidgetVisible, workflowTheme: settings.ui.workflowTheme, workflowThemeOverrides: settings.ui.workflowThemeOverrides, startupVisual: settings.ui.startupVisual, startupVisualOnSessionStart: settings.ui.startupVisualOnSessionStart, customBrandEnabled: settings.ui.customBrandEnabled, customBrandText: settings.ui.customBrandText },
     };
@@ -1256,7 +1289,7 @@ export function deleteWorkflowPreset(cwd: string, requestedScope: WorkflowSettin
     if (!resolved || builtInWorkflowPresets()[resolved]) throw new Error(`Cannot delete unknown or built-in workflow preset: ${name}`);
     const items = { ...(settings.presets?.items ?? {}) };
     delete items[resolved];
-    settings.presets = { ...(settings.presets ?? {}), activePreset: settings.presets?.activePreset === resolved ? "custom" : settings.presets?.activePreset, items };
+    settings.presets = { ...(settings.presets ?? {}), activePreset: settings.presets?.activePreset === resolved ? WORKFLOW_CUSTOM_PRESET_MARKER : settings.presets?.activePreset, items };
   }, { preserveActivePreset: true });
 }
 
@@ -1413,7 +1446,7 @@ export function workflowSettingsConsistencyDiagnostics(settings: WorkflowSetting
   if (settings.missions.autoRepairReviewFailures !== false && settings.missions.reviewRetryMode === "off") {
     diagnostics.push("mission review auto-repair is enabled but reviewRetryMode is off — override to safe_only will be applied at runtime; set reviewRetryMode explicitly to avoid confusion");
   }
-  const activePreset = settings.presets?.activePreset ?? WORKFLOW_MANUAL_PRESET;
+  const activePreset = settings.presets?.activePreset ?? WORKFLOW_CUSTOM_PRESET_MARKER;
   if ((activePreset === "standard" || activePreset === "deep" || activePreset === "maximum")
     && (settings.missions.autoRepairReviewFailures === false || settings.missions.reviewRetryMode === "off" || (settings.missions.maxReviewRetriesPerMission ?? 0) <= 0)) {
     diagnostics.push(`active preset ${activePreset} expects Mission review repair to be available, but effective Mission review repair is disabled/off/zero; reapply the preset or update missions.autoRepairReviewFailures, missions.reviewRetryMode, and missions.maxReviewRetriesPerMission`);

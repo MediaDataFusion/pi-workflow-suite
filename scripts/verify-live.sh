@@ -17,6 +17,30 @@ require_file() {
   fi
 }
 
+require_text() {
+  local rel="$1"
+  local needle="$2"
+  require_file "$rel"
+  if grep -Fq "$needle" "$LIVE_DIR/$rel"; then
+    printf 'verified text: %s contains %s\n' "$rel" "$needle"
+  else
+    printf 'missing expected text in %s: %s\n' "$LIVE_DIR/$rel" "$needle" >&2
+    missing=1
+  fi
+}
+
+require_absent_text() {
+  local rel="$1"
+  local needle="$2"
+  require_file "$rel"
+  if grep -Fq "$needle" "$LIVE_DIR/$rel"; then
+    printf 'unexpected text in %s: %s\n' "$LIVE_DIR/$rel" "$needle" >&2
+    missing=1
+  else
+    printf 'verified absent text: %s does not contain %s\n' "$rel" "$needle"
+  fi
+}
+
 warn_path() {
   local rel="$1"
   local message="$2"
@@ -74,6 +98,24 @@ require_file "extensions/workflow-tool-guard.ts"
 require_file "extensions/workflow-model-router.ts"
 require_file "extensions/subagent/index.ts"
 require_file "extensions/subagent/agents.ts"
+require_file "package.json"
+require_file "VERSION"
+
+require_text "package.json" '"./extensions/workflow-modes.ts"'
+require_text "package.json" '"./extensions/subagent/index.ts"'
+require_text "package.json" '"./config/prompts"'
+require_text "package.json" '"!*.md"'
+require_absent_text "package.json" '"effect":'
+
+require_text "extensions/workflow-tool-guard.ts" 'export const WORKFLOW_PLAN_RESULT_TOOL = "workflow_plan_result";'
+require_text "extensions/workflow-tool-guard.ts" 'export const WORKFLOW_REVIEW_RESULT_TOOL = "workflow_review_result";'
+require_text "extensions/workflow-tool-guard.ts" 'export const WORKFLOW_EXECUTION_RESULT_TOOL = "workflow_execution_result";'
+require_text "extensions/workflow-tool-guard.ts" 'export const WORKFLOW_VALIDATION_RESULT_TOOL = "workflow_validation_result";'
+require_text "extensions/workflow-tool-guard.ts" 'export const WORKFLOW_REPAIR_RESULT_TOOL = "workflow_repair_result";'
+require_text "extensions/workflow-tool-guard.ts" 'export const MISSION_PLAN_RESULT_TOOL = "mission_plan_result";'
+require_text "extensions/workflow-tool-guard.ts" 'export const MISSION_MILESTONE_RESULT_TOOL = "mission_milestone_result";'
+require_text "extensions/workflow-tool-guard.ts" 'export const STANDARD_HANDOFF_RESULT_TOOL = "standard_handoff_result";'
+require_text "extensions/workflow-modes.ts" 'workflow_repair_result({ status, changedFiles, movedFiles, preservedFiles, deletedFiles, rootArtifacts, possiblyUserOwnedFiles, needsUserApproval, safetyFlags, summary })'
 
 require_file "agents/codebase-research.md"
 require_file "agents/general-worker.md"
@@ -94,11 +136,15 @@ require_file "config/prompts/validate-approved-plan.md"
 require_file "config/prompts/workflow-plan-prompt.md"
 require_file "config/prompts/workflow-summary.md"
 require_file "config/prompts/workflow-repair.md"
+require_file "config/prompts/workflow-reviewer-prompt.md"
 require_file "config/prompts/mission-plan.md"
 require_file "config/prompts/mission-run.md"
+require_file "config/prompts/mission-review-prompt.md"
 require_file "config/prompts/mission-repair.md"
 require_file "config/prompts/mission-checkpoint.md"
 require_file "config/prompts/mission-final-validation.md"
+require_text "config/prompts/workflow-repair.md" "possibly user-owned"
+require_text "config/prompts/mission-repair.md" "possibly user-owned"
 
 require_file "config/workflow-settings.example.json"
 

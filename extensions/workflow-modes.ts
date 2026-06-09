@@ -8,7 +8,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
 import { CustomEditor, VERSION, compact as piCompact, estimateTokens as piEstimateTokens, findCutPoint as piFindCutPoint, getAgentDir, getMarkdownTheme, type ExtensionAPI, type ExtensionContext, type FileOperations, type SessionEntry, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { activeWorkflowPresetLabel, applyMissionModelForRole, applyModelForRole, applyStandardModelForRole, applyWorkflowPreset, compactionModeLabel, createProjectSettingsOverride, createWorkflowPreset, defaultWorkflowSettings, deleteWorkflowPreset, effectivePlanApprovalRequired, effectiveReviewAutoRun, effectiveValidateAfterExecution, effectiveValidationAutoRun, effectiveRepairGate, formatRole, getDefaultWriteTarget, loadEffectiveSettings, loadGlobalSettings, loadWorkflowSettings, normalizeWorkflowPresetName, parseMissionModelRole, parseRole, parseThinkingLevel, renameWorkflowPreset, renderActiveWorkflowPresetSummary, renderStandardModelStrategy, renderWorkflowModels, renderWorkflowPresets, resolveWorkflowPresetName, roleIsConfigured, saveCurrentWorkflowPreset, setMissionModelForRole, setMissionThinkingForRole, setModelForRole, setRoleEnabled, setStandardModelForRole, setStandardThinkingForRole, setThinkingForRole, standardModelSource, standardModelSourceLabel, standardTodoTriggerModeLabel, updateSettings, workflowCompactionCheckModeLabel, workflowPresetCatalog, workflowPresetLabel, workflowPresetNames, workflowPresetPickerLabel, workflowRoleLabel, workflowSettingsConsistencyDiagnostics, WORKFLOW_MANUAL_PRESET, WORKFLOW_SETTINGS_FILE, type MissionModelRole, type RoleModelSettings, type WorkflowRole, type WorkflowSettingsScope, type WorkflowStartupLogo, type WorkflowStartupLogoColorStyle, type WorkflowStartupLogoFont, type WorkflowStartupLogoShadowDirection, type WorkflowStartupVisual, type CustomBrandBaseVisual, type StandardClarificationMode, type StandardModelRole, type StandardTodoTriggerMode, type WorkflowAgentScope } from "./workflow-model-router.js";
+import { activeWorkflowPresetLabel, applyMissionModelForRole, applyModelForRole, applyStandardModelForRole, applyWorkflowPreset, compactionModeLabel, createProjectSettingsOverride, createWorkflowPreset, defaultWorkflowSettings, deleteWorkflowPreset, effectivePlanApprovalRequired, effectiveReviewAutoRun, effectiveValidateAfterExecution, effectiveValidationAutoRun, effectiveRepairGate, formatRole, getDefaultWriteTarget, loadEffectiveSettings, loadGlobalSettings, loadWorkflowSettings, normalizeWorkflowPresetName, parseMissionModelRole, parseRole, parseThinkingLevel, renameWorkflowPreset, renderActiveWorkflowPresetSummary, renderStandardModelStrategy, renderWorkflowModels, renderWorkflowPresets, resolveWorkflowPresetName, roleIsConfigured, saveCurrentWorkflowPreset, setMissionModelForRole, setMissionThinkingForRole, setModelForRole, setRoleEnabled, setStandardModelForRole, setStandardThinkingForRole, setThinkingForRole, standardModelSource, standardModelSourceLabel, standardTodoTriggerModeLabel, updateSettings, workflowCompactionCheckModeLabel, workflowPresetCatalog, workflowPresetLabel, workflowPresetNames, workflowPresetPickerLabel, workflowRoleLabel, workflowSettingsConsistencyDiagnostics, WORKFLOW_CUSTOM_PRESET_MARKER, WORKFLOW_SETTINGS_FILE, type MissionModelRole, type RoleModelSettings, type WorkflowRole, type WorkflowSettingsScope, type WorkflowStartupLogo, type WorkflowStartupLogoColorStyle, type WorkflowStartupLogoFont, type WorkflowStartupLogoShadowDirection, type WorkflowStartupVisual, type CustomBrandBaseVisual, type StandardClarificationMode, type StandardModelRole, type StandardTodoTriggerMode, type WorkflowAgentScope } from "./workflow-model-router.js";
 import { renderHandoffProjectContext, renderWorkflowStatus, renderWorkflowSummary } from "./workflow-summary.js";
 import { BASE_EXECUTE_TOOLS, EXECUTE_TOOLS, PLAN_TOOLS, REVIEW_TOOLS, WORKFLOW_DIAGRAM_TOOL, WORKFLOW_PLAN_RESULT_TOOL, WORKFLOW_REVIEW_RESULT_TOOL, WORKFLOW_EXECUTION_RESULT_TOOL, WORKFLOW_VALIDATION_RESULT_TOOL, WORKFLOW_REPAIR_RESULT_TOOL, WORKFLOW_PROGRESS_TOOL, MISSION_PLAN_RESULT_TOOL, MISSION_MILESTONE_RESULT_TOOL, STANDARD_HANDOFF_RESULT_TOOL, isBlockedExecuteCommand, registerToolGuard, standardSafeReadOnlyBash, VALIDATOR_TOOLS } from "./workflow-tool-guard.js";
 import { refreshRuntimeWebTools, registerWorkflowWebTools, runtimeWebResearchGuidance, webSafePlanTools, withRuntimeWebTools } from "./workflow-web-tools.js";
@@ -1918,7 +1918,7 @@ function artifactSafetyPolicyBlock(audience: ArtifactSafetyAudience = "general")
         : audience === "validation"
           ? `Validation requirement: remain read-only. Prefer text evidence over temporary files; if evidence files are unavoidable, do not write them at repository root and never repair or relocate files during validation.`
           : audience === "repair"
-            ? `Repair requirement: repair may move only current-task-created misplaced recoverable files when safe and in scope. Disclose moved, preserved, deleted, root, and possibly user-owned files in workflow_repair_result; deletion requires explicit safety evidence or approval.`
+            ? `Repair requirement: keep repairing concrete in-scope failures until revalidation is ready. Repair may move only current-task-created misplaced recoverable files when safe and in scope. Disclose moved, preserved, deleted, root, and possibly user-owned files in workflow_repair_result; set needsUserApproval only when a concrete hard-safety action or artifact disposition must stop automatic revalidation. Advisory follow-up, credential rotation recommendations, preserved ambiguous files, manual QA still needed, and pre-existing debt belong in summary/safety notes, not needsUserApproval. Deletion requires explicit safety evidence or approval.`
             : audience === "subagent"
               ? `Sub-agent requirement: support workers default to read-only inspection. They must not create, delete, move, or clean files unless explicitly authorized with path-approved scope by the parent workflow.`
               : `General requirement: keep artifact placement explicit, preserve recoverable content, and report uncertain cleanup for user approval.`;
@@ -1927,7 +1927,7 @@ function artifactSafetyPolicyBlock(audience: ArtifactSafetyAudience = "general")
 
 function repairArtifactDispositionOutput(): string {
   return `## Artifact Disposition
-List movedFiles, preservedFiles, deletedFiles, rootArtifacts, possiblyUserOwnedFiles, and needsUserApproval. State "none" for empty categories. Deletion is acceptable only when explicitly approved or clearly current-task-generated, unrecoverable, and non-user-owned; otherwise preserve or request approval.`;
+List movedFiles, preservedFiles, deletedFiles, rootArtifacts, possiblyUserOwnedFiles, and needsUserApproval. State "none" for empty categories. Set needsUserApproval only for a concrete disposition/action that should block automatic revalidation. Do not set it for advisory-only follow-up, credential rotation recommendations, preserved ambiguous files, manual QA still needed, or pre-existing debt. Deletion is acceptable only when explicitly approved or clearly current-task-generated, unrecoverable, and non-user-owned; otherwise preserve or request approval.`;
 }
 
 function phasePromptPolicyBlock(settings: ReturnType<typeof loadWorkflowSettings>, phase: SubagentPhase, label: string = phase, preflightBlock?: string): string {
@@ -2286,7 +2286,7 @@ ${professionalOutputGuidance("Plan repair")}
 Diagram guidance:
 ${workflowMermaidGuidance()}
 
-Approved plan remains the execution contract. Repair only concrete validator-identified failures below. Do not expand scope. Do not commit. Do not push. Do not deploy. Do not change secrets, auth/session files, database schema/data, or environment files unless the user explicitly approved that exact repair. Repair mode cannot declare the work PASS; only a subsequent validator/revalidator can do that. If no safe concrete edit is appropriate because the finding involves only manual/visual/browser verification or an evidence gap, produce a no-op repair summary recommending revalidation. Do not make unsafe or out-of-scope edits solely to produce file changes.
+Approved plan remains the execution contract. Repair concrete validator-identified failures below and keep going while fixes are in-scope and non-destructive. Do not expand scope. Do not commit. Do not push. Do not deploy. Do not change secrets, auth/session files, database schema/data, or environment files unless the user explicitly approved that exact repair. Repair mode cannot declare the work PASS; only a subsequent validator/revalidator can do that. If no safe concrete edit is appropriate because the finding involves only manual/visual/browser verification or an evidence gap, produce a no-op repair summary recommending revalidation. Do not make unsafe or out-of-scope edits solely to produce file changes. Do not mark advisory-only follow-up as needsUserApproval; preserve it in the summary and allow revalidation.
 
 ${artifactSafetyPolicyBlock("repair")}
 
@@ -3020,7 +3020,7 @@ function workflowActivePhaseDisplay(value: string | undefined): WorkflowActivePh
 }
 
 function standardActivePresentation(state: WorkflowState): boolean {
-  return state.standardRuntime?.active === true || state.standardTodo?.status === "active" || Boolean(state.mode === "standard" && state.standardActivePhase);
+  return state.standardRuntime?.active === true;
 }
 
 function standardDisplayPhase(state: WorkflowState): string {
@@ -3207,6 +3207,16 @@ function compactionTriggerPercent(settings: ReturnType<typeof loadWorkflowSettin
 function compactionTriggerOverrideLabel(settings: ReturnType<typeof loadWorkflowSettings>): string {
   const value = settings.context.compactionTriggerPercent;
   return typeof value === "number" ? `${value}%` : "none";
+}
+
+function resetCompactionContextToPiDefault(context: ReturnType<typeof loadWorkflowSettings>["context"]): void {
+  context.compactionMode = "pi_default";
+  context.customCompactionEnabled = false;
+  context.compactionAgent = "";
+  context.customCompactionReserveTokens = DEFAULT_PI_COMPACTION_RESERVE_TOKENS;
+  context.customCompactionKeepRecentTokens = DEFAULT_PI_COMPACTION_KEEP_RECENT_TOKENS;
+  context.workflowCompactionCheckMode = "boundary";
+  delete context.compactionTriggerPercent;
 }
 
 function effectiveWorkflowCompactionTriggerPercent(settings: ReturnType<typeof loadWorkflowSettings>, ctx: ExtensionContext, usage: { contextWindow?: number }): number {
@@ -4268,7 +4278,7 @@ function standardTodoWidget(state: WorkflowState, settings: ReturnType<typeof lo
   const done = standardTodoDoneCount(todo);
   const current = standardTodoCurrentIndex(todo);
   const next = todo.items.findIndex((item, index) => index > current && item.status === "pending");
-  const status = todo.status === "active" ? "executing" : todo.status;
+  const status = todo.status === "active" ? standardDisplayPhase(state) : todo.status;
   return [
     ...progressHeaderLines("STANDARD", workflowHeaderState(status), standardTodoProgressBar(todo, settings), standardTodoRuntimeSummaryLine(state), `To Do: ${done} of ${todo.items.length}`),
     `Current: ${standardTodoItemLabel(todo, current, "Standard assistance")}`,
@@ -6533,25 +6543,32 @@ function subagentActivityLines(ctx: ExtensionContext, activeSubagents: ActiveSub
   return [title, ...fgLines, ...bgLines];
 }
 
+function composeBottomProgressWidgetLines(leftLines: string[], rightLines: string[] = [], width: number): string[] {
+  const safeWidth = Math.max(0, width);
+  if (!rightLines.length) return leftLines.map((line) => truncateVisibleText(line, safeWidth));
+  const reservedRightWidth = Math.min(safeWidth, Math.max(28, Math.min(36, Math.max(...rightLines.map(visibleTextWidth)))));
+  const gapWidth = safeWidth > reservedRightWidth ? 1 : 0;
+  const leftWidth = Math.max(0, safeWidth - reservedRightWidth - gapWidth);
+  const rowCount = Math.max(leftLines.length, rightLines.length);
+  return Array.from({ length: rowCount }, (_, index) => {
+    const left = leftLines[index];
+    const right = rightLines[index];
+    const clippedLeft = left ? truncateVisibleText(left, leftWidth) : "";
+    const clippedRight = right ? truncateVisibleText(right, reservedRightWidth) : "";
+    if (!right) return truncateVisibleText(clippedLeft, safeWidth);
+    if (!clippedLeft) {
+      const rightOnlyGap = Math.max(0, safeWidth - visibleTextWidth(clippedRight));
+      return truncateVisibleText(`${" ".repeat(rightOnlyGap)}${clippedRight}`, safeWidth);
+    }
+    const desiredGap = Math.max(gapWidth, safeWidth - visibleTextWidth(clippedLeft) - visibleTextWidth(clippedRight));
+    return truncateVisibleText(`${clippedLeft}${" ".repeat(desiredGap)}${clippedRight}`, safeWidth);
+  });
+}
+
 function bottomProgressWidget(leftLines: string[], rightLines: string[] = []): (tui: unknown, theme: unknown) => { render(width: number): string[]; invalidate(): void } {
   return () => ({
     render(width: number) {
-      const safeWidth = Math.max(0, width);
-      if (!rightLines.length) return leftLines.map((line) => truncateVisibleText(line, safeWidth));
-      const reservedRightWidth = Math.min(safeWidth, Math.max(28, Math.min(36, Math.max(...rightLines.map(visibleTextWidth)))));
-      const gapWidth = safeWidth > reservedRightWidth ? 1 : 0;
-      const leftWidth = Math.max(0, safeWidth - reservedRightWidth - gapWidth);
-      const rowCount = Math.max(leftLines.length, rightLines.length);
-      return Array.from({ length: rowCount }, (_, index) => {
-        const left = leftLines[index];
-        const right = rightLines[index];
-        const clippedLeft = left ? truncateVisibleText(left, leftWidth) : "";
-        const clippedRight = right ? truncateVisibleText(right, reservedRightWidth) : "";
-        if (!right) return truncateVisibleText(clippedLeft, safeWidth);
-        if (!clippedLeft) return truncateVisibleText(clippedRight, safeWidth);
-        const desiredGap = Math.max(gapWidth, safeWidth - visibleTextWidth(clippedLeft) - visibleTextWidth(clippedRight));
-        return truncateVisibleText(`${clippedLeft}${" ".repeat(desiredGap)}${clippedRight}`, safeWidth);
-      });
+      return composeBottomProgressWidgetLines(leftLines, rightLines, width);
     },
     invalidate() {},
   });
@@ -6885,7 +6902,6 @@ function workflowArtifactOverlaps(possiblyUserOwnedPath: string, mutatedPath: st
 }
 
 function repairArtifactSafetyBlock(params: Record<string, unknown>): string | undefined {
-  if (params.needsUserApproval === true) return "Typed repair result requires user approval for artifact disposition.";
   const deletedFiles = workflowStringArray(params.deletedFiles);
   if (deletedFiles.length > 0) return "Typed repair result reported deleted files; user review is required before revalidation.";
   const possiblyUserOwned = workflowStringArray(params.possiblyUserOwnedFiles);
@@ -6897,6 +6913,12 @@ function repairArtifactSafetyBlock(params: Record<string, unknown>): string | un
     ];
     const mutatedArtifact = mutatedArtifacts.find((artifact) => possiblyUserOwned.some((path) => workflowArtifactOverlaps(path, artifact)));
     if (mutatedArtifact) return `Typed repair result changed or moved possibly user-owned file: ${mutatedArtifact}`;
+  }
+  if (params.needsUserApproval === true) {
+    const movedFiles = workflowStringArray(params.movedFiles);
+    if (movedFiles.length > 0) return "Typed repair result requires user approval for moved file disposition.";
+    const rootArtifacts = workflowStringArray(params.rootArtifacts);
+    if (rootArtifacts.length > 0) return "Typed repair result requires user approval for root artifact disposition.";
   }
   return undefined;
 }
@@ -8040,7 +8062,74 @@ function missionRepairPrompt(mission: MissionState, settings: ReturnType<typeof 
   const last = mission.checkpoints[mission.checkpoints.length - 1];
   const repairPrompt = readPromptFile("mission-repair.md", "Repair only the current mission milestone validation failure safely, then summarize for revalidation.");
   const subagentPolicyBlock = phasePromptPolicyBlock(settings, "Repair", "Mission Repair", preflightBlock);
-  return `${repairPrompt}\n\n${professionalOutputGuidance("Mission repair")}\n\nMission ID: ${mission.id}\nMission goal:\n${mission.goal}\n\nAutonomy: ${mission.autonomy}\nCurrent milestone: ${milestone ? `${milestone.id} — ${milestone.title}` : "none"}\nApproved milestone scope:\nObjective: ${milestone?.objective ?? "none"}\nSteps:\n${(milestone?.steps ?? []).map((s) => `- ${s}`).join("\n") || "- none recorded"}\nValidation requirements:\n${(milestone?.validation ?? []).map((s) => `- ${s}`).join("\n") || "- none recorded"}\nRisks:\n${(milestone?.risks ?? []).map((s) => `- ${s}`).join("\n") || "- none recorded"}\n\nValidation failure details:\n${mission.lastValidationFailure || mission.lastBlockReason || "none recorded"}\n\nRetry count: ${mission.currentValidationRetry ?? 0} of ${maxValidationRetries(mission, settings)} per milestone\nMission retry count: ${missionValidationRetryCount(mission)} of ${maxMissionValidationRetries(mission, settings)} total\nLast repair attempt: ${mission.lastRepairAttempt || "none"}\nLast checkpoint: ${last ? `${last.id} at ${last.timestamp} — ${last.summary}` : "none"}\n\nSafety rules:\n- Only fix concrete validator-identified issues directly related to the failed milestone validation.\n- Do not re-grade validation or claim PASS; only Mission validation can pass repaired work.\n- If the validation finding is only manual/visual/browser verification or says no automated repair is needed, do not make changes; summarize manual QA/revalidation readiness.\n- Do not expand scope beyond the current approved milestone.\n- Do not perform destructive actions.\n- Do not edit secrets, auth/session/log/runtime-state files, .env, .factory, or .cursor.\n- Do not deploy. Do not push. Do not mutate databases.\n- Stop and report if repair requires destructive, out-of-scope, secret, database, deployment, or other risky action.\n\n${artifactSafetyPolicyBlock("repair")}\n\nSettings:\n- validationRetryMode: ${settings.missions.validationRetryMode ?? "safe_only"}\n- requireApprovalForOutOfScopeRepair: ${settings.missions.requireApprovalForOutOfScopeRepair !== false}\n- requireApprovalForDestructiveRepair: ${settings.missions.requireApprovalForDestructiveRepair !== false}\n- autoRepairValidationFailures: ${settings.missions.autoRepairValidationFailures !== false}\n- pauseAfterValidationFailure: ${settings.missions.pauseAfterValidationFailure === true}\n\n${subagentPolicyBlock}${requiredSubagentPreflightSection(preflightBlock)}\n\n${subagentCapabilityTable()}\n\nDiagram guidance:\n${workflowMermaidGuidance()}\n\nRevalidation requirement:\n- Summarize whether the current milestone is ready for validator revalidation.\n- Do not mark the milestone complete yourself; Mission Mode will re-run validation according to repair/retry settings.\n\nOutput:\n# Mission Repair Summary\n## Repair Scope\n## Work Completed\n## Files Changed\n${repairArtifactDispositionOutput()}\n## Remaining Risks\n## Revalidation Readiness\n## Next Action`;
+  return `${repairPrompt}
+
+${professionalOutputGuidance("Mission repair")}
+
+Mission ID: ${mission.id}
+Mission goal:
+${mission.goal}
+
+Autonomy: ${mission.autonomy}
+Current milestone: ${milestone ? `${milestone.id} — ${milestone.title}` : "none"}
+Approved milestone scope:
+Objective: ${milestone?.objective ?? "none"}
+Steps:
+${(milestone?.steps ?? []).map((s) => `- ${s}`).join("\n") || "- none recorded"}
+Validation requirements:
+${(milestone?.validation ?? []).map((s) => `- ${s}`).join("\n") || "- none recorded"}
+Risks:
+${(milestone?.risks ?? []).map((s) => `- ${s}`).join("\n") || "- none recorded"}
+
+Validation failure details:
+${mission.lastValidationFailure || mission.lastBlockReason || "none recorded"}
+
+Retry count: ${mission.currentValidationRetry ?? 0} of ${maxValidationRetries(mission, settings)} per milestone
+Mission retry count: ${missionValidationRetryCount(mission)} of ${maxMissionValidationRetries(mission, settings)} total
+Last repair attempt: ${mission.lastRepairAttempt || "none"}
+Last checkpoint: ${last ? `${last.id} at ${last.timestamp} — ${last.summary}` : "none"}
+
+Safety rules:
+- Only fix concrete validator-identified issues directly related to the failed milestone validation.
+- Do not re-grade validation or claim PASS; only Mission validation can pass repaired work.
+- If the validation finding is only manual/visual/browser verification or says no automated repair is needed, do not make changes; summarize manual QA/revalidation readiness.
+- Do not expand scope beyond the current approved milestone.
+- Do not perform destructive actions.
+- Do not edit secrets, auth/session/log/runtime-state files, .env, .factory, or .cursor.
+- Do not deploy. Do not push. Do not mutate databases.
+- Stop and report if repair requires destructive, out-of-scope, secret, database, deployment, or other risky action.
+- Keep repairing concrete in-scope failures while fixes are non-destructive.
+- Do not mark advisory-only follow-up as needsUserApproval; preserve credential rotation recommendations, preserved ambiguous files, manual QA still needed, and pre-existing debt in the summary/safety notes and allow revalidation.
+
+${artifactSafetyPolicyBlock("repair")}
+
+Settings:
+- validationRetryMode: ${settings.missions.validationRetryMode ?? "safe_only"}
+- requireApprovalForOutOfScopeRepair: ${settings.missions.requireApprovalForOutOfScopeRepair !== false}
+- requireApprovalForDestructiveRepair: ${settings.missions.requireApprovalForDestructiveRepair !== false}
+- autoRepairValidationFailures: ${settings.missions.autoRepairValidationFailures !== false}
+- pauseAfterValidationFailure: ${settings.missions.pauseAfterValidationFailure === true}
+
+${subagentPolicyBlock}${requiredSubagentPreflightSection(preflightBlock)}
+
+${subagentCapabilityTable()}
+
+Diagram guidance:
+${workflowMermaidGuidance()}
+
+Revalidation requirement:
+- Summarize whether the current milestone is ready for validator revalidation.
+- Do not mark the milestone complete yourself; Mission Mode will re-run validation according to repair/retry settings.
+
+Output:
+# Mission Repair Summary
+## Repair Scope
+## Work Completed
+## Files Changed
+${repairArtifactDispositionOutput()}
+## Remaining Risks
+## Revalidation Readiness
+## Next Action`;
 }
 
 function parseMissionMilestones(text: string): MissionMilestone[] {
@@ -8570,7 +8659,7 @@ export default function workflowModes(pi: ExtensionAPI): void {
     const reason = workflowTypedSummary(params, "Structured Standard handoff recorded.");
     const patch: Partial<WorkflowState> = { standardLastAutoCheckAt: new Date().toISOString(), standardLastClarificationDecision: clarificationDecision ? standardClarificationDisplay(clarificationDecision) : undefined, standardLastClarificationReason: reason, standardLastTodoDecision: todoDecision ? standardTodoDisplay(todoDecision) : undefined, standardLastTodoReason: reason };
     const todoItems = workflowStringArray(params.todoItems);
-    if (todoItems.length && (todoDecision === "create" || todoDecision === "required")) patch.standardTodo = createStandardTodoFromTitles(state.task ?? state.originalTask ?? "Standard Mode task", todoItems) ?? state.standardTodo;
+    if (todoItems.length && (todoDecision === "create" || todoDecision === "required") && !state.standardTodo?.items.length) patch.standardTodo = createStandardTodoFromTitles(state.task ?? state.originalTask ?? "Standard Mode task", todoItems) ?? state.standardTodo;
     if (clarificationDecision === "ask") {
       const questions = normalizeTypedClarificationQuestions(params.questions, Math.max(1, Math.min(2, settings.standard.maxClarificationQuestions ?? 1)));
       Object.assign(patch, { standardClarificationPending: true, standardClarificationStage: "awaiting_answer", standardClarificationRequirementReason: reason, standardClarifyingQuestions: questions.length ? questions : undefined });
@@ -8883,6 +8972,7 @@ export default function workflowModes(pi: ExtensionAPI): void {
       return;
     }
     if (state.mode === "standard") {
+      finalizeStandardTerminalStateIfIdle(ctx, `user wait: ${reason}`);
       setStandardRuntimeActive(ctx, false);
       traceWorkflowTracking(ctx, "standard-runtime-user-wait", { reason });
       return;
@@ -8906,12 +8996,53 @@ export default function workflowModes(pi: ExtensionAPI): void {
       traceWorkflowTracking(ctx, "standard-runtime-pause-deferred", { reason });
       return;
     }
+    finalizeStandardTerminalStateIfIdle(ctx, `idle pause: ${reason}`);
     setStandardRuntimeActive(ctx, false);
   };
   const scheduleStandardRuntimeIdleCheck = (ctx: ExtensionContext, reason: string): void => {
     setTimeout(() => {
       if (state.mode === "standard") pauseStandardRuntimeIfIdle(ctx, reason);
     }, 0);
+  };
+  const completeStandardTodoForTerminalHandoff = (todo: StandardTodoState | undefined): StandardTodoState | undefined => {
+    if (!todo?.items.length || todo.status === "completed" || todo.status === "blocked") return todo;
+    const hasBlocked = todo.items.some((item) => item.status === "blocked");
+    const items = todo.items.map((item) => item.status === "blocked" ? item : item.status === "skipped" ? item : { ...item, status: "completed" as const });
+    return {
+      ...todo,
+      updatedAt: new Date().toISOString(),
+      status: hasBlocked ? "blocked" : "completed",
+      currentItemIndex: Math.max(0, items.length - 1),
+      items,
+    };
+  };
+  const standardTerminalStatePatch = (completeTodo: boolean): Partial<WorkflowState> => {
+    const terminalTodo = completeTodo ? completeStandardTodoForTerminalHandoff(state.standardTodo) : state.standardTodo;
+    return {
+      lastWorkflowHandoff: undefined,
+      standardActivePhase: undefined,
+      standardWorkKind: undefined,
+      standardClarificationPending: false,
+      standardClarificationStage: state.standardClarificationStage === "drafting" || state.standardClarificationStage === "awaiting_answer" ? undefined : state.standardClarificationStage,
+      standardTodo: terminalTodo,
+      standardRuntime: state.standardRuntime ? { ...state.standardRuntime, active: false, runtimeCounter: "paused" } : state.standardRuntime,
+    };
+  };
+  const finalizeStandardTerminalStateIfIdle = (ctx: ExtensionContext, reason: string): boolean => {
+    if (state.mode !== "standard") return false;
+    if (workflowHasActiveOrPendingWork()) {
+      traceWorkflowTracking(ctx, "standard-terminal-finalize-deferred", { reason });
+      return false;
+    }
+    const hasAcceptedFinalHandoff = state.lastWorkflowHandoff?.type === STANDARD_HANDOFF_RESULT_TOOL
+      && state.standardClarificationStage !== "awaiting_answer";
+    const hasStalePausedPresentation = state.standardRuntime?.active === false
+      && (Boolean(state.standardActivePhase) || state.standardTodo?.status === "active");
+    if (hasStalePausedPresentation && (state.standardClarificationPending || state.standardClarificationStage === "awaiting_answer" || state.standardClarificationStage === "drafting")) return false;
+    if (!hasAcceptedFinalHandoff && !hasStalePausedPresentation) return false;
+    updateState(standardTerminalStatePatch(hasAcceptedFinalHandoff), ctx);
+    traceWorkflowTracking(ctx, "standard-terminal-finalized", { reason, fromHandoff: hasAcceptedFinalHandoff, stalePresentation: hasStalePausedPresentation });
+    return true;
   };
   const stopSubagentActivityTicker = (): void => {
     if (workflowSubagentActivityTimer) clearInterval(workflowSubagentActivityTimer);
@@ -9048,20 +9179,42 @@ export default function workflowModes(pi: ExtensionAPI): void {
     return eventText ? transientFailureReason(fallback, eventText) : fallback;
   };
 
+  const workflowContextRecoveryCanSend = (ctx: ExtensionContext): boolean => {
+    if (workflowActiveToolExecutions > 0 || workflowAutoCompactionRunning) return false;
+    try { return ctx.isIdle(); } catch { return true; }
+  };
+
+  const queueContextInterruptedWorkflowPrompt = (ctx: ExtensionContext, phase: WorkflowPendingToolPhase, content: string, recover: (reason: string) => void): boolean => {
+    if (workflowScheduledAgentTurns > 0) {
+      recordWorkflowInternalEvent(ctx, `Context-window workflow recovery already has a queued workflow turn for ${phase}; preserving active state.`);
+      return true;
+    }
+    if (workflowDeferredAutoCompaction) {
+      clearDeferredWorkflowCompaction();
+      rememberWorkflowCompactionCheck(`deferred proactive compaction cleared before context-window ${phase} recovery`);
+    }
+    recordWorkflowInternalEvent(ctx, `Context-window workflow interruption queued ${phase} recovery turn.`);
+    queueWorkflowPrompt(pi, content, {
+      ...buildQueuedPhaseRecovery(ctx, phase, recover),
+      initialDelayMs: workflowAutoCompactionRunning ? 3000 : 2000,
+      isIdle: () => workflowContextRecoveryCanSend(ctx),
+    });
+    return true;
+  };
+
   const recoverContextInterruptedWorkflowTurn = (event: unknown, ctx: ExtensionContext): boolean => {
-    if (workflowActiveToolExecutions > 0) return false;
     if (!planRuntimeTurnIsActive() && !missionRuntimeTurnIsActive()) return false;
     if (!workflowContextInterruptionEvidence(event, ctx)) return false;
     const settings = loadWorkflowSettings(ctx.cwd);
     state = persistWorkflowState(state, ctx);
-    if (state.mode === "executing") { queueWorkflowPrompt(pi, executePrompt(state, settings, phasePreflightBlocks.Execution), buildQueuedPhaseRecovery(ctx, "Execution", (reason) => recoverPlanTransientHandoffFailure(ctx, "execution", reason, { phase: "Execution" }))); return true; }
-    if (state.mode === "validating" || state.mode === "revalidating") { queueWorkflowPrompt(pi, validatePrompt(state, settings, phasePreflightBlocks.Validation), buildQueuedPhaseRecovery(ctx, "Validation", (reason) => recoverPlanTransientHandoffFailure(ctx, state.mode === "revalidating" ? "revalidation" : "validation", reason, { phase: "Validation" }))); return true; }
-    if (state.mode === "repairing") { queueWorkflowPrompt(pi, workflowRepairPrompt(state, settings, phasePreflightBlocks.Repair), buildQueuedPhaseRecovery(ctx, "Repair", (reason) => recoverPlanTransientHandoffFailure(ctx, "repair", reason, { phase: "Repair", preserveRetry: true }))); return true; }
+    if (state.mode === "executing") return queueContextInterruptedWorkflowPrompt(ctx, "Execution", executePrompt(state, settings, phasePreflightBlocks.Execution), (reason) => recoverPlanTransientHandoffFailure(ctx, "execution", reason, { phase: "Execution" }));
+    if (state.mode === "validating" || state.mode === "revalidating") return queueContextInterruptedWorkflowPrompt(ctx, "Validation", validatePrompt(state, settings, phasePreflightBlocks.Validation), (reason) => recoverPlanTransientHandoffFailure(ctx, state.mode === "revalidating" ? "revalidation" : "validation", reason, { phase: "Validation" }));
+    if (state.mode === "repairing") return queueContextInterruptedWorkflowPrompt(ctx, "Repair", workflowRepairPrompt(state, settings, phasePreflightBlocks.Repair), (reason) => recoverPlanTransientHandoffFailure(ctx, "repair", reason, { phase: "Repair", preserveRetry: true }));
     const mission = (state.activeMissionId ? loadMissionState(state.activeMissionId) : undefined) ?? activeMission ?? loadMissionState("latest");
-    if (state.mode === "mission_running" && mission) { queueWorkflowPrompt(pi, missionRuntimePrompt(mission, settings, phasePreflightBlocks.Execution), buildQueuedPhaseRecovery(ctx, "Execution", (reason) => recoverMissionTransientHandoffFailure(ctx, "run", reason, { phase: "Execution" }))); return true; }
-    if ((state.mode === "mission_validating" || state.mode === "mission_revalidating") && mission) { queueWorkflowPrompt(pi, missionValidationPrompt(mission, settings, state.executionSummary, phasePreflightBlocks.Validation), buildQueuedPhaseRecovery(ctx, "Validation", (reason) => recoverMissionTransientHandoffFailure(ctx, state.mode === "mission_revalidating" ? "revalidation" : "validation", reason, { phase: "Validation" }))); return true; }
-    if (state.mode === "mission_repairing" && mission) { queueWorkflowPrompt(pi, missionRepairPrompt(mission, settings, phasePreflightBlocks.Repair), buildQueuedPhaseRecovery(ctx, "Repair", (reason) => recoverMissionTransientHandoffFailure(ctx, "repair", reason, { phase: "Repair", preserveRetry: true }))); return true; }
-    if (state.mode === "mission_final_validating" && mission) { queueWorkflowPrompt(pi, missionFinalValidationPrompt(mission, settings, state.executionSummary, phasePreflightBlocks.Validation), buildQueuedPhaseRecovery(ctx, "Validation", (reason) => recoverMissionTransientHandoffFailure(ctx, "final_validation", reason, { phase: "Validation" }))); return true; }
+    if (state.mode === "mission_running" && mission) return queueContextInterruptedWorkflowPrompt(ctx, "Execution", missionRuntimePrompt(mission, settings, phasePreflightBlocks.Execution), (reason) => recoverMissionTransientHandoffFailure(ctx, "run", reason, { phase: "Execution" }));
+    if ((state.mode === "mission_validating" || state.mode === "mission_revalidating") && mission) return queueContextInterruptedWorkflowPrompt(ctx, "Validation", missionValidationPrompt(mission, settings, state.executionSummary, phasePreflightBlocks.Validation), (reason) => recoverMissionTransientHandoffFailure(ctx, state.mode === "mission_revalidating" ? "revalidation" : "validation", reason, { phase: "Validation" }));
+    if (state.mode === "mission_repairing" && mission) return queueContextInterruptedWorkflowPrompt(ctx, "Repair", missionRepairPrompt(mission, settings, phasePreflightBlocks.Repair), (reason) => recoverMissionTransientHandoffFailure(ctx, "repair", reason, { phase: "Repair", preserveRetry: true }));
+    if (state.mode === "mission_final_validating" && mission) return queueContextInterruptedWorkflowPrompt(ctx, "Validation", missionFinalValidationPrompt(mission, settings, state.executionSummary, phasePreflightBlocks.Validation), (reason) => recoverMissionTransientHandoffFailure(ctx, "final_validation", reason, { phase: "Validation" }));
     return false;
   };
 
@@ -12630,6 +12783,56 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     return !workflowHasActiveOrPendingValidationWork(ctx);
   }
 
+  function planActiveRuntimePhase(mode = state.mode): WorkflowPendingToolPhase | undefined {
+    if (mode === "reviewing") return "Review";
+    if (mode === "executing") return "Execution";
+    if (mode === "validating" || mode === "revalidating") return "Validation";
+    if (mode === "repairing") return "Repair";
+    return undefined;
+  }
+
+  function requiredPlanRuntimePhaseTools(phase: WorkflowPendingToolPhase, settings: ReturnType<typeof loadWorkflowSettings>): string[] {
+    if (phase === "Execution") return requiredPlanExecutionTools(settings);
+    if (phase === "Review") return [WORKFLOW_REVIEW_RESULT_TOOL];
+    if (phase === "Validation") return [WORKFLOW_VALIDATION_RESULT_TOOL];
+    if (phase === "Repair") return ["edit", "write", "bash", WORKFLOW_PROGRESS_TOOL, WORKFLOW_REPAIR_RESULT_TOOL];
+    return [WORKFLOW_PLAN_RESULT_TOOL];
+  }
+
+  function missingPlanRuntimePhaseTools(phase: WorkflowPendingToolPhase, settings: ReturnType<typeof loadWorkflowSettings>): string[] {
+    const active = new Set(pi.getActiveTools());
+    return requiredPlanRuntimePhaseTools(phase, settings).filter((tool) => !active.has(tool));
+  }
+
+  function workflowRuntimeIsIdle(ctx: ExtensionContext): boolean {
+    try { return ctx.isIdle(); } catch { return false; }
+  }
+
+  function planActiveRuntimeHasPendingWork(ctx: ExtensionContext): boolean {
+    return workflowActiveToolExecutions > 0
+      || workflowScheduledAgentTurns > 0
+      || runningSubagentActivity()
+      || Boolean(pendingWorkflowToolPhase)
+      || workflowHasQueuedMessages(ctx)
+      || !workflowRuntimeIsIdle(ctx);
+  }
+
+  function planActiveRuntimeIsRecoverablyStale(ctx: ExtensionContext): boolean {
+    const phase = planActiveRuntimePhase();
+    if (!phase) return false;
+    if (state.mode === "validating" || state.mode === "revalidating") return planValidationRuntimeIsStale(ctx);
+    if (planActiveRuntimeHasPendingWork(ctx)) return false;
+    return true;
+  }
+
+  function planActiveRuntimeStaleReason(ctx: ExtensionContext): string {
+    const settings = loadWorkflowSettings(ctx.cwd);
+    const phase = planActiveRuntimePhase();
+    const missing = phase ? missingPlanRuntimePhaseTools(phase, settings) : [];
+    const missingText = missing.length ? ` Missing active ${phase} tools: ${missing.join(", ")}.` : "";
+    return `Persisted Plan mode is ${state.mode}, but no active or queued workflow work is present.${missingText}`;
+  }
+
   async function resumeInterruptedPlanValidation(ctx: ExtensionContext, title: string): Promise<boolean> {
     const settings = loadWorkflowSettings(ctx.cwd);
     const revalidate = state.mode === "revalidating";
@@ -12643,6 +12846,46 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     if (!started && (state.mode === "validating" || state.mode === "revalidating")) {
       markPlanValidationHandoffDidNotStart(ctx, settings, "Recovered Plan validation runtime could not restart. Fix the validation blocker, then run /plan revalidate.");
     }
+    return true;
+  }
+
+  async function resumeInterruptedPlanExecution(ctx: ExtensionContext, title: string): Promise<boolean> {
+    const reason = planActiveRuntimeStaleReason(ctx);
+    recordWorkflowInternalEvent(ctx, `Recovered stale Plan execution runtime. ${reason}`);
+    show(pi, `# ${title}\n\nRecovered interrupted Plan execution runtime. Re-arming executor for the current active step.\n\n${workflowDisplayText(reason)}`);
+    await beginExecution(ctx, true);
+    return true;
+  }
+
+  async function resumeInterruptedPlanReview(ctx: ExtensionContext, title: string): Promise<boolean> {
+    const reason = planActiveRuntimeStaleReason(ctx);
+    recordWorkflowInternalEvent(ctx, `Recovered stale Plan review runtime. ${reason}`);
+    show(pi, `# ${title}\n\nRecovered interrupted Plan review runtime. Re-running reviewer.\n\n${workflowDisplayText(reason)}`);
+    await beginReview(ctx, true);
+    return true;
+  }
+
+  async function resumeInterruptedPlanRepair(ctx: ExtensionContext, title: string): Promise<boolean> {
+    const reason = planActiveRuntimeStaleReason(ctx);
+    const settings = loadWorkflowSettings(ctx.cwd);
+    const route = await applyModelForRole(pi, ctx, "executor", { cwd: ctx.cwd });
+    if (!route) {
+      show(pi, `# ${title}\n\nRecovered interrupted Plan repair runtime, but the executor model could not be applied. Configure executor, then run /plan repair or /plan retry.\n\n${workflowDisplayText(reason)}`);
+      return true;
+    }
+    clearPendingWorkflowToolPhase(ctx, "Repair", "resumeInterruptedPlanRepair");
+    armWorkflowToolsForPhase(ctx, "Repair", "resumeInterruptedPlanRepair");
+    updateState({
+      mode: "repairing",
+      lastRepairStatus: "running",
+      modelsUsed: { ...(state.modelsUsed ?? {}), executor: modelLabel(route) },
+      planProgress: workflowPlanProgressEnabled(settings)
+        ? mergePlanProgress({ ...state, mode: "repairing", lastRepairStatus: "running" }, settings, { lifecycleStatus: "repairing", repairStatus: "running", nextAction: "repair executor then validator" }, state.approvedPlan)
+        : state.planProgress,
+    }, ctx);
+    recordWorkflowInternalEvent(ctx, `Recovered stale Plan repair runtime. ${reason}`);
+    show(pi, `# ${title}\n\nRecovered interrupted Plan repair runtime. Re-arming repair executor.\n\n${workflowDisplayText(reason)}`);
+    queueWorkflowPrompt(pi, workflowRepairPrompt(state, settings, phasePreflightBlocks.Repair), buildQueuedPhaseRecovery(ctx, "Repair", (failureReason) => recoverPlanTransientHandoffFailure(ctx, "repair", failureReason, { phase: "Repair", preserveRetry: true })));
     return true;
   }
 
@@ -12670,7 +12913,18 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       return true;
     }
     if (state.mode === "executing") {
+      if (planActiveRuntimeIsRecoverablyStale(ctx)) return resumeInterruptedPlanExecution(ctx, title);
       show(pi, `# ${title}\n\nRecovered active Plan execution runtime from session history. Wait for execution completion.`);
+      return true;
+    }
+    if (state.mode === "reviewing") {
+      if (planActiveRuntimeIsRecoverablyStale(ctx)) return resumeInterruptedPlanReview(ctx, title);
+      show(pi, `# ${title}\n\nRecovered active Plan review runtime from session history. Wait for reviewer completion.`);
+      return true;
+    }
+    if (state.mode === "repairing") {
+      if (planActiveRuntimeIsRecoverablyStale(ctx)) return resumeInterruptedPlanRepair(ctx, title);
+      show(pi, `# ${title}\n\nRecovered active Plan repair runtime from session history. Wait for repair completion.`);
       return true;
     }
     return false;
@@ -12717,7 +12971,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     }, ctx);
   }
 
-  function planRecoveryGuidance(current: WorkflowState, validationAvailable: boolean): string {
+  function planRecoveryGuidance(current: WorkflowState, validationAvailable: boolean, activeRuntimeStale = false): string {
     if (current.mode === "idle" || current.mode === "cancelled" || current.mode === "awaiting_plan_input") {
       const latest = latestRecoverablePlan();
       if (latest) return `No active Plan Mode workflow is loaded. Recoverable approved plan found.\n\n${recoverablePlanDetails(latest)}\n\nNext action: /plan resume to restore it, /plan continue to run it, or /p <task> to start a new plan.`;
@@ -12727,12 +12981,12 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     if (current.mode === "awaiting_clarification") return "Plan is waiting for clarification answers. Next action: reply with choices like 1A, 2C, or use /clarify questions.";
     if (current.mode === "plan_draft") return "Draft plan is ready. Next action: /plan approve, /plan revise <feedback>, or /plan cancel.";
     if (current.mode === "plan_approved") return "Approved plan is loaded. Next action: /plan continue, /plan revalidate, /plan revise <feedback>, or /plan cancel.";
-    if (current.mode === "reviewing") return "Reviewer is already running. Wait for reviewer completion.";
+    if (current.mode === "reviewing") return activeRuntimeStale ? "Reviewer appears interrupted. Next action: /plan continue to rearm reviewer." : "Reviewer is already running. Wait for reviewer completion.";
     if (current.mode === "reviewed") return "Reviewer is complete. Next action: /plan continue to execute.";
-    if (current.mode === "executing") return "Executor is already running. Wait for execution completion.";
+    if (current.mode === "executing") return activeRuntimeStale ? "Execution appears interrupted. Next action: /plan continue to rearm executor." : "Executor is already running. Wait for execution completion.";
     if (current.mode === "executed") return validationAvailable ? "Execution is complete. Next action: /plan continue to validate." : "Execution is complete and validation is not active for this workflow. Next action: /plan continue to finish.";
-    if (current.mode === "validating" || current.mode === "revalidating") return "Validator is already running. Wait for validation result.";
-    if (current.mode === "repairing") return "Executor is already running in repair mode. Revalidation will start after repair completes.";
+    if (current.mode === "validating" || current.mode === "revalidating") return activeRuntimeStale ? "Validation appears interrupted. Next action: /plan continue to rearm validator." : "Validator is already running. Wait for validation result.";
+    if (current.mode === "repairing") return activeRuntimeStale ? "Repair appears interrupted. Next action: /plan continue to rearm repair executor." : "Executor is already running in repair mode. Revalidation will start after repair completes.";
     if (current.mode === "validated" && current.validationVerdict === "PASS") return "Validation passed. Next action: /plan continue to complete and return to ready state.";
     if (current.mode === "validated" && current.validationVerdict === "PARTIAL PASS") return classifyValidationFailure(current.validationVerdict, current.validationReport ?? current.lastValidationFailure ?? "", { concreteRepairableIssue: current.concreteRepairableIssue, manualVerificationRequired: current.manualVerificationRequired }) === "repairable" ? "Validation partially passed with repairable issues. Next actions: /plan repair, /plan retry, /plan revalidate, or /plan revise <feedback>." : "Validation partially passed. Next action: complete manual verification, then /plan revalidate or revise if scope changed.";
     if (current.mode === "validated" && (current.validationVerdict === "FAIL" || current.lastValidationFailure)) return "Validation failed. Next actions: /plan repair, /plan retry, /plan revalidate, or /plan revise <feedback>.";
@@ -12856,7 +13110,8 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     if (currentAdvancedSnapshot) restorePlanRuntimeSnapshotForResume(ctx, currentAdvancedSnapshot);
     const resolved = resolveActivePlanForResume();
     const allPlans = listWorkflowPlans().filter((plan) => plan.finalPlan?.trim());
-    if (resolved.source === "none" && allPlans.length === 0) return show(pi, `# Plan Resume\n\n${resolved.reason ?? planRecoveryGuidance(state, validationAvailable)}\n\nUse /workflow plans list to see saved plans.\n\n${renderWorkflowStatus(state, pi.getActiveTools(), ctx.cwd)}`);
+    const activeRuntimeStale = planActiveRuntimeIsRecoverablyStale(ctx);
+    if (resolved.source === "none" && allPlans.length === 0) return show(pi, `# Plan Resume\n\n${resolved.reason ?? planRecoveryGuidance(state, validationAvailable, activeRuntimeStale)}\n\nUse /workflow plans list to see saved plans.\n\n${renderWorkflowStatus(state, pi.getActiveTools(), ctx.cwd)}`);
     let selected = resolved.plan;
     if (resolved.source === "history" && selected) {
       const advancedSnapshot = findAdvancedPlanRuntimeSnapshot(ctx, selected);
@@ -12902,7 +13157,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     // Primary /plan resume surface: restore state, then let the user choose.
     const showActivePlanResumeActionMenu = async (currentPlan?: SavedWorkflowPlan): Promise<void> => {
       const details = currentPlan ? `\n\n${recoverablePlanDetails(currentPlan)}` : "";
-      const summary = `# Plan Resume\n\n${currentPlan ? "Plan loaded from saved history." : state.approvedPlan ? "Current plan is loaded." : "No current plan is loaded."}${details}\n\n${planRecoveryGuidance(state, validationAvailable)}\n\n${renderWorkflowStatus(state, pi.getActiveTools(), ctx.cwd)}`;
+      const summary = `# Plan Resume\n\n${currentPlan ? "Plan loaded from saved history." : state.approvedPlan ? "Current plan is loaded." : "No current plan is loaded."}${details}\n\n${planRecoveryGuidance(state, validationAvailable, planActiveRuntimeIsRecoverablyStale(ctx))}\n\n${renderWorkflowStatus(state, pi.getActiveTools(), ctx.cwd)}`;
       show(pi, `${summary}\n\nChoose what to do.`);
       if (!ctx.hasUI) return;
       const hasAlternatives = allPlans.some((plan) => plan.id !== currentPlan?.id);
@@ -12990,8 +13245,20 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     if (state.mode === "planning") return show(pi, `# ${title}\n\nPlanner is already running. Wait for the draft plan or clarification request.\n\n${status}`);
     if (state.mode === "awaiting_clarification") return show(pi, `# ${title}\n\nPlan is waiting for clarification answers. Next action: reply with choices like 1A, 2C, or use /clarify questions.\n\n${status}`);
     if (state.mode === "plan_draft") return show(pi, `# ${title}\n\nDraft plan is ready. Next action: /plan approve, /plan revise <feedback>, or /plan cancel.\n\n${status}`);
-    if (state.mode === "reviewing") return show(pi, `# ${title}\n\nReviewer is already running. Wait for reviewer completion.\n\n${status}`);
-    if (state.mode === "executing") return show(pi, `# ${title}\n\nExecutor is already running. Wait for execution completion.\n\n${status}`);
+    if (state.mode === "reviewing") {
+      if (planActiveRuntimeIsRecoverablyStale(ctx)) {
+        await resumeInterruptedPlanReview(ctx, title);
+        return;
+      }
+      return show(pi, `# ${title}\n\nReviewer is already running. Wait for reviewer completion.\n\n${status}`);
+    }
+    if (state.mode === "executing") {
+      if (planActiveRuntimeIsRecoverablyStale(ctx)) {
+        await resumeInterruptedPlanExecution(ctx, title);
+        return;
+      }
+      return show(pi, `# ${title}\n\nExecutor is already running. Wait for execution completion.\n\n${status}`);
+    }
     if (state.mode === "validating" || state.mode === "revalidating") {
       if (planValidationRuntimeIsStale(ctx)) {
         await resumeInterruptedPlanValidation(ctx, title);
@@ -12999,7 +13266,13 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       }
       return show(pi, `# ${title}\n\nValidator is already running. Wait for validation result.\n\n${status}`);
     }
-    if (state.mode === "repairing") return show(pi, `# ${title}\n\nExecutor is already running in repair mode. Revalidation will start after repair completes.\n\n${status}`);
+    if (state.mode === "repairing") {
+      if (planActiveRuntimeIsRecoverablyStale(ctx)) {
+        await resumeInterruptedPlanRepair(ctx, title);
+        return;
+      }
+      return show(pi, `# ${title}\n\nExecutor is already running in repair mode. Revalidation will start after repair completes.\n\n${status}`);
+    }
 
     if (state.mode === "plan_approved") {
       if (planReviewForcedPolicyBlocked()) {
@@ -14431,11 +14704,13 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         if (!mode) continue;
         if (mode === "custom_model") { await selectCompactionModel(ctx); continue; }
         const r = updateSettings(ctx.cwd, undefined, (s) => {
-          s.context.compactionMode = mode;
-          s.context.customCompactionEnabled = false;
-          if (mode === "pi_default") delete s.context.compactionTriggerPercent;
+          if (mode === "pi_default") resetCompactionContextToPiDefault(s.context);
+          else {
+            s.context.compactionMode = mode;
+            s.context.customCompactionEnabled = false;
+          }
         });
-        ctx.ui.notify(`Compaction mode set to ${compactionModeLabel(mode)} in ${r.file}${mode === "pi_default" ? "; Workflow trigger percent override removed" : ""}.`, "info");
+        ctx.ui.notify(`Compaction mode set to ${compactionModeLabel(mode)} in ${r.file}${mode === "pi_default" ? "; custom compaction overrides reset, selected provider/model preserved" : ""}.`, "info");
       } else if (choice === "Compaction Provider") {
         await selectCompactionModel(ctx);
       } else if (choice === "Compaction Model") {
@@ -15137,7 +15412,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
   }
 
   function presetUsage(): string {
-    return "# Workflow Presets\n\nQuick use:\n- /workflow presets opens the selector\n- Ctrl+Shift+U cycles saved presets from the footer only while Plan/Mission/Standard Mode is active\n- /workflow presets list\n- /workflow presets apply <name>\n- /workflow presets next\n- /workflow presets prev\n- /workflow presets manual\n- /workflow presets save <name>\n- /workflow presets create <name> from simple|standard|deep|maximum\n- /workflow presets edit <name>\n- /workflow presets rename <old> to <new>\n- /workflow presets delete <name>";
+    return "# Workflow Presets\n\nQuick use:\n- /workflow presets opens the selector\n- Ctrl+Shift+U cycles saved presets from the footer only while Plan/Mission/Standard Mode is active\n- /workflow presets list\n- /workflow presets apply <name>\n- /workflow presets next\n- /workflow presets prev\n- /workflow presets save <name>\n- /workflow presets create <name> from simple|standard|deep|maximum\n- /workflow presets edit <name>\n- /workflow presets rename <old> to <new>\n- /workflow presets delete <name>";
   }
 
   function presetActionMessage(title: string, name: string, resultFile?: string, scope?: string): string {
@@ -15158,7 +15433,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
 
   function presetDisplayOptions(settings: ReturnType<typeof loadWorkflowSettings>): { names: string[]; options: string[] } {
     const catalog = workflowPresetCatalog(settings);
-    const active = settings.presets?.activePreset ?? WORKFLOW_MANUAL_PRESET;
+    const active = settings.presets?.activePreset ?? WORKFLOW_CUSTOM_PRESET_MARKER;
     const names = workflowPresetNames(settings);
     const options = names.map((name) => `${name === active ? "●" : "○"} ${workflowPresetPickerLabel(name, catalog[name])}`);
     return { names, options };
@@ -15187,17 +15462,17 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     else show(pi, presetActionMessage("Workflow Preset Applied", label, result.file, result.scope));
   }
 
-  async function markWorkflowPresetManual(ctx: ExtensionContext): Promise<void> {
-    const result = updateSettings(ctx.cwd, undefined, (s) => { s.presets = { ...(s.presets ?? {}), activePreset: WORKFLOW_MANUAL_PRESET, items: { ...(s.presets?.items ?? {}) } }; });
+  async function markWorkflowPresetCustom(ctx: ExtensionContext): Promise<void> {
+    const result = updateSettings(ctx.cwd, undefined, (s) => { s.presets = { ...(s.presets ?? {}), activePreset: WORKFLOW_CUSTOM_PRESET_MARKER, items: { ...(s.presets?.items ?? {}) } }; });
     setWorkflowUi(ctx, state, activeSubagents);
-    ctx.ui.notify(`Workflow preset marker set to Manual settings in ${result.file}; workflow settings unchanged.`, "info");
+    ctx.ui.notify(`Workflow preset marker cleared in ${result.file}; workflow settings unchanged.`, "info");
   }
 
   async function cycleWorkflowPreset(ctx: ExtensionContext, direction: 1 | -1): Promise<void> {
     const settings = loadWorkflowSettings(ctx.cwd);
     const cycle = workflowPresetNames(settings);
-    if (!cycle.length) return markWorkflowPresetManual(ctx);
-    const active = settings.presets?.activePreset ?? WORKFLOW_MANUAL_PRESET;
+    if (!cycle.length) return markWorkflowPresetCustom(ctx);
+    const active = settings.presets?.activePreset ?? WORKFLOW_CUSTOM_PRESET_MARKER;
     const currentIndex = cycle.indexOf(active);
     const nextIndex = currentIndex === -1 ? (direction === 1 ? 0 : cycle.length - 1) : (currentIndex + direction + cycle.length) % cycle.length;
     await applyWorkflowPresetByName(ctx, cycle[nextIndex], true);
@@ -15272,7 +15547,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       if (action === "select" || action === "menu" || action === "picker") return showWorkflowPresetSelector(ctx);
       if (action === "list") return show(pi, renderWorkflowPresets(loadWorkflowSettings(ctx.cwd)));
       if (action === "next" || action === "cycle") { await cycleWorkflowPreset(ctx, 1); return; }
-      if (action === "manual" || action === "custom") { await markWorkflowPresetManual(ctx); return; }
+      if (action === "custom") { await markWorkflowPresetCustom(ctx); return; }
       if (action === "prev" || action === "previous") { await cycleWorkflowPreset(ctx, -1); return; }
       if (action === "apply" || action === "use") {
         if (!rest) return show(pi, "# Workflow Presets\n\nUsage: /workflow presets apply <name>");
@@ -16735,10 +17010,10 @@ Pi Version: v${VERSION}
         const mode = parseCompactionMode(value);
         if (!mode) return show(pi, "# Error\n\nUsage: `/workflow-settings set context compactionMode <pi_default|custom_model|custom_agent|disabled>`");
         const result = updateSettings(ctx.cwd, scope, (s) => {
-          s.context.compactionMode = mode;
-          if (mode === "pi_default") delete s.context.compactionTriggerPercent;
+          if (mode === "pi_default") resetCompactionContextToPiDefault(s.context);
+          else s.context.compactionMode = mode;
         });
-        const triggerNote = mode === "pi_default" ? "\n\nWorkflow compaction trigger percent override removed; Pi default compaction behavior applies." : "";
+        const triggerNote = mode === "pi_default" ? "\n\nCustom compaction overrides reset; selected provider/model preserved; Pi default automatic compaction behavior applies." : "";
         return show(pi, updatedMessage(result.scope, result.file, "context.compactionMode", compactionModeLabel(mode)) + triggerNote);
       }
       if (subject === "context" && key === "customCompactionEnabled") {
@@ -17766,7 +18041,7 @@ Public workflow commands:
           }
           return;
         }
-        updateState({ lastWorkflowHandoff: undefined }, ctx);
+        if (!finalizeStandardTerminalStateIfIdle(ctx, "typed standard final handoff")) updateState({ lastWorkflowHandoff: undefined }, ctx);
       }
       const autoDecision = parseStandardAutoCheckDecision(text);
       const autoCheckPatch = parseStandardAutoChecks(text);
