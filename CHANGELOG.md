@@ -2,6 +2,12 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.17] - 2026-06-10
+
+### Improved
+
+- Improved package metadata to better reflect the suite's workflow modes, configuration surfaces, and orchestration features.
+
 ## [0.0.16] - 2026-06-09
 
 ### Fixed
