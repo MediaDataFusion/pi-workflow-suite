@@ -1750,7 +1750,7 @@ ${requiredSubagentPreflightSection(options.preflightBlock)}
 
 ${subagentCapabilityTable()}
 
-${priorPlan ? `Current draft/approved plan to revise:\n${priorPlan}\n\n` : ""}${feedbackBlock}${options.forceClarification ? `CLARIFICATION IS REQUIRED BEFORE FINAL PLANNING. Reason: ${options.forceReason ?? "always_for_nontrivial classified this as non-trivial"}\nYour job in this turn is to perform lightweight task analysis, then generate only high-value clarification questions from the actual task. Do not produce an implementation plan in this turn. ${subagentsBeforeClarification ? "If planning depth/policy calls for it and sub-agent use is available, use read-only planning/research sub-agents before asking clarification so the questions are context-aware." : "Do not call sub-agents in this clarification-generation turn unless forced by sub-agent policy."} Do not use generic reusable workflow boilerplate questions.\n\n` : ""}${options.qualityGateFeedback ? `The previous clarification output failed the clarification quality gate: ${options.qualityGateFeedback}\nRegenerate better task-specific clarification questions${options.forceClarification ? ". Do not produce a final plan in this retry." : ", or use PLAN_DECISION: plan if no high-value question exists."}\n\n` : ""}MANDATORY STRUCTURED HANDOFF: Before your final response, call workflow_plan_result with decision=clarify, plan, or blocked. The tool payload is the primary control plane; visible markdown is fallback display only. If workflow_plan_result is unavailable, output the parser-safe PLAN_DECISION fallback once and STOP immediately; do not call subagent as an acknowledgement, do not retry invalid tool names, and do not continue analysis after the fallback.
+${priorPlan ? `Current draft/approved plan to revise:\n${priorPlan}\n\n` : ""}${feedbackBlock}${options.forceClarification ? `CLARIFICATION IS REQUIRED BEFORE FINAL PLANNING. Reason: ${options.forceReason ?? "always_for_nontrivial classified this as non-trivial"}\nYour job in this turn is to perform lightweight task analysis, then generate only high-value clarification questions from the actual task. Do not produce an implementation plan in this turn. ${subagentsBeforeClarification ? "If planning depth/policy calls for it and sub-agent use is available, use read-only planning/research sub-agents before asking clarification so the questions are context-aware." : "Do not call sub-agents in this clarification-generation turn unless forced by sub-agent policy."} Do not use generic reusable workflow boilerplate questions.\n\n` : ""}${options.qualityGateFeedback ? `The previous clarification output failed the clarification quality gate: ${options.qualityGateFeedback}\nRegenerate better task-specific clarification questions${options.forceClarification ? ". Do not produce a final plan in this retry." : ", or use PLAN_DECISION: plan if no high-value question exists."}\n\n` : ""}MANDATORY STRUCTURED HANDOFF: Before your final response, call workflow_plan_result with decision=clarify, plan, or blocked. The tool payload is the primary control plane. After workflow_plan_result returns, print the user-facing markdown for that decision and stop: the approval-ready # Implementation Plan for decision=plan, the clarification questions for decision=clarify, or the blocker summary for decision=blocked. If workflow_plan_result is unavailable, output the parser-safe PLAN_DECISION fallback once and STOP immediately; do not call subagent as an acknowledgement, do not retry invalid tool names, and do not continue analysis after the fallback.
 
 LEGACY FALLBACK: Your VERY FIRST LINE must be exactly one of:
 ${options.forceClarification ? "PLAN_DECISION: clarify" : "PLAN_DECISION: clarify\nPLAN_DECISION: plan"}
@@ -13742,6 +13742,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       showMissionPlanMenuFallback("Mission plan menu was skipped because the active mission state changed.");
       return;
     }
+    showMissionPlanReadyCard(mission);
     if (!ctx.hasUI) return;
     const reviewChoice = ["PASS", "NOTES"].includes(mission.reviewerVerdict ?? "") ? [] : ["Review Mission Plan"];
     const choices = mission.autonomy === "manual" || mission.autonomy === "approval_gated"
@@ -13750,6 +13751,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     const choice = await ctx.ui.select("Mission plan ready. Choose next action:", choices);
     if (!choice) {
       updateState({ mode: "mission_plan_ready", activeMissionId: mission.id, task: mission.goal, originalTask: mission.goal, draftPlan: mission.planText }, ctx);
+      showMissionPlanMenuFallback("Mission plan menu was dismissed. The mission plan remains ready.");
       return recordWorkflowInternalEvent(ctx, `Mission plan menu dismissed: ${mission.id}`);
     }
     if (choice === "Review Mission Plan") {
@@ -13785,10 +13787,29 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     show(pi, `# Mission Plan Ready\n\n${reason}\n\nUse one of:\n- \`/mission review\`\n- \`/mission approve\`\n- \`/mission revise <feedback>\`\n- \`/mission cancel\``);
   }
 
+  function showMissionPlanReadyCard(mission: MissionState): void {
+    const planText = mission.planText?.trim() ? mission.planText : "(none recorded)";
+    show(pi, `# Mission Plan Ready\n\n${planText}\n\nChoose an action in the Mission menu, or use:\n- \`/mission review\`\n- \`/mission approve\`\n- \`/mission revise <feedback>\`\n- \`/mission cancel\``);
+  }
+
   // ── Menus ──────────────────────────────────────────────────────
 
   function showPlanMenuCommandFallback(reason: string): void {
     show(pi, `# Plan Ready\n\n${reason}\n\nUse one of:\n- \`/plan approve\`\n- \`/plan revise <feedback>\`\n- \`/plan cancel\``);
+  }
+
+  function showPlanReadyForApprovalCard(snapshot: WorkflowHandoffSnapshot, options: { includePlanText?: boolean } = {}): void {
+    const planText = snapshot.draftPlan?.trim()
+      ? snapshot.draftPlan
+      : state.draftPlan?.trim()
+        ? state.draftPlan
+        : state.approvedPlan?.trim()
+          ? state.approvedPlan
+          : "(none recorded)";
+    const body = options.includePlanText === true
+      ? `${planText}\n\nChoose an action in the approval menu, or use:`
+      : "Choose an action in the approval menu. The native plan above is the source of truth, and the saved plan remains recoverable with:";
+    show(pi, `# Plan Ready For Approval\n\n${body}\n- \`/plan approve\`\n- \`/plan revise <feedback>\`\n- \`/plan cancel\``);
   }
 
   function showPlanClarificationFallback(reason: string, questions?: ClarificationQuestion[]): void {
@@ -13845,9 +13866,10 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       return;
     }
     if (!ctx.hasUI) {
-      showPlanMenuCommandFallback(snapshot.fallback);
+      showPlanReadyForApprovalCard(snapshot, { includePlanText: true });
       return;
     }
+    showPlanReadyForApprovalCard(snapshot);
     const settings = loadWorkflowSettings(ctx.cwd);
     const approveLabel = settings.models.reviewer.enabled ? "Approve and Run Workflow" : "Approve and Execute";
     let menuChoice: string | undefined;
@@ -13855,6 +13877,11 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       menuChoice = await ctx.ui.select("Plan ready. Choose next action:", [approveLabel, "Revise Plan", "Cancel"]);
     } catch (error) {
       showPlanMenuCommandFallback(`Interactive approval menu failed to open: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    if (!menuChoice) {
+      updateState({ mode: "plan_draft", activePlanId: snapshot.activePlanId ?? state.activePlanId, draftPlan: snapshot.draftPlan ?? state.draftPlan, task: snapshot.task ?? state.task }, ctx);
+      showPlanMenuCommandFallback("Plan approval menu was dismissed. The plan remains ready for approval.");
       return;
     }
     if (menuChoice === "Approve and Execute" || menuChoice === "Approve and Run Workflow") {
@@ -17430,11 +17457,6 @@ Public workflow commands:
       if (state.mode === "standard") updateState({ standardTokensUsed: (state.standardTokensUsed ?? 0) + turnTokens }, ctx);
       else if (isPlanWorkflowUiMode(state)) updateState({ planTokensUsed: (state.planTokensUsed ?? 0) + turnTokens }, ctx);
       else if (isMissionWorkflowMode(state)) updateState({ missionTokensUsed: (state.missionTokensUsed ?? 0) + turnTokens }, ctx);
-    }
-
-    if (initialPlanParentSuppressed()) {
-      traceWorkflowTracking(ctx, "typed-initial-plan-parent-message-suppressed", { mode: state.mode, lifecycleStatus: state.planProgress?.lifecycleStatus });
-      return { message: { ...message, content: [{ type: "text" as const, text: "" }] } };
     }
 
     if (planReviewParentSuppressed()) {

@@ -2,6 +2,18 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.15] - 2026-06-09
+
+### Improved
+
+- Improved Plan Mode approval handoffs so approval-ready plans remain visible while action menus are open.
+- Refined the Deep Plan preset so reviewer review remains available without automatically starting by default.
+- Improved workflow recovery around transient connection interruptions so Plan, Mission, and Standard workflows are easier to resume after short transport failures.
+
+### Hardened
+
+- Expanded regression coverage for reviewer routing, sub-agent handoffs, package command surfaces, and interruption recovery.
+
 ## [0.0.14] - 2026-06-08
 
 ### Fixed
