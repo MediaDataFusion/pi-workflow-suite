@@ -8,7 +8,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
 import { CustomEditor, VERSION, compact as piCompact, estimateTokens as piEstimateTokens, findCutPoint as piFindCutPoint, getAgentDir, getMarkdownTheme, type ExtensionAPI, type ExtensionContext, type FileOperations, type SessionEntry, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { activeWorkflowPresetLabel, applyMissionModelForRole, applyModelForRole, applyStandardModelForRole, applyWorkflowPreset, compactionModeLabel, createProjectSettingsOverride, createWorkflowPreset, defaultWorkflowSettings, deleteWorkflowPreset, effectivePlanApprovalRequired, effectiveReviewAutoRun, effectiveValidateAfterExecution, effectiveValidationAutoRun, effectiveRepairGate, formatRole, getDefaultWriteTarget, loadEffectiveSettings, loadGlobalSettings, loadWorkflowSettings, normalizeWorkflowPresetName, parseMissionModelRole, parseRole, parseThinkingLevel, renameWorkflowPreset, renderActiveWorkflowPresetSummary, renderStandardModelStrategy, renderWorkflowModels, renderWorkflowPresets, resolveWorkflowPresetName, roleIsConfigured, saveCurrentWorkflowPreset, setMissionModelForRole, setMissionThinkingForRole, setModelForRole, setRoleEnabled, setStandardModelForRole, setStandardThinkingForRole, setThinkingForRole, standardModelSource, standardModelSourceLabel, standardTodoTriggerModeLabel, updateSettings, workflowCompactionCheckModeLabel, workflowPresetCatalog, workflowPresetLabel, workflowPresetNames, workflowPresetPickerLabel, workflowRoleLabel, workflowSettingsConsistencyDiagnostics, WORKFLOW_CUSTOM_PRESET_MARKER, WORKFLOW_SETTINGS_FILE, type MissionModelRole, type RoleModelSettings, type WorkflowRole, type WorkflowSettingsScope, type WorkflowStartupLogo, type WorkflowStartupLogoColorStyle, type WorkflowStartupLogoFont, type WorkflowStartupLogoShadowDirection, type WorkflowStartupVisual, type CustomBrandBaseVisual, type StandardClarificationMode, type StandardModelRole, type StandardTodoTriggerMode, type WorkflowAgentScope } from "./workflow-model-router.js";
+import { activeWorkflowPresetLabel, applyMissionModelForRole, applyModelForRole, applyStandardModelForRole, applyWorkflowPreset, compactionModeLabel, createProjectSettingsOverride, createWorkflowPreset, defaultWorkflowSettings, deleteWorkflowPreset, effectivePlanApprovalRequired, effectiveReviewAutoRun, effectiveValidateAfterExecution, effectiveValidationAutoRun, effectiveRepairGate, formatRole, getDefaultWriteTarget, loadEffectiveSettings, loadGlobalSettings, loadWorkflowSettings, normalizeWorkflowPresetName, parseMissionModelRole, parseRole, parseThinkingLevel, renameWorkflowPreset, renderActiveWorkflowPresetSummary, renderStandardModelStrategy, renderWorkflowModels, renderWorkflowPresets, resolveWorkflowPresetName, roleIsConfigured, saveCurrentWorkflowPreset, setMissionModelForRole, setMissionThinkingForRole, setModelForRole, setRoleEnabled, setStandardModelForRole, setStandardThinkingForRole, setThinkingForRole, standardModelSource, standardModelSourceLabel, standardTodoTriggerModeLabel, updateSettings, workflowCompactionCheckModeLabel, workflowPresetCatalog, workflowPresetLabel, workflowPresetNames, workflowPresetPickerLabel, workflowRoleLabel, workflowSettingsConsistencyDiagnostics, WORKFLOW_CUSTOM_PRESET_MARKER, WORKFLOW_SETTINGS_FILE, type MissionModelRole, type RoleModelSettings, type WorkflowRole, type WorkflowSettingsScope, type WorkflowStartupLogo, type WorkflowStartupLogoColorStyle, type WorkflowStartupLogoFont, type WorkflowStartupLogoShadowDirection, type WorkflowStartupVisual, type WorkflowEditorHintContrast, type CustomBrandBaseVisual, type StandardClarificationMode, type StandardModelRole, type StandardTodoTriggerMode, type WorkflowAgentScope } from "./workflow-model-router.js";
 import { renderHandoffProjectContext, renderWorkflowStatus, renderWorkflowSummary } from "./workflow-summary.js";
 import { BASE_EXECUTE_TOOLS, EXECUTE_TOOLS, PLAN_TOOLS, REVIEW_TOOLS, WORKFLOW_DIAGRAM_TOOL, WORKFLOW_PLAN_RESULT_TOOL, WORKFLOW_REVIEW_RESULT_TOOL, WORKFLOW_EXECUTION_RESULT_TOOL, WORKFLOW_VALIDATION_RESULT_TOOL, WORKFLOW_REPAIR_RESULT_TOOL, WORKFLOW_PROGRESS_TOOL, MISSION_PLAN_RESULT_TOOL, MISSION_MILESTONE_RESULT_TOOL, STANDARD_HANDOFF_RESULT_TOOL, isBlockedExecuteCommand, registerToolGuard, standardSafeReadOnlyBash, VALIDATOR_TOOLS } from "./workflow-tool-guard.js";
 import { refreshRuntimeWebTools, registerWorkflowWebTools, runtimeWebResearchGuidance, webSafePlanTools, withRuntimeWebTools } from "./workflow-web-tools.js";
@@ -2680,6 +2680,7 @@ UI Widgets:
 - /workflow-settings set ui showActiveWorkflowSwitchHint true|false
 - /workflow-settings set ui showWidgetShortcutHint true|false
 - /workflow-settings set ui showPresetShortcutHint true|false
+- /workflow-settings set ui editorHintContrast subtle|normal|bright|high
 
 Sub-agents and parallelism:
 - /workflow-settings set subagents enabled true|false
@@ -3684,7 +3685,7 @@ ${renderPlanModelSettings(settings)}
 
 ${renderMissionModelStrategy(settings)}
 
-## UI / Footer
+## UI / Widgets
 Plan Top Widget: ${widgetVisibilityLabel(settings, "planTop")}
 Plan Bottom Widget: ${widgetVisibilityLabel(settings, "planBottom")}
 Mission Top Widget: ${widgetVisibilityLabel(settings, "missionTop")}
@@ -3695,6 +3696,7 @@ Idle Entry Hint: ${workflowWidgetUi(settings).showIdleWorkflowEntryHint !== fals
 Active Switch Hint: ${workflowWidgetUi(settings).showActiveWorkflowSwitchHint !== false ? "visible" : "hidden"}
 Widget Shortcut Hint: ${workflowWidgetUi(settings).showWidgetShortcutHint !== false ? "visible" : "hidden"}
 Preset Shortcut Hint: ${workflowWidgetUi(settings).showPresetShortcutHint !== false ? "visible" : "hidden"}
+Editor Hint Contrast: ${workflowEditorHintContrastLabel(workflowEditorHintContrast(settings))}
 Workflow Theme: ${workflowThemeDisplayName(workflowThemeName(settings))}
 Startup Visual: ${startupVisualOrDefault(settings)}
 Startup Logo: ${startupLogoOrDefault(settings)}
@@ -5527,8 +5529,8 @@ class WorkflowSuiteEditor extends CustomEditor {
       try {
         const settings = loadWorkflowSettings(this.workflowCwd);
         const decorate = workflowRoleTextDecoration(settings, "muted");
-        let hintStyled = `\x1b[2m\x1b[38;5;240m${workflowEditorHintText}\x1b[0m`;
-        if (decorate) hintStyled = decorate(hintStyled);
+        let hintStyled = workflowEditorHintStyledText(settings, workflowEditorHintText);
+        if (workflowEditorHintContrast(settings) === "subtle" && decorate) hintStyled = decorate(hintStyled);
         const innerWidth = width - 2;
         const hintLen = visibleTextWidth(hintStyled);
         const displayHint = hintLen > innerWidth ? truncateVisibleText(hintStyled, innerWidth) : hintStyled;
@@ -6525,6 +6527,13 @@ function isMissionWorkflowMode(state: WorkflowState): boolean {
 }
 
 type WorkflowWidgetSlot = "planTop" | "planBottom" | "missionTop" | "missionBottom" | "standardTop" | "standardBottom";
+const WORKFLOW_EDITOR_HINT_CONTRASTS: WorkflowEditorHintContrast[] = ["subtle", "normal", "bright", "high"];
+const WORKFLOW_EDITOR_HINT_CONTRAST_LABELS: Record<WorkflowEditorHintContrast, string> = {
+  subtle: "Subtle",
+  normal: "Normal",
+  bright: "Bright",
+  high: "High Contrast",
+};
 type WorkflowWidgetUiSettings = ReturnType<typeof loadWorkflowSettings>["ui"] & {
   showPlanModeIndicator?: boolean;
   planModeIndicatorText?: string;
@@ -6538,6 +6547,7 @@ type WorkflowWidgetUiSettings = ReturnType<typeof loadWorkflowSettings>["ui"] & 
   showActiveWorkflowSwitchHint?: boolean;
   showWidgetShortcutHint?: boolean;
   showPresetShortcutHint?: boolean;
+  editorHintContrast?: WorkflowEditorHintContrast;
 };
 
 const widgetVisibilityOverrides: Partial<Record<WorkflowWidgetSlot, boolean>> = {};
@@ -6552,6 +6562,38 @@ const widgetSettingKey: Record<WorkflowWidgetSlot, "planTopWidgetVisible" | "pla
 
 function workflowWidgetUi(settings: ReturnType<typeof loadWorkflowSettings>): WorkflowWidgetUiSettings {
   return settings.ui as WorkflowWidgetUiSettings;
+}
+
+function parseEditorHintContrast(value?: string): WorkflowEditorHintContrast | undefined {
+  const input = value?.trim().toLowerCase().replace(/[\s_-]+/g, "");
+  if (!input) return undefined;
+  if (input === "subtle" || input === "muted" || input === "dim") return "subtle";
+  if (input === "normal" || input === "default") return "normal";
+  if (input === "bright") return "bright";
+  if (input === "high" || input === "highcontrast" || input === "maximum") return "high";
+  return undefined;
+}
+
+function workflowEditorHintContrast(settings: ReturnType<typeof loadWorkflowSettings>): WorkflowEditorHintContrast {
+  return parseEditorHintContrast(workflowWidgetUi(settings).editorHintContrast) ?? "normal";
+}
+
+function workflowEditorHintContrastLabel(contrast: WorkflowEditorHintContrast): string {
+  return WORKFLOW_EDITOR_HINT_CONTRAST_LABELS[contrast];
+}
+
+function workflowEditorHintStyledText(settings: ReturnType<typeof loadWorkflowSettings>, text: string): string {
+  switch (workflowEditorHintContrast(settings)) {
+    case "subtle":
+      return `\x1b[2m\x1b[38;5;240m${text}\x1b[0m`;
+    case "bright":
+      return `\x1b[38;5;250m${text}\x1b[0m`;
+    case "high":
+      return `\x1b[1m\x1b[38;5;255m${text}\x1b[0m`;
+    case "normal":
+    default:
+      return `\x1b[38;5;245m${text}\x1b[0m`;
+  }
 }
 
 function workflowWidgetVisible(settings: ReturnType<typeof loadWorkflowSettings>, slot: WorkflowWidgetSlot): boolean {
@@ -9718,7 +9760,7 @@ export default function workflowModes(pi: ExtensionAPI): void {
     const route = await applyModelForRole(pi, ctx, "planner", { cwd: ctx.cwd });
     if (!route) return false;
     updateState({ modelsUsed: { ...(state.modelsUsed ?? {}), planner: modelLabel(route) } }, ctx);
-    if (showNotice) ctx.ui.notify(`Active Plan Mode planner route reapplied: ${modelLabel(route)}\n${activeModelDiagnostic(ctx)}`, "info");
+    if (showNotice) workflowUiNotify(ctx, `Active Plan Mode planner route reapplied: ${modelLabel(route)}\n${activeModelDiagnostic(ctx)}`, "info");
     return true;
   };
 
@@ -9727,13 +9769,13 @@ export default function workflowModes(pi: ExtensionAPI): void {
     const settings = loadWorkflowSettings(ctx.cwd);
     const standardRole = effectiveStandardModelRole(settings);
     if (standardRole === "current") {
-      if (showNotice) ctx.ui.notify(`Standard Mode keeps the current Pi model.\n${activeModelDiagnostic(ctx)}`, "info");
+      if (showNotice) workflowUiNotify(ctx, `Standard Mode keeps the current Pi model.\n${activeModelDiagnostic(ctx)}`, "info");
       return false;
     }
     const route = await applyStandardModelForRole(pi, ctx, standardRole, { cwd: ctx.cwd });
     if (!route) return false;
     updateState({ modelsUsed: { ...(state.modelsUsed ?? {}), [standardRole]: modelLabel(route) } }, ctx);
-    if (showNotice) ctx.ui.notify(`Active Standard Mode ${standardRole} route applied: ${modelLabel(route)}\n${activeModelDiagnostic(ctx)}`, "info");
+    if (showNotice) workflowUiNotify(ctx, `Active Standard Mode ${standardRole} route applied: ${modelLabel(route)}\n${activeModelDiagnostic(ctx)}`, "info");
     return true;
   };
 
@@ -9748,7 +9790,7 @@ export default function workflowModes(pi: ExtensionAPI): void {
     const settings = loadWorkflowSettings(ctx.cwd);
     const globalUi = workflowWidgetUi(loadGlobalSettings());
     const ui = workflowWidgetUi(settings);
-    const common = `Active Mode: ${state.mode}\nShortcuts: ${globalUi.enableWidgetShortcuts !== false ? "enabled" : "disabled"}\nRemember Visibility: ${globalUi.rememberWidgetVisibility !== false ? "enabled" : "disabled"}\nStorage: ${globalUi.rememberWidgetVisibility !== false ? "global settings" : "current Pi session"}\nFooter Hints: idle entry ${ui.showIdleWorkflowEntryHint !== false ? "visible" : "hidden"}, active switch ${ui.showActiveWorkflowSwitchHint !== false ? "visible" : "hidden"}, widgets ${ui.showWidgetShortcutHint !== false ? "visible" : "hidden"}, preset ${ui.showPresetShortcutHint !== false ? "visible" : "hidden"}`;
+    const common = `Active Mode: ${state.mode}\nShortcuts: ${globalUi.enableWidgetShortcuts !== false ? "enabled" : "disabled"}\nRemember Visibility: ${globalUi.rememberWidgetVisibility !== false ? "enabled" : "disabled"}\nStorage: ${globalUi.rememberWidgetVisibility !== false ? "global settings" : "current Pi session"}\nEditor Hints: idle entry ${ui.showIdleWorkflowEntryHint !== false ? "visible" : "hidden"}, active switch ${ui.showActiveWorkflowSwitchHint !== false ? "visible" : "hidden"}, widgets ${ui.showWidgetShortcutHint !== false ? "visible" : "hidden"}, preset ${ui.showPresetShortcutHint !== false ? "visible" : "hidden"}, contrast ${workflowEditorHintContrastLabel(workflowEditorHintContrast(settings))}`;
     if (isPlanWorkflowUiMode(state)) {
       const bottom = planBottomRelevant(state) ? widgetVisibilityLabel(settings, "planBottom") : "not applicable";
       return `# Workflow Widgets\n\nPlan Top Widget: ${widgetVisibilityLabel(settings, "planTop")}\nPlan Bottom Widget: ${bottom}\nStatus Line: ${widgetVisibilityStatus(state, settings) ?? "none"}\n${common}`;
@@ -9761,7 +9803,13 @@ export default function workflowModes(pi: ExtensionAPI): void {
     if (isStandardWorkflowMode(state)) {
       return `# Workflow Widgets\n\nStandard Top Widget: ${widgetVisibilityLabel(settings, "standardTop")}\nStandard To Do Widget: ${widgetVisibilityLabel(settings, "standardBottom")}\nStatus Line: ${widgetVisibilityStatus(state, settings) ?? "none"}\n${common}`;
     }
-    return `# Workflow Widgets\n\nNo active Plan/Mission/Standard widget is currently visible.\nStatus Line: ${widgetVisibilityStatus(state, settings) ?? "none"}\n\nEntry Shortcuts:\n- ${workflowEntryShortcutLabel("standard")}\n- ${workflowEntryShortcutLabel("plan")}\n- ${workflowEntryShortcutLabel("mission")}\n\nActive-mode footer uses compact hints such as: Widgets:Ctrl+Shift+T/B Preset:${activeWorkflowPresetLabel(settings)} Ctrl+Shift+U Standard:Ctrl+Shift+S Mission:Ctrl+Shift+M\nWidget toggles and preset cycling are visible only while Plan/Mission/Standard Mode is active.\n\n${common}`;
+    return `# Workflow Widgets\n\nNo active Plan/Mission/Standard widget is currently visible.\nStatus Line: ${widgetVisibilityStatus(state, settings) ?? "none"}\n\nEntry Shortcuts:\n- ${workflowEntryShortcutLabel("standard")}\n- ${workflowEntryShortcutLabel("plan")}\n- ${workflowEntryShortcutLabel("mission")}\n\nActive-mode editor hints use compact text such as: Widgets:Ctrl+Shift+T/B Preset:${activeWorkflowPresetLabel(settings)} Ctrl+Shift+U Standard:Ctrl+Shift+S Mission:Ctrl+Shift+M\nWidget toggles and preset cycling are visible only while Plan/Mission/Standard Mode is active.\n\n${common}`;
+  };
+
+  const renderEditorHintsSettings = (ctx: ExtensionContext): string => {
+    const settings = loadWorkflowSettings(ctx.cwd);
+    const ui = workflowWidgetUi(settings);
+    return `# Editor Hints\n\nThese hints render inline in the editor/input box.\n\nIdle Entry Hint: ${ui.showIdleWorkflowEntryHint !== false ? "visible" : "hidden"}\nActive Switch Hint: ${ui.showActiveWorkflowSwitchHint !== false ? "visible" : "hidden"}\nWidget Shortcut Hint: ${ui.showWidgetShortcutHint !== false ? "visible" : "hidden"}\nPreset Shortcut Hint: ${ui.showPresetShortcutHint !== false ? "visible" : "hidden"}\nHint Contrast: ${workflowEditorHintContrastLabel(workflowEditorHintContrast(settings))}`;
   };
 
   const setWorkflowWidgetVisibility = (ctx: ExtensionContext, slot: WorkflowWidgetSlot, visible: boolean): string => {
@@ -9814,7 +9862,7 @@ export default function workflowModes(pi: ExtensionAPI): void {
       const messages = (["planTop", "planBottom", "missionTop", "missionBottom", "standardTop", "standardBottom"] as WorkflowWidgetSlot[]).map((slot) => setWorkflowWidgetVisibility(ctx, slot, visible));
       return show(pi, `# Workflow Widgets\n\n${messages.join("\n")}\n\n${renderWorkflowWidgetsStatus(ctx)}`);
     }
-    return show(pi, "# Workflow Widgets\n\nUsage:\n- /workflow widgets status\n- /workflow widgets list\n- /workflow widgets configure\n- /workflow widgets toggle top\n- /workflow widgets toggle bottom\n- /workflow widgets on\n- /workflow widgets off\n\nFooter behavior:\n- Idle: Plan/Mission entry shortcuts only\n- Active modes: compact widget/preset hints plus Plan/Mission switch hints by default\n- Active switch hints can be configured in /workflow-settings configure widgets → Footer Hints");
+    return show(pi, "# Workflow Widgets\n\nUsage:\n- /workflow widgets status\n- /workflow widgets list\n- /workflow widgets configure\n- /workflow widgets toggle top\n- /workflow widgets toggle bottom\n- /workflow widgets on\n- /workflow widgets off\n\nEditor hint behavior:\n- Idle: Plan/Mission entry shortcuts only\n- Active modes: compact widget/preset hints plus Plan/Mission switch hints by default\n- Active switch hints can be configured in /workflow-settings configure widgets -> Editor Hints");
   };
 
   const persistCurrentPlan = (ctx: ExtensionContext, approvalStatus: "draft" | "approved" | "revised" | "completed" | "archived", saveReason: string, handoff: { executionSummary?: string; reviewerReport?: string; validationReport?: string; repairAttempt?: string; finalReport?: string } = {}): string | undefined => {
@@ -14395,7 +14443,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     const plannerReapplied = role === "planner" ? await reapplyPlannerRouteIfPlanMode(ctx, true) : false;
     const standardSettings = loadWorkflowSettings(ctx.cwd);
     const standardReapplied = effectiveStandardModelRole(standardSettings) === role ? await reapplyStandardRouteIfStandardMode(ctx, true) : false;
-    ctx.ui.notify(`${role} model set to ${provider}/${model} in ${result.file}${plannerReapplied || standardReapplied ? `\n${activeModelDiagnostic(ctx)}` : ""}`, "info");
+    workflowUiNotify(ctx, `${role} model set to ${provider}/${model} in ${result.file}${plannerReapplied || standardReapplied ? `\n${activeModelDiagnostic(ctx)}` : ""}`, "info");
   }
 
   async function configureStandardRoleModel(ctx: ExtensionContext, role: WorkflowRole) {
@@ -14403,14 +14451,14 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     if (!selected) return;
     const result = setStandardModelForRole(role, selected.provider, selected.model, ctx.cwd);
     await reapplyStandardRouteIfStandardMode(ctx, true);
-    ctx.ui.notify(`standard ${role} model set to ${selected.provider}/${selected.model} in ${result.file}`, "info");
+    workflowUiNotify(ctx, `standard ${role} model set to ${selected.provider}/${selected.model} in ${result.file}`, "info");
   }
 
   async function configureMissionRoleModel(ctx: ExtensionContext, role: MissionModelRole) {
     const selected = await selectProviderAndModel(ctx, `Mission ${role} model`);
     if (!selected) return;
     const result = setMissionModelForRole(role, selected.provider, selected.model, ctx.cwd);
-    ctx.ui.notify(`mission ${role} model set to ${selected.provider}/${selected.model} in ${result.file}`, "info");
+    workflowUiNotify(ctx, `mission ${role} model set to ${selected.provider}/${selected.model} in ${result.file}`, "info");
   }
 
   async function configureStandardThinking(ctx: ExtensionContext) {
@@ -14420,7 +14468,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     if (!level) return;
     const result = setStandardThinkingForRole(role, level, ctx.cwd);
     await reapplyStandardRouteIfStandardMode(ctx, true);
-    ctx.ui.notify(`standard ${role} thinking set to ${level} in ${result.file}`, "info");
+    workflowUiNotify(ctx, `standard ${role} thinking set to ${level} in ${result.file}`, "info");
   }
 
   async function configureMissionThinking(ctx: ExtensionContext) {
@@ -14429,7 +14477,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     const level = parseThinkingLevel((await ctx.ui.select("Select mission thinking level:", ["off", "minimal", "low", "medium", "high", "xhigh"])) ?? "");
     if (!level) return;
     const result = setMissionThinkingForRole(role, level, ctx.cwd);
-    ctx.ui.notify(`mission ${role} thinking set to ${level} in ${result.file}`, "info");
+    workflowUiNotify(ctx, `mission ${role} thinking set to ${level} in ${result.file}`, "info");
   }
 
   async function configureThinking(ctx: ExtensionContext) {
@@ -14441,12 +14489,134 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     const plannerReapplied = role === "planner" ? await reapplyPlannerRouteIfPlanMode(ctx, true) : false;
     const standardSettings = loadWorkflowSettings(ctx.cwd);
     const standardReapplied = effectiveStandardModelRole(standardSettings) === role ? await reapplyStandardRouteIfStandardMode(ctx, true) : false;
-    ctx.ui.notify(`${role} thinking set to ${level} in ${result.file}${plannerReapplied || standardReapplied ? `\n${activeModelDiagnostic(ctx)}` : ""}`, "info");
+    workflowUiNotify(ctx, `${role} thinking set to ${level} in ${result.file}${plannerReapplied || standardReapplied ? `\n${activeModelDiagnostic(ctx)}` : ""}`, "info");
   }
 
   async function chooseBool(ctx: ExtensionContext, title: string): Promise<boolean | undefined> {
     const choice = await ctx.ui.select(title, ["true", "false"]);
     return parseBool(choice ?? undefined);
+  }
+
+  function humanizeWorkflowSettingSegment(segment: string): string {
+    return segment
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/[_-]+/g, " ")
+      .replace(/\bui\b/gi, "UI")
+      .replace(/\bapi\b/gi, "API")
+      .replace(/\bto do\b/gi, "To Do")
+      .trim()
+      .replace(/\s+/g, " ")
+      .replace(/\w\S*/g, (word) => word === "UI" || word === "API" ? word : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+  }
+
+  function workflowSettingDisplayLabel(setting: string): string {
+    const labels: Record<string, string> = {
+      "ui.editorHintContrast": "Editor hint contrast",
+      "ui.showIdleWorkflowEntryHint": "Idle entry hint",
+      "ui.showActiveWorkflowSwitchHint": "Active switch hint",
+      "ui.showWidgetShortcutHint": "Widget shortcut hint",
+      "ui.showPresetShortcutHint": "Preset shortcut hint",
+      "ui.enableWidgetShortcuts": "Widget shortcuts",
+      "ui.rememberWidgetVisibility": "Remember widget visibility",
+      "ui.workflowTheme": "Workflow theme",
+      "ui.widgetTextStyle": "Widget text style",
+      "ui.startupTextStyle": "Startup text style",
+      "ui.startupVisual": "Startup visual",
+      "ui.startupLogo": "Startup logo",
+      "ui.startupLogoText": "Startup logo text",
+      "ui.startupLogoFont": "Startup logo font",
+      "ui.startupLogoShadowDirection": "Startup logo shadow direction",
+      "ui.startupLogoColorStyle": "Startup logo color style",
+      "ui.startupVisualOnSessionStart": "Startup on session start",
+      "ui.customBrandEnabled": "Custom brand",
+      "ui.customBrandText": "Custom brand text",
+      "ui.customBrandBaseVisual": "Custom brand base visual",
+      "interactiveClarificationEnabled": "Interactive clarification",
+      "maxClarificationQuestions": "Max clarification questions",
+      "planning.depth": "Planning depth",
+      "planning.clarificationMode": "Planning clarification mode",
+      "planning.interactiveClarificationEnabled": "Interactive clarification",
+      "planning.maxClarificationQuestions": "Max clarification questions",
+      "planning.clarificationTiming": "Planning clarification timing",
+      "planning.maxTokens": "Planning token budget",
+      "planning.maxRuntimeHours": "Planning runtime budget",
+      "standard.allowSubagents": "Standard sub-agents",
+      "standard.subagentScope": "Standard sub-agent scope",
+      "standard.todoTriggerMode": "To Do trigger mode",
+      "standard.clarificationMode": "Standard clarification mode",
+      "standard.interactiveClarificationEnabled": "Standard interactive clarification",
+      "standard.maxClarificationQuestions": "Standard max clarification questions",
+      "standard.clarificationTiming": "Standard clarification timing",
+      "standard.maxTokens": "Standard token budget",
+      "standard.enabled": "Standard Mode",
+      "subagents.enabled": "Sub-agents",
+      "subagents.activityIndicatorEnabled": "Sub-agent activity indicator",
+      "subagents.allowBackgroundSubagents": "Background sub-agents",
+      "subagents.editConcurrencyMode": "Sub-agent edit concurrency mode",
+      "subagents.planningOrchestrationPolicy": "Planning orchestration policy",
+      "missions.enabled": "Mission Mode",
+      "missions.defaultAutonomy": "Mission default autonomy",
+      "missions.subagentPolicy": "Mission sub-agent policy",
+      "missions.planningDepth": "Mission planning depth",
+      "missions.clarificationMode": "Mission clarification mode",
+      "missions.interactiveClarificationEnabled": "Mission interactive clarification",
+      "missions.maxClarificationQuestions": "Mission max clarification questions",
+      "missions.clarificationTiming": "Mission clarification timing",
+      "missions.maxTokens": "Mission token budget",
+      "missions.maxRuntimeHours": "Mission runtime budget",
+      "missions.checkpointIntervalMinutes": "Mission checkpoint interval",
+      "missions.heartbeatEnabled": "Mission heartbeat",
+      "missions.watchdogEnabled": "Mission watchdog",
+      "missions.watchdogStaleMinutes": "Mission watchdog stale minutes",
+      "missions.missionHistoryLimit": "Mission history limit",
+      "context.autoCompactionEnabled": "Workflow auto trigger",
+      "context.compactionTriggerPercent": "Workflow trigger percent",
+      "context.compactionCooldownMinutes": "Compaction cooldown",
+      "context.customCompactionReserveTokens": "Custom compaction reserve tokens",
+      "context.customCompactionKeepRecentTokens": "Custom compaction keep-recent tokens",
+      "workflow.validationRetryMode": "Validation retry mode",
+      "workflow.planHistoryLimit": "Plan history limit",
+      "workflow.planShowProgressBar": "Plan progress bar",
+      "safety.repoLockEnabled": "Project Repo Lock",
+    };
+    if (labels[setting]) return labels[setting];
+    const parts = setting.split(".");
+    return humanizeWorkflowSettingSegment(parts[parts.length - 1] || setting);
+  }
+
+  function workflowSettingDisplayValue(setting: string, value: string): string {
+    const clean = value.trim().replace(/\s+/g, " ");
+    if (setting === "ui.editorHintContrast") {
+      return workflowEditorHintContrastLabel(parseEditorHintContrast(clean) ?? "normal");
+    }
+    if (clean === "true") {
+      return /^ui\.show.*Hint$/.test(setting) ? "shown" : "enabled";
+    }
+    if (clean === "false") {
+      return /^ui\.show.*Hint$/.test(setting) ? "hidden" : "disabled";
+    }
+    return clean
+      .replace(/_/g, " ")
+      .replace(/\bpi\b/gi, "Pi")
+      .replace(/\w\S*/g, (word) => word === "Pi" || word.toUpperCase() === "API" ? word : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+  }
+
+  function workflowFriendlyNotification(message: string, level?: "info" | "warning" | "error"): string {
+    if (level !== "info") return message;
+    let text = message.replace(/\s+in\s+\/\S+/g, "").replace(/\s+/g, " ").trim();
+    const settingMatch = text.match(/^([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*)\s+set to\s+([^.;]+)([.;]?.*)$/);
+    if (settingMatch) {
+      const [, setting, value, tail = ""] = settingMatch;
+      const label = workflowSettingDisplayLabel(setting);
+      const displayValue = workflowSettingDisplayValue(setting, value);
+      const suffix = tail.replace(/^[.;]\s*/, "").trim();
+      return `${label} set to ${displayValue}.${suffix ? ` ${suffix}` : ""}`;
+    }
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  }
+
+  function workflowUiNotify(ctx: ExtensionContext, message: string, level?: "info" | "warning" | "error"): void {
+    ctx.ui.notify(workflowFriendlyNotification(message, level), level);
   }
 
   async function showPlanningSettingsMenu(ctx: ExtensionContext) {
@@ -14456,7 +14626,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       if (!choice || choice === "Back") return;
       if (choice === "Set planning.depth") {
         const depth = parsePlanningDepth((await ctx.ui.select("Planning depth", ["fast", "standard", "deep", "maximum"])) ?? "");
-        if (depth) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.depth = depth; }); ctx.ui.notify(`planning.depth set to ${depth} in ${r.file}`, "info"); }
+        if (depth) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.depth = depth; }); workflowUiNotify(ctx, `planning.depth set to ${depth} in ${r.file}`, "info"); }
       } else if (choice === "List Current Settings") {
         const s = loadWorkflowSettings(ctx.cwd);
         show(pi, `# Planning Settings\n\nplanning.depth: ${s.planning.depth}`);
@@ -14471,13 +14641,13 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       if (!choice || choice === "Back") return;
       if (choice === "Set clarificationMode") {
         const mode = parseClarificationMode((await ctx.ui.select("Clarification mode", ["auto", "always_for_nontrivial", "never"])) ?? "");
-        if (mode) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.clarificationMode = mode; }); ctx.ui.notify(`planning.clarificationMode set to ${mode} in ${r.file}`, "info"); }
+        if (mode) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.clarificationMode = mode; }); workflowUiNotify(ctx, `planning.clarificationMode set to ${mode} in ${r.file}`, "info"); }
       } else if (choice === "Set interactiveClarificationEnabled") {
         const enabled = await chooseBool(ctx, "Interactive clarification enabled?");
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.interactiveClarificationEnabled = enabled; }); ctx.ui.notify(`interactiveClarificationEnabled set to ${enabled} in ${r.file}`, "info"); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.interactiveClarificationEnabled = enabled; }); workflowUiNotify(ctx, `interactiveClarificationEnabled set to ${enabled} in ${r.file}`, "info"); }
       } else if (choice === "Set maxClarificationQuestions") {
         const count = parsePositiveInt((await ctx.ui.select("Max clarification questions", ["1", "2", "3", "4", "5"])) ?? "");
-        if (count) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.maxClarificationQuestions = count; }); ctx.ui.notify(`maxClarificationQuestions set to ${count} in ${r.file}`, "info"); }
+        if (count) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.maxClarificationQuestions = count; }); workflowUiNotify(ctx, `maxClarificationQuestions set to ${count} in ${r.file}`, "info"); }
       } else if (choice === "List Current Settings") {
         const s = loadWorkflowSettings(ctx.cwd);
         show(pi, `# Clarification Settings\n\nClarification Mode: ${s.planning.clarificationMode}\nInteractive Clarification: ${s.planning.interactiveClarificationEnabled !== false ? "enabled" : "disabled"}\nMax Clarification Questions: ${s.planning.maxClarificationQuestions}`);
@@ -14493,11 +14663,11 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       if (!choice || choice === "Back") return;
       if (choice.endsWith("Policy")) {
         const policy = parseSubagentPolicy((await ctx.ui.select(`${label} policy`, ["off", "auto", "deep", "maximum", "forced"])) ?? "");
-        if (policy) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.subagents as typeof s.subagents & Record<string, string>)[keys.policyKey] = policy; }); ctx.ui.notify(`subagents.${keys.policyKey} set to ${policy} in ${r.file}`, "info"); }
+        if (policy) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.subagents as typeof s.subagents & Record<string, string>)[keys.policyKey] = policy; }); workflowUiNotify(ctx, `subagents.${keys.policyKey} set to ${policy} in ${r.file}`, "info"); }
       } else {
         const key = choice.includes("Deep") ? keys.deepKey : keys.maximumKey;
         const count = parsePositiveInt((await ctx.ui.select(`${label} ${choice.includes("Deep") ? "deep" : "maximum / forced"} workers`, ["0", "1", "2", "3", "4", "5", "6", "7", "8"])) ?? "");
-        if (count !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.subagents as typeof s.subagents & Record<string, number>)[key] = count; }); ctx.ui.notify(`subagents.${key} set to ${count} in ${r.file}. Forced policy uses this phase's Maximum / Forced worker count.`, "info"); }
+        if (count !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.subagents as typeof s.subagents & Record<string, number>)[key] = count; }); workflowUiNotify(ctx, `subagents.${key} set to ${count} in ${r.file}. Forced policy uses this phase's Maximum / Forced worker count.`, "info"); }
       }
     }
   }
@@ -14515,7 +14685,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
             const standard = s.standard as typeof s.standard & { subagents?: Record<string, boolean | number | string | undefined> };
             standard.subagents = { ...(standard.subagents ?? {}), [keys.policyKey]: policy };
           });
-          ctx.ui.notify(`standard.subagents.${keys.policyKey} set to ${policy} in ${r.file}`, "info");
+          workflowUiNotify(ctx, `standard.subagents.${keys.policyKey} set to ${policy} in ${r.file}`, "info");
         }
       } else {
         const key = choice.includes("Deep") ? keys.deepKey : keys.maximumKey;
@@ -14525,7 +14695,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
             const standard = s.standard as typeof s.standard & { subagents?: Record<string, boolean | number | string | undefined> };
             standard.subagents = { ...(standard.subagents ?? {}), [key]: count };
           });
-          ctx.ui.notify(`standard.subagents.${key} set to ${count} in ${r.file}. Forced policy uses this Standard phase's Maximum / Forced worker count.`, "info");
+          workflowUiNotify(ctx, `standard.subagents.${key} set to ${count} in ${r.file}. Forced policy uses this Standard phase's Maximum / Forced worker count.`, "info");
         }
       }
     }
@@ -14544,7 +14714,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
           const standard = s.standard as typeof s.standard & { subagents?: Record<string, boolean | number | string | undefined> };
           standard.subagents = { ...(standard.subagents ?? {}), [key]: enabled };
         });
-        ctx.ui.notify(`standard.subagents.${key} set to ${enabled} in ${r.file}`, "info");
+        workflowUiNotify(ctx, `standard.subagents.${key} set to ${enabled} in ${r.file}`, "info");
       }
     }
   }
@@ -14561,7 +14731,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
           const standard = s.standard as typeof s.standard & { subagents?: Record<string, boolean | number | string | undefined> };
           standard.subagents = { ...(standard.subagents ?? {}), [key]: enabled };
         });
-        ctx.ui.notify(`standard.subagents.${key} set to ${enabled} in ${r.file}`, "info");
+        workflowUiNotify(ctx, `standard.subagents.${key} set to ${enabled} in ${r.file}`, "info");
       }
     }
   }
@@ -14573,7 +14743,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       if (!choice || choice === "Back") return;
       if (choice === "Enable / Disable Standard Sub-agents") {
         const enabled = await chooseBool(ctx, "standard.allowSubagents?");
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.standard.allowSubagents = enabled; }); ctx.ui.notify(`standard.allowSubagents set to ${enabled} in ${r.file}`, "info"); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.standard.allowSubagents = enabled; }); workflowUiNotify(ctx, `standard.allowSubagents set to ${enabled} in ${r.file}`, "info"); }
       } else if (choice === "Standard Planning / Research Policy / Workers") await showStandardSubagentPhaseSettingsMenu(ctx, "Planning", "Standard Planning / Research");
       else if (choice === "Standard Execution Policy / Workers") await showStandardSubagentPhaseSettingsMenu(ctx, "Execution", "Standard Execution");
       else if (choice === "Standard Repair Policy / Workers") await showStandardSubagentPhaseSettingsMenu(ctx, "Repair", "Standard Repair");
@@ -14581,15 +14751,15 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       else if (choice === "Standard Validation Policy / Workers") await showStandardSubagentPhaseSettingsMenu(ctx, "Validation", "Standard Validation");
       else if (choice === "Agent Scope") {
         const scope = parseWorkflowAgentScope((await ctx.ui.select("Standard agent scope", ["user", "project", "both"])) ?? "");
-        if (scope) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.standard.subagentScope = scope; }); ctx.ui.notify(`standard.subagentScope set to ${scope} in ${r.file}`, "info"); }
+        if (scope) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.standard.subagentScope = scope; }); workflowUiNotify(ctx, `standard.subagentScope set to ${scope} in ${r.file}`, "info"); }
       } else if (choice === "Auto-use Toggles") await showStandardSubagentAutoUseMenu(ctx);
       else if (choice === "Parallel Agent Settings") await showStandardParallelismSettingsMenu(ctx);
       else if (choice === "Activity Indicator") {
         const enabled = await chooseBool(ctx, "subagents.activityIndicatorEnabled?");
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.activityIndicatorEnabled = enabled; }); ctx.ui.notify(`subagents.activityIndicatorEnabled set to ${enabled} in ${r.file}`, "info"); renderWorkflowSubagentActivity(ctx); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.activityIndicatorEnabled = enabled; }); workflowUiNotify(ctx, `subagents.activityIndicatorEnabled set to ${enabled} in ${r.file}`, "info"); renderWorkflowSubagentActivity(ctx); }
       } else if (choice === "List Current Settings") {
         const s = loadWorkflowSettings(ctx.cwd);
-        show(pi, `# Plan Sub-agents / Workers\n\n${renderPlanSubagentWorkerSettings(s)}`);
+        show(pi, `# Standard Sub-agents / Workers\n\nSub-agents: ${s.standard.allowSubagents !== false ? "enabled" : "disabled"}\nAgent Scope: ${s.standard.subagentScope ?? "user"}\nActivity Indicator: ${s.subagents.activityIndicatorEnabled !== false ? "enabled" : "disabled"}\nAuto-use Planning: ${s.standard.subagents?.autoUseDuringPlanning !== false ? "on" : "off"}\nAuto-use Execution: ${s.standard.subagents?.autoUseDuringExecution !== false ? "on" : "off"}\nAuto-use Repair: ${s.standard.subagents?.autoUseDuringRepair !== false ? "on" : "off"}\nAuto-use Review: ${s.standard.subagents?.autoUseDuringReview !== false ? "on" : "off"}\nAuto-use Validation: ${s.standard.subagents?.autoUseDuringValidation !== false ? "on" : "off"}`);
       }
     }
   }
@@ -14601,11 +14771,11 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       if (!choice || choice === "Back") return;
       if (choice === "Mission Planning Policy") {
         const policy = parseSubagentPolicy((await ctx.ui.select("Mission planning policy", ["off", "auto", "deep", "maximum", "forced"])) ?? "");
-        if (policy) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.subagentPolicy = policy; }); ctx.ui.notify(`missions.subagentPolicy set to ${policy} in ${r.file}`, "info"); }
+        if (policy) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.subagentPolicy = policy; }); workflowUiNotify(ctx, `missions.subagentPolicy set to ${policy} in ${r.file}`, "info"); }
       } else {
         const key = choice.includes("Deep") ? "minWorkersForDeep" : "minWorkersForMaximum";
         const count = parsePositiveInt((await ctx.ui.select(choice, ["0", "1", "2", "3", "4", "5", "6", "7", "8"])) ?? "");
-        if (count !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.missions as typeof s.missions & Record<string, number>)[key] = count; }); ctx.ui.notify(`missions.${key} set to ${count} in ${r.file}. Forced mission planning uses Mission Planning Maximum / Forced Workers.`, "info"); }
+        if (count !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.missions as typeof s.missions & Record<string, number>)[key] = count; }); workflowUiNotify(ctx, `missions.${key} set to ${count} in ${r.file}. Forced mission planning uses Mission Planning Maximum / Forced Workers.`, "info"); }
       }
     }
   }
@@ -14618,7 +14788,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       const keyMap: Record<string, string> = { "Planning Auto-use": "autoUseDuringPlanning", "Execution Auto-use": "autoUseDuringExecution", "Repair Auto-use": "autoUseDuringRepair", "Review Auto-use": "autoUseDuringReview", "Validation Auto-use": "autoUseDuringValidation" };
       const key = keyMap[choice];
       const enabled = await chooseBool(ctx, `${key}?`);
-      if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.subagents as typeof s.subagents & Record<string, boolean>)[key] = enabled; }); ctx.ui.notify(`subagents.${key} set to ${enabled} in ${r.file}`, "info"); }
+      if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.subagents as typeof s.subagents & Record<string, boolean>)[key] = enabled; }); workflowUiNotify(ctx, `subagents.${key} set to ${enabled} in ${r.file}`, "info"); }
     }
   }
 
@@ -14629,7 +14799,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       if (!choice || choice === "Back") return;
       if (choice === "Enable / Disable Sub-agents") {
         const enabled = await chooseBool(ctx, "subagents.enabled?");
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.enabled = enabled; }); ctx.ui.notify(`subagents.enabled set to ${enabled} in ${r.file}`, "info"); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.enabled = enabled; }); workflowUiNotify(ctx, `subagents.enabled set to ${enabled} in ${r.file}`, "info"); }
       } else if (choice === "Planning Policy / Workers") await showSubagentPhaseSettingsMenu(ctx, "Planning", "Shared Planning");
       else if (choice === "Execution Policy / Workers") await showSubagentPhaseSettingsMenu(ctx, "Execution", "Shared Execution");
       else if (choice === "Repair Policy / Workers") await showSubagentPhaseSettingsMenu(ctx, "Repair", "Shared Repair");
@@ -14639,10 +14809,10 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       else if (choice === "Parallel Agent Settings") await showParallelismSettingsMenu(ctx);
       else if (choice === "Background Sub-agents") {
         const enabled = await chooseBool(ctx, "subagents.allowBackgroundSubagents?");
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.allowBackgroundSubagents = enabled; }); ctx.ui.notify(`subagents.allowBackgroundSubagents set to ${enabled} in ${r.file}. Background sub-agents run in Planning/Review/Validation phases without blocking the parent.`, "info"); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.allowBackgroundSubagents = enabled; }); workflowUiNotify(ctx, `subagents.allowBackgroundSubagents set to ${enabled} in ${r.file}. Background sub-agents run in Planning/Review/Validation phases without blocking the parent.`, "info"); }
       } else if (choice === "Activity Indicator") {
         const enabled = await chooseBool(ctx, "subagents.activityIndicatorEnabled?");
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.activityIndicatorEnabled = enabled; }); ctx.ui.notify(`subagents.activityIndicatorEnabled set to ${enabled} in ${r.file}`, "info"); renderWorkflowSubagentActivity(ctx); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.activityIndicatorEnabled = enabled; }); workflowUiNotify(ctx, `subagents.activityIndicatorEnabled set to ${enabled} in ${r.file}`, "info"); renderWorkflowSubagentActivity(ctx); }
       } else if (choice === "List Current Settings") {
         const s = loadWorkflowSettings(ctx.cwd);
         show(pi, `# Shared Sub-agents / Workers\n\nSub-agents: ${s.subagents.enabled !== false ? "enabled" : "disabled"}\nBackground Sub-agents: ${s.subagents.allowBackgroundSubagents === true ? "enabled" : "disabled"}\nActivity Indicator: ${s.subagents.activityIndicatorEnabled !== false ? "enabled" : "disabled"}\nAuto-use Planning: ${s.subagents.autoUseDuringPlanning !== false ? "on" : "off"}\nAuto-use Execution: ${s.subagents.autoUseDuringExecution !== false ? "on" : "off"}\nAuto-use Repair: ${s.subagents.autoUseDuringRepair !== false ? "on" : "off"}\nAuto-use Review: ${s.subagents.autoUseDuringReview !== false ? "on" : "off"}\nAuto-use Validation: ${s.subagents.autoUseDuringValidation !== false ? "on" : "off"}`);
@@ -14657,7 +14827,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       if (!choice || choice === "Back") return;
       if (choice === "Enable / Disable Sub-agents") {
         const enabled = await chooseBool(ctx, "subagents.enabled?");
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.enabled = enabled; }); ctx.ui.notify(`subagents.enabled set to ${enabled} in ${r.file}`, "info"); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.enabled = enabled; }); workflowUiNotify(ctx, `subagents.enabled set to ${enabled} in ${r.file}`, "info"); }
       } else if (choice === "Plan Planning Policy / Workers") await showSubagentPhaseSettingsMenu(ctx, "Planning", "Plan Planning");
       else if (choice === "Plan Execution Policy / Workers") await showSubagentPhaseSettingsMenu(ctx, "Execution", "Plan Execution");
       else if (choice === "Plan Repair Policy / Workers") await showSubagentPhaseSettingsMenu(ctx, "Repair", "Plan Repair");
@@ -14667,10 +14837,10 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       else if (choice === "Parallel Agent Settings") await showParallelismSettingsMenu(ctx);
       else if (choice === "Activity Indicator") {
         const enabled = await chooseBool(ctx, "subagents.activityIndicatorEnabled?");
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.activityIndicatorEnabled = enabled; }); ctx.ui.notify(`subagents.activityIndicatorEnabled set to ${enabled} in ${r.file}`, "info"); renderWorkflowSubagentActivity(ctx); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.activityIndicatorEnabled = enabled; }); workflowUiNotify(ctx, `subagents.activityIndicatorEnabled set to ${enabled} in ${r.file}`, "info"); renderWorkflowSubagentActivity(ctx); }
       } else if (choice === "List Current Settings") {
         const s = loadWorkflowSettings(ctx.cwd);
-        show(pi, `# Standard Sub-agents / Workers\n\nSub-agents: ${s.standard.allowSubagents !== false ? "enabled" : "disabled"}\nAgent Scope: ${s.standard.subagentScope ?? "user"}\nActivity Indicator: ${s.subagents.activityIndicatorEnabled !== false ? "enabled" : "disabled"}\nAuto-use Planning: ${s.subagents.autoUseDuringPlanning !== false ? "on" : "off"}\nAuto-use Execution: ${s.subagents.autoUseDuringExecution !== false ? "on" : "off"}\nAuto-use Repair: ${s.subagents.autoUseDuringRepair !== false ? "on" : "off"}\nAuto-use Review: ${s.subagents.autoUseDuringReview !== false ? "on" : "off"}\nAuto-use Validation: ${s.subagents.autoUseDuringValidation !== false ? "on" : "off"}`);
+        show(pi, `# Plan Sub-agents / Workers\n\n${renderPlanSubagentWorkerSettings(s)}`);
       }
     }
   }
@@ -14682,7 +14852,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       if (!choice || choice === "Back") return;
       if (choice === "Enable / Disable Sub-agents") {
         const enabled = await chooseBool(ctx, "subagents.enabled?");
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.enabled = enabled; }); ctx.ui.notify(`subagents.enabled set to ${enabled} in ${r.file}`, "info"); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.enabled = enabled; }); workflowUiNotify(ctx, `subagents.enabled set to ${enabled} in ${r.file}`, "info"); }
       } else if (choice === "Mission Planning Policy / Workers") await showMissionPlanningSubagentSettingsMenu(ctx);
       else if (choice === "Mission Execution Policy / Workers") await showSubagentPhaseSettingsMenu(ctx, "Execution", "Mission Execution");
       else if (choice === "Mission Repair Policy / Workers") await showSubagentPhaseSettingsMenu(ctx, "Repair", "Mission Repair");
@@ -14692,7 +14862,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       else if (choice === "Parallel Agent Settings") await showParallelismSettingsMenu(ctx);
       else if (choice === "Activity Indicator") {
         const enabled = await chooseBool(ctx, "subagents.activityIndicatorEnabled?");
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.activityIndicatorEnabled = enabled; }); ctx.ui.notify(`subagents.activityIndicatorEnabled set to ${enabled} in ${r.file}`, "info"); renderWorkflowSubagentActivity(ctx); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.activityIndicatorEnabled = enabled; }); workflowUiNotify(ctx, `subagents.activityIndicatorEnabled set to ${enabled} in ${r.file}`, "info"); renderWorkflowSubagentActivity(ctx); }
       } else if (choice === "List Current Settings") {
         const s = loadWorkflowSettings(ctx.cwd);
         show(pi, `# Mission Sub-agents / Workers\n\n${renderMissionSubagentWorkerSettings(s)}`);
@@ -14708,10 +14878,10 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       if (choice?.startsWith("Set allow") || choice === "Set requireParallelEditConflictProtection") {
         const key = choice.replace("Set ", "");
         const enabled = await chooseBool(ctx, `${key}?`);
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.subagents as typeof s.subagents & Record<string, boolean>)[key] = enabled; }); ctx.ui.notify(`subagents.${key} set to ${enabled} in ${r.file}`, "info"); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.subagents as typeof s.subagents & Record<string, boolean>)[key] = enabled; }); workflowUiNotify(ctx, `subagents.${key} set to ${enabled} in ${r.file}`, "info"); }
       } else if (choice === "Set editConcurrencyMode") {
         const mode = parseEditConcurrencyMode((await ctx.ui.select("Edit concurrency mode", ["sequential", "scoped", "blocked"])) ?? "");
-        if (mode) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.editConcurrencyMode = mode; }); ctx.ui.notify(`subagents.editConcurrencyMode set to ${mode} in ${r.file}`, "info"); }
+        if (mode) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.editConcurrencyMode = mode; }); workflowUiNotify(ctx, `subagents.editConcurrencyMode set to ${mode} in ${r.file}`, "info"); }
       } else if (choice === "List Current Settings") {
         const s = loadWorkflowSettings(ctx.cwd);
         show(pi, `# Parallelism Settings\n\nParallel Read-Only: ${s.subagents.allowParallelReadOnly !== false ? "enabled" : "disabled"}\nParallel Planning: ${s.subagents.allowParallelPlanning !== false ? "enabled" : "disabled"}\nParallel Execution: ${s.subagents.allowParallelExecution !== false ? "enabled" : "disabled"}\nParallel Repair: ${s.subagents.allowParallelRepair !== false ? "enabled" : "disabled"}\nParallel Review: ${s.subagents.allowParallelReview !== false ? "enabled" : "disabled"}\nParallel Validation: ${s.subagents.allowParallelValidation !== false ? "enabled" : "disabled"}\nParallel File Edits: ${s.subagents.allowParallelEdits !== false ? "enabled" : "disabled"}\nEdit Concurrency Mode: ${s.subagents.editConcurrencyMode ?? "sequential"}\nConflict Protection: ${s.subagents.requireParallelEditConflictProtection !== false ? "enabled" : "disabled"}`);
@@ -14723,7 +14893,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     const models = ctx.modelRegistry.getAll();
     const providers = [...new Set(models.map((m) => m.provider))].sort();
     if (providers.length === 0) {
-      ctx.ui.notify("No models are available in the model registry.", "error");
+      workflowUiNotify(ctx, "No models are available in the model registry.", "error");
       return undefined;
     }
     const providerChoice = await ctx.ui.select(`${title}: select provider`, [...providers, "Custom provider name"]);
@@ -14737,7 +14907,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     }
     const providerModels = models.filter((m) => m.provider === providerChoice).map((m) => m.id).sort();
     if (providerModels.length === 0) {
-      ctx.ui.notify(`No models found for provider ${providerChoice}.`, "error");
+      workflowUiNotify(ctx, `No models found for provider ${providerChoice}.`, "error");
       return undefined;
     }
     const modelChoice = await ctx.ui.select(`${title}: select model`, providerModels.map((model) => `${providerChoice}/${model}`));
@@ -14764,7 +14934,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       s.context.compactionModelProvider = provider;
       s.context.compactionModel = "";
     });
-    ctx.ui.notify(provider ? `Compaction provider preference stored as ${provider} in ${result.file}. Trigger behavior was not changed.` : `Compaction provider reset to Pi default in ${result.file}. Trigger behavior was not changed.`, "info");
+    workflowUiNotify(ctx, provider ? `Compaction provider preference stored as ${provider} in ${result.file}. Trigger behavior was not changed.` : `Compaction provider reset to Pi default in ${result.file}. Trigger behavior was not changed.`, "info");
   }
 
   async function selectCompactionModel(ctx: ExtensionContext) {
@@ -14777,7 +14947,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         s.context.compactionModelProvider = "";
         s.context.compactionModel = "";
       });
-      ctx.ui.notify(`Compaction summary model reset to Pi default in ${result.file}. Trigger behavior was not changed.`, "info");
+      workflowUiNotify(ctx, `Compaction summary model reset to Pi default in ${result.file}. Trigger behavior was not changed.`, "info");
       return;
     }
 
@@ -14788,7 +14958,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       selectedProvider = chosen;
     }
     if (!selectedProvider) {
-      ctx.ui.notify("Select a custom compaction provider before selecting a custom model.", "warning");
+      workflowUiNotify(ctx, "Select a custom compaction provider before selecting a custom model.", "warning");
       return;
     }
     const providerModels = ctx.modelRegistry.getAll().filter((m) => m.provider === selectedProvider).map((m) => m.id).sort();
@@ -14800,7 +14970,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       s.context.compactionModelProvider = selectedProvider;
       s.context.compactionModel = model;
     });
-    ctx.ui.notify(`Compaction model preference stored as ${selectedProvider}/${model} in ${result.file}. Trigger behavior was not changed.`, "info");
+    workflowUiNotify(ctx, `Compaction model preference stored as ${selectedProvider}/${model} in ${result.file}. Trigger behavior was not changed.`, "info");
   }
 
   async function selectCompactionAgent(ctx: ExtensionContext) {
@@ -14814,7 +14984,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       s.context.compactionAgent = agent;
       s.context.customCompactionEnabled = true;
     });
-    ctx.ui.notify(`Compaction agent stored as ${agent} in ${result.file}. Current releases keep Pi default fallback behavior for agent-routed compaction.`, "info");
+    workflowUiNotify(ctx, `Compaction agent stored as ${agent} in ${result.file}. Current releases keep Pi default fallback behavior for agent-routed compaction.`, "info");
   }
 
   async function showCompactionSettingsMenu(ctx: ExtensionContext) {
@@ -14833,53 +15003,53 @@ ${renderMissionStatus(activeMission ?? paused)}`);
           if (trigger === "Pi default") delete s.context.autoCompactionEnabled;
           else s.context.autoCompactionEnabled = trigger === "Enabled";
         });
-        ctx.ui.notify(`Workflow auto trigger set to ${trigger.toLowerCase()} in ${r.file}.`, "info");
+        workflowUiNotify(ctx, `Workflow auto trigger set to ${trigger.toLowerCase()} in ${r.file}.`, "info");
       } else if (choice === "Workflow Trigger Percent") {
         const mode = await ctx.ui.select("Workflow Trigger Percent", ["Pi default", "Custom percent", "Back"]);
         if (!mode || mode === "Back") continue;
         if (mode === "Pi default") {
           const r = updateSettings(ctx.cwd, undefined, (s) => { delete s.context.compactionTriggerPercent; });
-          ctx.ui.notify(`Workflow compaction trigger percent override removed in ${r.file}; Pi native trigger formula remains in control.`, "info");
+          workflowUiNotify(ctx, `Workflow compaction trigger percent override removed in ${r.file}; Pi native trigger formula remains in control.`, "info");
         } else {
           const raw = String((await ctx.ui.input("Workflow compaction trigger percent (50-95)", String(compactionTriggerPercentOverride(loadWorkflowSettings(ctx.cwd)) ?? 85))) ?? "").trim();
           const count = Number(raw);
-          if (Number.isInteger(count) && count >= 50 && count <= 95) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.compactionTriggerPercent = count; }); ctx.ui.notify(`Workflow compaction trigger percent set to ${count}% in ${r.file}`, "info"); }
-          else ctx.ui.notify("Trigger percent must be an integer from 50 to 95.", "error");
+          if (Number.isInteger(count) && count >= 50 && count <= 95) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.compactionTriggerPercent = count; }); workflowUiNotify(ctx, `Workflow compaction trigger percent set to ${count}% in ${r.file}`, "info"); }
+          else workflowUiNotify(ctx, "Trigger percent must be an integer from 50 to 95.", "error");
         }
       } else if (choice === "Workflow Trigger Cooldown") {
         const mode = await ctx.ui.select("Workflow Trigger Cooldown", ["Pi default", "Custom cooldown", "Back"]);
         if (!mode || mode === "Back") continue;
         if (mode === "Pi default") {
           const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.compactionCooldownMinutes = 5; });
-          ctx.ui.notify(`Compaction cooldown reset to Pi default (5 minutes) in ${r.file}.`, "info");
+          workflowUiNotify(ctx, `Compaction cooldown reset to Pi default (5 minutes) in ${r.file}.`, "info");
         } else {
           const count = Number((await ctx.ui.input("Minimum minutes between Workflow Suite proactive compaction attempts", String(compactionCooldownMinutes(loadWorkflowSettings(ctx.cwd)))) ?? ""));
-          if (Number.isInteger(count) && count >= 0 && count <= 240) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.compactionCooldownMinutes = count; }); ctx.ui.notify(`Compaction cooldown set to ${count} minute(s) in ${r.file}. This is the minimum wait between proactive compaction attempts, not a delay before compaction starts.`, "info"); }
-          else ctx.ui.notify("Cooldown must be an integer from 0 to 240 minutes.", "error");
+          if (Number.isInteger(count) && count >= 0 && count <= 240) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.compactionCooldownMinutes = count; }); workflowUiNotify(ctx, `Compaction cooldown set to ${count} minute(s) in ${r.file}. This is the minimum wait between proactive compaction attempts, not a delay before compaction starts.`, "info"); }
+          else workflowUiNotify(ctx, "Cooldown must be an integer from 0 to 240 minutes.", "error");
         }
       } else if (choice === "Custom Reserve Tokens") {
         const mode = await ctx.ui.select("Custom Reserve Tokens", ["Pi default", "Custom reserve tokens", "Back"]);
         if (!mode || mode === "Back") continue;
         if (mode === "Pi default") {
           const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.customCompactionReserveTokens = DEFAULT_PI_COMPACTION_RESERVE_TOKENS; });
-          ctx.ui.notify(`Custom compaction reserve tokens reset to Pi default (${DEFAULT_PI_COMPACTION_RESERVE_TOKENS.toLocaleString()}) in ${r.file}`, "info");
+          workflowUiNotify(ctx, `Custom compaction reserve tokens reset to Pi default (${DEFAULT_PI_COMPACTION_RESERVE_TOKENS.toLocaleString()}) in ${r.file}`, "info");
         } else {
           const raw = String((await ctx.ui.input("Custom compaction reserve tokens (4096-65536)", String(customCompactionReserveTokens(loadWorkflowSettings(ctx.cwd)))) ?? "")).trim();
           const count = Number(raw);
-          if (Number.isInteger(count) && count >= 4096 && count <= 65536) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.customCompactionReserveTokens = count; }); ctx.ui.notify(`Custom compaction reserve tokens set to ${count.toLocaleString()} in ${r.file}`, "info"); }
-          else ctx.ui.notify("Reserve tokens must be an integer from 4096 to 65536.", "error");
+          if (Number.isInteger(count) && count >= 4096 && count <= 65536) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.customCompactionReserveTokens = count; }); workflowUiNotify(ctx, `Custom compaction reserve tokens set to ${count.toLocaleString()} in ${r.file}`, "info"); }
+          else workflowUiNotify(ctx, "Reserve tokens must be an integer from 4096 to 65536.", "error");
         }
       } else if (choice === "Custom Keep Recent Tokens") {
         const mode = await ctx.ui.select("Custom Keep Recent Tokens", ["Pi default", "Custom keep-recent tokens", "Back"]);
         if (!mode || mode === "Back") continue;
         if (mode === "Pi default") {
           const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.customCompactionKeepRecentTokens = DEFAULT_PI_COMPACTION_KEEP_RECENT_TOKENS; });
-          ctx.ui.notify(`Custom compaction keep-recent tokens reset to Pi default (${DEFAULT_PI_COMPACTION_KEEP_RECENT_TOKENS.toLocaleString()}) in ${r.file}`, "info");
+          workflowUiNotify(ctx, `Custom compaction keep-recent tokens reset to Pi default (${DEFAULT_PI_COMPACTION_KEEP_RECENT_TOKENS.toLocaleString()}) in ${r.file}`, "info");
         } else {
           const raw = String((await ctx.ui.input("Custom compaction keep-recent tokens (1000-200000)", String(customCompactionKeepRecentTokens(loadWorkflowSettings(ctx.cwd)))) ?? "")).trim();
           const count = Number(raw);
-          if (Number.isInteger(count) && count >= 1000 && count <= 200000) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.customCompactionKeepRecentTokens = count; }); ctx.ui.notify(`Custom compaction keep-recent tokens set to ${count.toLocaleString()} in ${r.file}`, "info"); }
-          else ctx.ui.notify("Keep-recent tokens must be an integer from 1000 to 200000.", "error");
+          if (Number.isInteger(count) && count >= 1000 && count <= 200000) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.customCompactionKeepRecentTokens = count; }); workflowUiNotify(ctx, `Custom compaction keep-recent tokens set to ${count.toLocaleString()} in ${r.file}`, "info"); }
+          else workflowUiNotify(ctx, "Keep-recent tokens must be an integer from 1000 to 200000.", "error");
         }
       } else if (choice === "List Current Settings") {
         const s = loadWorkflowSettings(ctx.cwd);
@@ -14930,7 +15100,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
           }
         });
         await reapplyStandardRouteIfStandardMode(ctx, true);
-        ctx.ui.notify(`Standard model source set to ${source} in ${result.file}`, "info");
+        workflowUiNotify(ctx, `Standard model source set to ${source} in ${result.file}`, "info");
       } else if (choice === "Standard Model Role") {
         const role = parseStandardModelRole((await ctx.ui.select("Standard model role", ["Current Pi model", "Planner", "Executor", "Reviewer", "Validator"])) ?? "");
         if (!role) continue;
@@ -14944,7 +15114,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
           }
         });
         await reapplyStandardRouteIfStandardMode(ctx, true);
-        ctx.ui.notify(`Standard model role set to ${workflowRoleLabel(role)} in ${result.file}`, "info");
+        workflowUiNotify(ctx, `Standard model role set to ${workflowRoleLabel(role)} in ${result.file}`, "info");
       } else if (choice === "Configure Standard Planner") await configureStandardRoleModel(ctx, "planner");
       else if (choice === "Configure Standard Executor") await configureStandardRoleModel(ctx, "executor");
       else if (choice === "Configure Standard Reviewer") await configureStandardRoleModel(ctx, "reviewer");
@@ -14965,10 +15135,10 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         const options = key === "maxValidationRetriesPerPlan" ? ["0", "1", "2", "3", "4", "5", "10"] : ["0", "1", "2", "4", "8", "12", "20", "50", "100"];
         const raw = await ctx.ui.select(setting, options);
         const count = raw === undefined ? undefined : Number(raw);
-        if (Number.isInteger(count) && count >= 0 && count <= max) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.workflow as typeof s.workflow & Record<string, number>)[key] = count; }); ctx.ui.notify(`workflow.${key} set to ${count} in ${r.file}`, "info"); }
+        if (Number.isInteger(count) && count >= 0 && count <= max) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.workflow as typeof s.workflow & Record<string, number>)[key] = count; }); workflowUiNotify(ctx, `workflow.${key} set to ${count} in ${r.file}`, "info"); }
       } else if (setting === "Validation Retry Mode") {
         const mode = parseValidationRetryMode((await ctx.ui.select("Validation retry mode", ["off", "safe_only", "aggressive_within_scope"])) ?? "");
-        if (mode) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.validationRetryMode = mode; }); ctx.ui.notify(`workflow.validationRetryMode set to ${mode} in ${r.file}`, "info"); }
+        if (mode) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.validationRetryMode = mode; }); workflowUiNotify(ctx, `workflow.validationRetryMode set to ${mode} in ${r.file}`, "info"); }
       } else {
         const keyMap: Record<string, keyof ReturnType<typeof loadWorkflowSettings>["workflow"]> = {
           "Auto Repair Validation Failures": "autoRepairValidationFailures",
@@ -14978,7 +15148,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         };
         const key = keyMap[setting];
         const enabled = await chooseBool(ctx, `${String(key)}?`);
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.workflow as Record<string, unknown>)[String(key)] = enabled; }); ctx.ui.notify(`workflow.${String(key)} set to ${enabled} in ${r.file}`, "info"); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.workflow as Record<string, unknown>)[String(key)] = enabled; }); workflowUiNotify(ctx, `workflow.${String(key)} set to ${enabled} in ${r.file}`, "info"); }
       }
     }
   }
@@ -14992,26 +15162,26 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         await showModelSettingsMenu(ctx);
       } else if (choice === "Planning Depth") {
         const depth = parsePlanningDepth((await ctx.ui.select("Planning depth", ["fast", "standard", "deep", "maximum"])) ?? "");
-        if (depth) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.depth = depth; }); ctx.ui.notify(`planning.depth set to ${depth} in ${r.file}`, "info"); }
+        if (depth) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.depth = depth; }); workflowUiNotify(ctx, `planning.depth set to ${depth} in ${r.file}`, "info"); }
       } else if (choice === "Plan Clarification") {
         const setting = await ctx.ui.select("Plan Clarification", ["Clarification Mode", "Interactive Clarification", "Max Clarification Questions", "Timing", "Quality Gate", "Allow Without Analysis", "Use Sub-agents Before Clarification", "Back"]);
         if (!setting || setting === "Back") continue;
         if (setting === "Clarification Mode") {
           const mode = parseClarificationMode((await ctx.ui.select("Plan clarification mode", ["auto", "always_for_nontrivial", "never"])) ?? "");
-          if (mode) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.clarificationMode = mode; }); ctx.ui.notify(`planning.clarificationMode set to ${mode} in ${r.file}`, "info"); }
+          if (mode) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.clarificationMode = mode; }); workflowUiNotify(ctx, `planning.clarificationMode set to ${mode} in ${r.file}`, "info"); }
         } else if (setting === "Interactive Clarification") {
           const enabled = await chooseBool(ctx, "Interactive clarification enabled?");
-          if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.interactiveClarificationEnabled = enabled; }); ctx.ui.notify(`planning.interactiveClarificationEnabled set to ${enabled} in ${r.file}`, "info"); }
+          if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.interactiveClarificationEnabled = enabled; }); workflowUiNotify(ctx, `planning.interactiveClarificationEnabled set to ${enabled} in ${r.file}`, "info"); }
         } else if (setting === "Max Clarification Questions") {
           const count = parsePositiveInt((await ctx.ui.select("Max clarification questions", ["1", "2", "3", "4", "5"])) ?? "");
-          if (count) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.maxClarificationQuestions = count; }); ctx.ui.notify(`planning.maxClarificationQuestions set to ${count} in ${r.file}`, "info"); }
+          if (count) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.maxClarificationQuestions = count; }); workflowUiNotify(ctx, `planning.maxClarificationQuestions set to ${count} in ${r.file}`, "info"); }
         } else if (setting === "Timing") {
           const timing = parseClarificationTiming((await ctx.ui.select("Plan clarification timing", ["after_initial_analysis", "immediate"])) ?? "");
-          if (timing) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.clarificationTiming = timing; }); ctx.ui.notify(`planning.clarificationTiming set to ${timing} in ${r.file}`, "info"); }
+          if (timing) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.clarificationTiming = timing; }); workflowUiNotify(ctx, `planning.clarificationTiming set to ${timing} in ${r.file}`, "info"); }
         } else {
           const key = setting === "Quality Gate" ? "clarificationQualityGate" : setting === "Allow Without Analysis" ? "allowClarificationWithoutAnalysis" : "useSubagentsBeforeClarification";
           const enabled = await chooseBool(ctx, `planning.${key}?`);
-          if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.planning as typeof s.planning & Record<string, boolean | string | number | undefined>)[key] = enabled; }); ctx.ui.notify(`planning.${key} set to ${enabled} in ${r.file}`, "info"); }
+          if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.planning as typeof s.planning & Record<string, boolean | string | number | undefined>)[key] = enabled; }); workflowUiNotify(ctx, `planning.${key} set to ${enabled} in ${r.file}`, "info"); }
         }
       } else if (choice === "Plan Sub-agents / Workers") {
         await showPlanSubagentWorkerSettingsMenu(ctx);
@@ -15020,16 +15190,16 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         if (!setting || setting === "Back") continue;
         const enabled = await chooseBool(ctx, `${setting}?`);
         if (enabled === undefined) continue;
-        if (setting === "Reviewer Enabled") { const r = setRoleEnabled("reviewer", enabled, ctx.cwd); ctx.ui.notify(`reviewer.enabled set to ${enabled} in ${r.file}`, "info"); }
-        else if (setting === "Validator Enabled") { const r = setRoleEnabled("validator", enabled, ctx.cwd); ctx.ui.notify(`validator.enabled set to ${enabled} in ${r.file}`, "info"); }
-        else if (setting === "Auto Run Reviewer") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.autoRunReviewerBeforeExecute = enabled; }); ctx.ui.notify(`workflow.autoRunReviewerBeforeExecute set to ${enabled} in ${r.file}`, "info"); }
-        else if (setting === "Auto Run Validation") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.autoRunValidationAfterExecute = enabled; }); ctx.ui.notify(`workflow.autoRunValidationAfterExecute set to ${enabled} in ${r.file}`, "info"); }
-        else if (setting === "Auto Repair Review Failures") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.autoRepairReviewFailures = enabled; }); ctx.ui.notify(`workflow.autoRepairReviewFailures set to ${enabled} in ${r.file}`, "info"); }
-        else if (setting === "Pause After Review Failure") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.pauseAfterReviewFailure = enabled; }); ctx.ui.notify(`workflow.pauseAfterReviewFailure set to ${enabled} in ${r.file}`, "info"); }
-        else if (setting === "Approval Before Execution") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.requireApprovalBeforeExecution = enabled; s.workflow.requirePlanApprovalBeforeExecute = enabled; }); ctx.ui.notify(`workflow.requireApprovalBeforeExecution set to ${enabled} in ${r.file}`, "info"); }
-        else if (setting === "Approval Per Step") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.requireApprovalPerStep = enabled; }); ctx.ui.notify(`workflow.requireApprovalPerStep set to ${enabled} in ${r.file}`, "info"); }
-        else if (setting === "Validate After Each Step") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.validateAfterEachStep = enabled; }); ctx.ui.notify(`workflow.validateAfterEachStep set to ${enabled} in ${r.file}`, "info"); }
-        else if (setting === "Validate After Full Execution") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.validateAfterExecution = enabled; s.workflow.autoRunValidationAfterExecute = enabled; }); ctx.ui.notify(`workflow.validateAfterExecution set to ${enabled} in ${r.file}`, "info"); }
+        if (setting === "Reviewer Enabled") { const r = setRoleEnabled("reviewer", enabled, ctx.cwd); workflowUiNotify(ctx, `reviewer.enabled set to ${enabled} in ${r.file}`, "info"); }
+        else if (setting === "Validator Enabled") { const r = setRoleEnabled("validator", enabled, ctx.cwd); workflowUiNotify(ctx, `validator.enabled set to ${enabled} in ${r.file}`, "info"); }
+        else if (setting === "Auto Run Reviewer") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.autoRunReviewerBeforeExecute = enabled; }); workflowUiNotify(ctx, `workflow.autoRunReviewerBeforeExecute set to ${enabled} in ${r.file}`, "info"); }
+        else if (setting === "Auto Run Validation") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.autoRunValidationAfterExecute = enabled; }); workflowUiNotify(ctx, `workflow.autoRunValidationAfterExecute set to ${enabled} in ${r.file}`, "info"); }
+        else if (setting === "Auto Repair Review Failures") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.autoRepairReviewFailures = enabled; }); workflowUiNotify(ctx, `workflow.autoRepairReviewFailures set to ${enabled} in ${r.file}`, "info"); }
+        else if (setting === "Pause After Review Failure") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.pauseAfterReviewFailure = enabled; }); workflowUiNotify(ctx, `workflow.pauseAfterReviewFailure set to ${enabled} in ${r.file}`, "info"); }
+        else if (setting === "Approval Before Execution") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.requireApprovalBeforeExecution = enabled; s.workflow.requirePlanApprovalBeforeExecute = enabled; }); workflowUiNotify(ctx, `workflow.requireApprovalBeforeExecution set to ${enabled} in ${r.file}`, "info"); }
+        else if (setting === "Approval Per Step") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.requireApprovalPerStep = enabled; }); workflowUiNotify(ctx, `workflow.requireApprovalPerStep set to ${enabled} in ${r.file}`, "info"); }
+        else if (setting === "Validate After Each Step") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.validateAfterEachStep = enabled; }); workflowUiNotify(ctx, `workflow.validateAfterEachStep set to ${enabled} in ${r.file}`, "info"); }
+        else if (setting === "Validate After Full Execution") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.validateAfterExecution = enabled; s.workflow.autoRunValidationAfterExecute = enabled; }); workflowUiNotify(ctx, `workflow.validateAfterExecution set to ${enabled} in ${r.file}`, "info"); }
       } else if (choice === "Repair / Validation Retry") {
         await showWorkflowRepairRetrySettingsMenu(ctx);
       } else if (choice === "Plan Progress / Runtime") {
@@ -15045,28 +15215,28 @@ ${renderMissionStatus(activeMission ?? paused)}`);
           const choice = await ctx.ui.select("Plan Token Budget", ["Default (unlimited)", "Custom..."]);
           if (choice === "Default (unlimited)") {
             const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.maxTokens = 0; });
-            ctx.ui.notify(`planning.maxTokens set to default (unlimited) in ${r.file}`, "info");
+            workflowUiNotify(ctx, `planning.maxTokens set to default (unlimited) in ${r.file}`, "info");
           } else if (choice === "Custom...") {
             const count = parsePositiveInt((await ctx.ui.input("Enter custom plan token budget", String(current > 0 ? current : ""))) ?? "");
-            if (count !== undefined && count >= 0) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.maxTokens = count; }); ctx.ui.notify(`planning.maxTokens set to ${count === 0 ? "unlimited" : count.toLocaleString()} in ${r.file}`, "info"); }
+            if (count !== undefined && count >= 0) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.maxTokens = count; }); workflowUiNotify(ctx, `planning.maxTokens set to ${count === 0 ? "unlimited" : count.toLocaleString()} in ${r.file}`, "info"); }
           }
         } else if (setting === "Runtime Budget") {
           const current = loadWorkflowSettings(ctx.cwd).planning.maxRuntimeHours ?? 0;
           const choice = await ctx.ui.select("Plan Runtime Budget", ["Default (unlimited)", "Custom..."]);
           if (choice === "Default (unlimited)") {
             const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.maxRuntimeHours = 0; });
-            ctx.ui.notify(`planning.maxRuntimeHours set to default (unlimited) in ${r.file}`, "info");
+            workflowUiNotify(ctx, `planning.maxRuntimeHours set to default (unlimited) in ${r.file}`, "info");
           } else if (choice === "Custom...") {
             const count = parsePositiveInt((await ctx.ui.input("Enter custom plan runtime budget (hours)", String(current > 0 ? current : ""))) ?? "");
-            if (count !== undefined && count > 0) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.maxRuntimeHours = count; }); ctx.ui.notify(`planning.maxRuntimeHours set to ${count} hours in ${r.file}`, "info"); }
+            if (count !== undefined && count > 0) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.maxRuntimeHours = count; }); workflowUiNotify(ctx, `planning.maxRuntimeHours set to ${count} hours in ${r.file}`, "info"); }
           }
         } else if (setting === "Progress Bar Display") {
           const enabled = await chooseBool(ctx, "workflow.planShowProgressBar?");
-          if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.planShowProgressBar = enabled; }); ctx.ui.notify(`workflow.planShowProgressBar set to ${enabled} in ${r.file}`, "info"); }
+          if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.planShowProgressBar = enabled; }); workflowUiNotify(ctx, `workflow.planShowProgressBar set to ${enabled} in ${r.file}`, "info"); }
         } else {
           const key = setting === "Progress Tracking" ? "planProgressEnabled" : "planRuntimeEnabled";
           const enabled = await chooseBool(ctx, `workflow.${key}?`);
-          if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.workflow as typeof s.workflow & Record<string, boolean>)[key] = enabled; }); ctx.ui.notify(`workflow.${key} set to ${enabled} in ${r.file}`, "info"); }
+          if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.workflow as typeof s.workflow & Record<string, boolean>)[key] = enabled; }); workflowUiNotify(ctx, `workflow.${key} set to ${enabled} in ${r.file}`, "info"); }
         }
       } else if (choice === "Plan History") {
         const setting = await ctx.ui.select("Plan History", ["Save Plans", "Save Plan History", "Plan History Limit", "Back"]);
@@ -15074,11 +15244,11 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         if (!setting || setting === "Back") continue;
         if (setting === "Plan History Limit") {
           const count = parsePositiveInt((await ctx.ui.input("Plan history limit", String(workflow.planHistoryLimit ?? 50))) ?? "");
-          if (count !== undefined && count > 0) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.planHistoryLimit = count; }); ctx.ui.notify(`workflow.planHistoryLimit set to ${count} in ${r.file}`, "info"); }
+          if (count !== undefined && count > 0) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.planHistoryLimit = count; }); workflowUiNotify(ctx, `workflow.planHistoryLimit set to ${count} in ${r.file}`, "info"); }
         } else {
           const key = setting === "Save Plans" ? "savePlans" : "savePlanHistory";
           const enabled = await chooseBool(ctx, `${key}?`);
-          if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.workflow as typeof s.workflow & Record<string, boolean>)[key] = enabled; }); ctx.ui.notify(`workflow.${key} set to ${enabled} in ${r.file}`, "info"); }
+          if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.workflow as typeof s.workflow & Record<string, boolean>)[key] = enabled; }); workflowUiNotify(ctx, `workflow.${key} set to ${enabled} in ${r.file}`, "info"); }
         }
       } else if (choice === "List Current Settings") {
         const s = loadWorkflowSettings(ctx.cwd);
@@ -15094,11 +15264,11 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       if (!setting || setting === "Back") return;
       if (setting === "To Do Trigger Mode") {
         const mode = parseStandardTodoTriggerMode((await ctx.ui.select("To Do Trigger Mode", ["Disabled", "On request", "Automatic when useful", "Required"])) ?? "");
-        if (mode) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.standard.todoTriggerMode = mode; s.standard.autoTodoEnabled = mode !== "off"; }); ctx.ui.notify(`To Do Trigger Mode set to ${standardTodoTriggerModeLabel(mode)} in ${r.file}`, "info"); }
+        if (mode) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.standard.todoTriggerMode = mode; s.standard.autoTodoEnabled = mode !== "off"; }); workflowUiNotify(ctx, `To Do Trigger Mode set to ${standardTodoTriggerModeLabel(mode)} in ${r.file}`, "info"); }
       } else {
         const key = setting === "Automatic To Do Enabled" ? "autoTodoEnabled" : "todoProgressVisible";
         const enabled = await chooseBool(ctx, `standard.${key}?`);
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.standard as typeof s.standard & Record<string, boolean>)[key] = enabled; }); ctx.ui.notify(`standard.${key} set to ${enabled} in ${r.file}`, "info"); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.standard as typeof s.standard & Record<string, boolean>)[key] = enabled; }); workflowUiNotify(ctx, `standard.${key} set to ${enabled} in ${r.file}`, "info"); }
       }
     }
   }
@@ -15110,20 +15280,20 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       if (!setting || setting === "Back") return;
       if (setting === "Clarification Mode") {
         const mode = parseStandardClarificationMode((await ctx.ui.select("Standard clarification mode", ["auto", "always_for_nontrivial", "never"])) ?? "");
-        if (mode) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.standard.clarificationMode = mode; s.standard.clarificationEnabled = mode !== "never"; }); ctx.ui.notify(`standard.clarificationMode set to ${mode} in ${r.file}`, "info"); }
+        if (mode) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.standard.clarificationMode = mode; s.standard.clarificationEnabled = mode !== "never"; }); workflowUiNotify(ctx, `standard.clarificationMode set to ${mode} in ${r.file}`, "info"); }
       } else if (setting === "Interactive Clarification") {
         const enabled = await chooseBool(ctx, "Standard interactive clarification enabled?");
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.standard.interactiveClarificationEnabled = enabled; }); ctx.ui.notify(`standard.interactiveClarificationEnabled set to ${enabled} in ${r.file}`, "info"); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.standard.interactiveClarificationEnabled = enabled; }); workflowUiNotify(ctx, `standard.interactiveClarificationEnabled set to ${enabled} in ${r.file}`, "info"); }
       } else if (setting === "Max Clarification Questions") {
         const count = parsePositiveInt((await ctx.ui.select("Max Standard clarification questions", ["0", "1", "2"])) ?? "");
-        if (count !== undefined && count >= 0) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.standard.maxClarificationQuestions = count; }); ctx.ui.notify(`standard.maxClarificationQuestions set to ${count} in ${r.file}`, "info"); }
+        if (count !== undefined && count >= 0) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.standard.maxClarificationQuestions = count; }); workflowUiNotify(ctx, `standard.maxClarificationQuestions set to ${count} in ${r.file}`, "info"); }
       } else if (setting === "Timing") {
         const timing = parseClarificationTiming((await ctx.ui.select("Standard clarification timing", ["after_initial_analysis", "immediate"])) ?? "");
-        if (timing) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.standard.clarificationTiming = timing; }); ctx.ui.notify(`standard.clarificationTiming set to ${timing} in ${r.file}`, "info"); }
+        if (timing) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.standard.clarificationTiming = timing; }); workflowUiNotify(ctx, `standard.clarificationTiming set to ${timing} in ${r.file}`, "info"); }
       } else {
         const key = setting === "Quality Gate" ? "clarificationQualityGate" : setting === "Allow Without Analysis" ? "allowClarificationWithoutAnalysis" : "useSubagentsBeforeClarification";
         const enabled = await chooseBool(ctx, `standard.${key}?`);
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.standard as typeof s.standard & Record<string, boolean | string | number | undefined>)[key] = enabled; }); ctx.ui.notify(`standard.${key} set to ${enabled} in ${r.file}`, "info"); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.standard as typeof s.standard & Record<string, boolean | string | number | undefined>)[key] = enabled; }); workflowUiNotify(ctx, `standard.${key} set to ${enabled} in ${r.file}`, "info"); }
       }
     }
   }
@@ -15143,15 +15313,15 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         const choice = await ctx.ui.select("Standard Token Budget", ["Default (unlimited)", "Custom..."]);
         if (choice === "Default (unlimited)") {
           const r = updateSettings(ctx.cwd, undefined, (s) => { s.standard.maxTokens = 0; });
-          ctx.ui.notify(`standard.maxTokens set to default (unlimited) in ${r.file}`, "info");
+          workflowUiNotify(ctx, `standard.maxTokens set to default (unlimited) in ${r.file}`, "info");
         } else if (choice === "Custom...") {
           const count = parsePositiveInt((await ctx.ui.input("Enter custom standard token budget", String(current > 0 ? current : ""))) ?? "");
-          if (count !== undefined && count >= 0) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.standard.maxTokens = count; }); ctx.ui.notify(`standard.maxTokens set to ${count === 0 ? "unlimited" : count.toLocaleString()} in ${r.file}`, "info"); }
+          if (count !== undefined && count >= 0) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.standard.maxTokens = count; }); workflowUiNotify(ctx, `standard.maxTokens set to ${count === 0 ? "unlimited" : count.toLocaleString()} in ${r.file}`, "info"); }
         }
       } else {
         const key = setting === "Status Widget Visible" ? "statusWidgetVisible" : "todoProgressVisible";
         const enabled = await chooseBool(ctx, `standard.${key}?`);
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.standard as typeof s.standard & Record<string, boolean>)[key] = enabled; }); ctx.ui.notify(`standard.${key} set to ${enabled} in ${r.file}`, "info"); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.standard as typeof s.standard & Record<string, boolean>)[key] = enabled; }); workflowUiNotify(ctx, `standard.${key} set to ${enabled} in ${r.file}`, "info"); }
       }
     }
   }
@@ -15168,7 +15338,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       }
       if (choice === "Enable / Disable Standard Mode") {
         const enabled = await chooseBool(ctx, "standard.enabled?");
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.standard.enabled = enabled; }); ctx.ui.notify(`standard.enabled set to ${enabled} in ${r.file}`, "info"); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.standard.enabled = enabled; }); workflowUiNotify(ctx, `standard.enabled set to ${enabled} in ${r.file}`, "info"); }
       } else if (choice === "Standard To Do" || choice === "To Do Behavior") {
         await showStandardTodoSettingsMenu(ctx);
       } else if (choice === "Standard Clarification" || choice === "Clarification") {
@@ -15197,7 +15367,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         if (!source) continue;
         const enabled = source === "Mission-Specific Models";
         const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.useMissionSpecificModels = enabled; });
-        ctx.ui.notify(`missions.useMissionSpecificModels set to ${enabled} in ${r.file}`, "info");
+        workflowUiNotify(ctx, `missions.useMissionSpecificModels set to ${enabled} in ${r.file}`, "info");
       } else if (choice === "Configure Mission Planner") await configureMissionRoleModel(ctx, "planner");
       else if (choice === "Configure Mission Executor") await configureMissionRoleModel(ctx, "executor");
       else if (choice === "Configure Mission Reviewer") await configureMissionRoleModel(ctx, "reviewer");
@@ -15218,13 +15388,13 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         show(pi, renderHeartbeatWatchdogStatus(loadWorkflowSettings(ctx.cwd), activeMission ?? loadMissionState()));
       } else if (choice === "Enable / Disable Heartbeat") {
         const enabled = await chooseBool(ctx, "missions.heartbeatEnabled?");
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.heartbeatEnabled = enabled; }); ctx.ui.notify(`missions.heartbeatEnabled set to ${enabled} in ${r.file}`, "info"); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.heartbeatEnabled = enabled; }); workflowUiNotify(ctx, `missions.heartbeatEnabled set to ${enabled} in ${r.file}`, "info"); }
       } else if (choice === "Enable / Disable Watchdog") {
         const enabled = await chooseBool(ctx, "missions.watchdogEnabled? (warning only; no auto-recovery)");
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.watchdogEnabled = enabled; }); ctx.ui.notify(`missions.watchdogEnabled set to ${enabled} in ${r.file}`, "info"); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.watchdogEnabled = enabled; }); workflowUiNotify(ctx, `missions.watchdogEnabled set to ${enabled} in ${r.file}`, "info"); }
       } else if (choice === "Set Watchdog Stale Minutes") {
         const count = parsePositiveInt((await ctx.ui.input("watchdogStaleMinutes", String(loadWorkflowSettings(ctx.cwd).missions.watchdogStaleMinutes ?? 30))) ?? "");
-        if (count !== undefined && count > 0) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.watchdogStaleMinutes = count; }); ctx.ui.notify(`missions.watchdogStaleMinutes set to ${count} in ${r.file}`, "info"); }
+        if (count !== undefined && count > 0) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.watchdogStaleMinutes = count; }); workflowUiNotify(ctx, `missions.watchdogStaleMinutes set to ${count} in ${r.file}`, "info"); }
       }
     }
   }
@@ -15237,11 +15407,11 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       const enabled = await chooseBool(ctx, `${setting}?`);
       if (enabled === undefined) continue;
       if (setting === "Mission Reviewer Enabled") {
-        if (loadWorkflowSettings(ctx.cwd).missions.useMissionSpecificModels) { const r = updateSettings(ctx.cwd, undefined, (s) => { setMissionRoleEnabled(s, "reviewer", enabled); }); ctx.ui.notify(`missions.models.reviewer.enabled set to ${enabled} in ${r.file}`, "info"); }
-        else { const r = setRoleEnabled("reviewer", enabled, ctx.cwd); ctx.ui.notify(`reviewer.enabled set to ${enabled} in ${r.file}`, "info"); }
+        if (loadWorkflowSettings(ctx.cwd).missions.useMissionSpecificModels) { const r = updateSettings(ctx.cwd, undefined, (s) => { setMissionRoleEnabled(s, "reviewer", enabled); }); workflowUiNotify(ctx, `missions.models.reviewer.enabled set to ${enabled} in ${r.file}`, "info"); }
+        else { const r = setRoleEnabled("reviewer", enabled, ctx.cwd); workflowUiNotify(ctx, `reviewer.enabled set to ${enabled} in ${r.file}`, "info"); }
       } else if (setting === "Mission Validator Enabled") {
-        if (loadWorkflowSettings(ctx.cwd).missions.useMissionSpecificModels) { const r = updateSettings(ctx.cwd, undefined, (s) => { setMissionRoleEnabled(s, "validator", enabled); }); ctx.ui.notify(`missions.models.validator.enabled set to ${enabled} in ${r.file}`, "info"); }
-        else { const r = setRoleEnabled("validator", enabled, ctx.cwd); ctx.ui.notify(`validator.enabled set to ${enabled} in ${r.file}`, "info"); }
+        if (loadWorkflowSettings(ctx.cwd).missions.useMissionSpecificModels) { const r = updateSettings(ctx.cwd, undefined, (s) => { setMissionRoleEnabled(s, "validator", enabled); }); workflowUiNotify(ctx, `missions.models.validator.enabled set to ${enabled} in ${r.file}`, "info"); }
+        else { const r = setRoleEnabled("validator", enabled, ctx.cwd); workflowUiNotify(ctx, `validator.enabled set to ${enabled} in ${r.file}`, "info"); }
       } else {
         const keyMap: Record<string, string> = {
           "Offer Reviewer Before Approval": "offerReviewerBeforeApprove",
@@ -15259,7 +15429,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
             s.missions.reviewRetryMode = "safe_only";
           }
         });
-        ctx.ui.notify(`missions.${key} set to ${enabled} in ${r.file}`, "info");
+        workflowUiNotify(ctx, `missions.${key} set to ${enabled} in ${r.file}`, "info");
       }
     }
   }
@@ -15272,18 +15442,18 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       if (setting === "Max Review Retries Per Mission") {
         const raw = await ctx.ui.select(setting, ["0", "1", "2", "3", "4", "5", "10"]);
         const count = raw === undefined ? undefined : Number(raw);
-        if (Number.isInteger(count) && count >= 0 && count <= 10) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.maxReviewRetriesPerMission = count; }); ctx.ui.notify(`missions.maxReviewRetriesPerMission set to ${count} in ${r.file}`, "info"); }
+        if (Number.isInteger(count) && count >= 0 && count <= 10) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.maxReviewRetriesPerMission = count; }); workflowUiNotify(ctx, `missions.maxReviewRetriesPerMission set to ${count} in ${r.file}`, "info"); }
       } else if (setting === "Max Retries Per Milestone" || setting === "Max Retries Per Mission" || setting === "Max Final Validation Retries") {
         const key = setting === "Max Retries Per Milestone" ? "maxValidationRetriesPerMilestone" : setting === "Max Retries Per Mission" ? "maxValidationRetriesPerMission" : "maxFinalValidationRetries";
         const max = key === "maxValidationRetriesPerMission" ? 100 : 10;
         const options = key === "maxValidationRetriesPerMission" ? ["0", "1", "2", "4", "8", "12", "20", "50", "100"] : ["0", "1", "2", "3", "4", "5", "10"];
         const raw = await ctx.ui.select(setting, options);
         const count = raw === undefined ? undefined : Number(raw);
-        if (Number.isInteger(count) && count >= 0 && count <= max) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.missions as typeof s.missions & Record<string, number>)[key] = count; }); ctx.ui.notify(`missions.${key} set to ${count} in ${r.file}`, "info"); }
+        if (Number.isInteger(count) && count >= 0 && count <= max) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.missions as typeof s.missions & Record<string, number>)[key] = count; }); workflowUiNotify(ctx, `missions.${key} set to ${count} in ${r.file}`, "info"); }
       } else if (setting === "Validation Retry Mode" || setting === "Review Retry Mode") {
         const key = setting === "Validation Retry Mode" ? "validationRetryMode" : "reviewRetryMode";
         const mode = parseValidationRetryMode((await ctx.ui.select(`${key}`, ["off", "safe_only", "aggressive_within_scope"])) ?? "");
-        if (mode) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.missions as typeof s.missions & Record<string, string | undefined>)[key] = mode; }); ctx.ui.notify(`missions.${key} set to ${mode} in ${r.file}`, "info"); }
+        if (mode) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.missions as typeof s.missions & Record<string, string | undefined>)[key] = mode; }); workflowUiNotify(ctx, `missions.${key} set to ${mode} in ${r.file}`, "info"); }
       } else {
         const keyMap: Record<string, string> = {
           "Auto Repair Review Failures": "autoRepairReviewFailures",
@@ -15296,7 +15466,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         };
         const key = keyMap[setting];
         const enabled = await chooseBool(ctx, `${String(key)}?`);
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.missions as Record<string, unknown>)[String(key)] = enabled; if (key === "autoRepairReviewFailures" && enabled && s.missions.reviewRetryMode === "off") { s.missions.reviewRetryMode = "safe_only"; } }); ctx.ui.notify(`missions.${String(key)} set to ${enabled} in ${r.file}`, "info"); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.missions as Record<string, unknown>)[String(key)] = enabled; if (key === "autoRepairReviewFailures" && enabled && s.missions.reviewRetryMode === "off") { s.missions.reviewRetryMode = "safe_only"; } }); workflowUiNotify(ctx, `missions.${String(key)} set to ${enabled} in ${r.file}`, "info"); }
       }
     }
   }
@@ -15309,12 +15479,12 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       if (setting === "Max Final Validation Retries") {
         const raw = await ctx.ui.select(setting, ["0", "1", "2", "3", "4", "5", "10"]);
         const count = raw === undefined ? undefined : Number(raw);
-        if (Number.isInteger(count) && count >= 0 && count <= 10) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.maxFinalValidationRetries = count; }); ctx.ui.notify(`missions.maxFinalValidationRetries set to ${count} in ${r.file}`, "info"); }
+        if (Number.isInteger(count) && count >= 0 && count <= 10) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.maxFinalValidationRetries = count; }); workflowUiNotify(ctx, `missions.maxFinalValidationRetries set to ${count} in ${r.file}`, "info"); }
       } else {
         const keyMap: Record<string, string> = { "Final Comprehensive Validation": "finalValidationEnabled", "Final Validation Requires Pass": "finalValidationRequiresPass", "Auto Repair Final Validation Failures": "autoRepairFinalValidationFailures" };
         const key = keyMap[setting];
         const enabled = await chooseBool(ctx, `${String(key)}?`);
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.missions as Record<string, unknown>)[String(key)] = enabled; }); ctx.ui.notify(`missions.${String(key)} set to ${enabled} in ${r.file}`, "info"); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.missions as Record<string, unknown>)[String(key)] = enabled; }); workflowUiNotify(ctx, `missions.${String(key)} set to ${enabled} in ${r.file}`, "info"); }
       }
     }
   }
@@ -15329,12 +15499,12 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         const count = parsePositiveInt((await ctx.ui.input("Mission history limit", String(current))) ?? "");
         if (count !== undefined && count >= 1 && count <= 500) {
           const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.missionHistoryLimit = count; });
-          ctx.ui.notify(`missions.missionHistoryLimit set to ${count} in ${r.file}`, "info");
+          workflowUiNotify(ctx, `missions.missionHistoryLimit set to ${count} in ${r.file}`, "info");
         }
       } else if (setting === "Cleanup Saved Missions") {
         const settings = loadWorkflowSettings(ctx.cwd);
         const removed = clearOldMissionStates(settings.missions.missionHistoryLimit ?? 50);
-        ctx.ui.notify(`Removed ${removed} old mission file${removed === 1 ? "" : "s"}.`, "info");
+        workflowUiNotify(ctx, `Removed ${removed} old mission file${removed === 1 ? "" : "s"}.`, "info");
       } else if (setting === "List Current Settings") {
         const settings = loadWorkflowSettings(ctx.cwd);
         show(pi, `# Mission History\n\nMission History Limit: ${settings.missions.missionHistoryLimit ?? 50}\nMissions Directory: ${MISSION_HISTORY_DIR}`);
@@ -15351,48 +15521,48 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         await showMissionModelBehaviorMenu(ctx);
       } else if (choice === "Enable / Disable Mission Mode") {
         const enabled = await chooseBool(ctx, "Missions enabled?");
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.enabled = enabled; }); ctx.ui.notify(`missions.enabled set to ${enabled} in ${r.file}`, "info"); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.enabled = enabled; }); workflowUiNotify(ctx, `missions.enabled set to ${enabled} in ${r.file}`, "info"); }
       } else if (choice === "Mission Autonomy") {
         const setting = await ctx.ui.select("Mission Autonomy", ["Default Autonomy", "Allow Full Auto", "Auto Run After Approval", "Continue Across Milestones", "Pause Between Milestones", "Auto Resume", "Back"]);
         if (!setting || setting === "Back") continue;
         if (setting === "Default Autonomy") {
           const autonomy = parseMissionAutonomy((await ctx.ui.select("Mission default autonomy", ["manual", "approval_gated", "supervised_auto", "full_auto"])) ?? "");
-          if (autonomy) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.defaultAutonomy = autonomy; }); ctx.ui.notify(`missions.defaultAutonomy set to ${autonomy} in ${r.file}${autonomy === "full_auto" && !r.settings.missions.allowFullAuto ? "; full_auto will be blocked until allowFullAuto=true" : ""}`, "info"); }
+          if (autonomy) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.defaultAutonomy = autonomy; }); workflowUiNotify(ctx, `missions.defaultAutonomy set to ${autonomy} in ${r.file}${autonomy === "full_auto" && !r.settings.missions.allowFullAuto ? "; full_auto will be blocked until allowFullAuto=true" : ""}`, "info"); }
         } else {
           const keyMap: Record<string, keyof ReturnType<typeof loadWorkflowSettings>["missions"]> = { "Allow Full Auto": "allowFullAuto", "Auto Run After Approval": "autoRunAfterApproval", "Continue Across Milestones": "continueAcrossMilestones", "Pause Between Milestones": "pauseBetweenMilestones", "Auto Resume": "autoResume" };
           const key = keyMap[setting];
           const enabled = await chooseBool(ctx, `${String(key)}?`);
-          if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.missions as Record<string, unknown>)[String(key)] = enabled; }); ctx.ui.notify(`missions.${String(key)} set to ${enabled} in ${r.file}${key === "allowFullAuto" && enabled === false && r.settings.missions.defaultAutonomy === "full_auto" ? "; full_auto default is retained but blocked" : ""}`, "info"); }
+          if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.missions as Record<string, unknown>)[String(key)] = enabled; }); workflowUiNotify(ctx, `missions.${String(key)} set to ${enabled} in ${r.file}${key === "allowFullAuto" && enabled === false && r.settings.missions.defaultAutonomy === "full_auto" ? "; full_auto default is retained but blocked" : ""}`, "info"); }
         }
       } else if (choice === "Default Autonomy") {
         const autonomy = parseMissionAutonomy((await ctx.ui.select("Mission default autonomy", ["manual", "approval_gated", "supervised_auto", "full_auto"])) ?? "");
-        if (autonomy) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.defaultAutonomy = autonomy; }); ctx.ui.notify(`missions.defaultAutonomy set to ${autonomy} in ${r.file}${autonomy === "full_auto" && !r.settings.missions.allowFullAuto ? "; full_auto will be blocked until allowFullAuto=true" : ""}`, "info"); }
+        if (autonomy) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.defaultAutonomy = autonomy; }); workflowUiNotify(ctx, `missions.defaultAutonomy set to ${autonomy} in ${r.file}${autonomy === "full_auto" && !r.settings.missions.allowFullAuto ? "; full_auto will be blocked until allowFullAuto=true" : ""}`, "info"); }
       } else if (choice === "Mission Clarification") {
         const setting = await ctx.ui.select("Mission Clarification", ["Clarification Mode", "Interactive Clarification", "Max Clarification Questions", "Timing", "Quality Gate", "Allow Without Analysis", "Use Sub-agents Before Clarification", "Back"]);
         if (!setting || setting === "Back") continue;
         if (setting === "Clarification Mode") {
           const mode = parseClarificationMode((await ctx.ui.select("Mission clarification mode", ["auto", "always_for_nontrivial", "never"])) ?? "");
-          if (mode) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.clarificationMode = mode; }); ctx.ui.notify(`missions.clarificationMode set to ${mode} in ${r.file}`, "info"); }
+          if (mode) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.clarificationMode = mode; }); workflowUiNotify(ctx, `missions.clarificationMode set to ${mode} in ${r.file}`, "info"); }
         } else if (setting === "Interactive Clarification") {
           const enabled = await chooseBool(ctx, "Mission interactive clarification enabled?");
-          if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.interactiveClarificationEnabled = enabled; }); ctx.ui.notify(`missions.interactiveClarificationEnabled set to ${enabled} in ${r.file}`, "info"); }
+          if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.interactiveClarificationEnabled = enabled; }); workflowUiNotify(ctx, `missions.interactiveClarificationEnabled set to ${enabled} in ${r.file}`, "info"); }
         } else if (setting === "Max Clarification Questions") {
           const count = parsePositiveInt((await ctx.ui.select("Mission max clarification questions", ["1", "2", "3", "4", "5", "6"])) ?? "");
-          if (count) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.maxClarificationQuestions = count; }); ctx.ui.notify(`missions.maxClarificationQuestions set to ${count} in ${r.file}`, "info"); }
+          if (count) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.maxClarificationQuestions = count; }); workflowUiNotify(ctx, `missions.maxClarificationQuestions set to ${count} in ${r.file}`, "info"); }
         } else if (setting === "Timing") {
           const timing = parseClarificationTiming((await ctx.ui.select("Mission clarification timing", ["after_initial_analysis", "immediate"])) ?? "");
-          if (timing) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.clarificationTiming = timing; }); ctx.ui.notify(`missions.clarificationTiming set to ${timing} in ${r.file}`, "info"); }
+          if (timing) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.clarificationTiming = timing; }); workflowUiNotify(ctx, `missions.clarificationTiming set to ${timing} in ${r.file}`, "info"); }
         } else {
           const key = setting === "Quality Gate" ? "clarificationQualityGate" : setting === "Allow Without Analysis" ? "allowClarificationWithoutAnalysis" : "useSubagentsBeforeClarification";
           const enabled = await chooseBool(ctx, `missions.${key}?`);
-          if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.missions as typeof s.missions & Record<string, boolean | string | number | undefined>)[key] = enabled; }); ctx.ui.notify(`missions.${key} set to ${enabled} in ${r.file}`, "info"); }
+          if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.missions as typeof s.missions & Record<string, boolean | string | number | undefined>)[key] = enabled; }); workflowUiNotify(ctx, `missions.${key} set to ${enabled} in ${r.file}`, "info"); }
         }
       } else if (choice === "Mission Planning Depth") {
         const depth = parsePlanningDepth((await ctx.ui.select("Mission planning depth", ["fast", "standard", "deep", "maximum"])) ?? "");
-        if (depth) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.planningDepth = depth; }); ctx.ui.notify(`missions.planningDepth set to ${depth} in ${r.file}`, "info"); }
+        if (depth) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.planningDepth = depth; }); workflowUiNotify(ctx, `missions.planningDepth set to ${depth} in ${r.file}`, "info"); }
       } else if (choice === "Mission Sub-Agent Policy") {
         const policy = parseSubagentPolicy((await ctx.ui.select("Mission sub-agent policy", ["off", "auto", "deep", "maximum", "forced"])) ?? "");
-        if (policy) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.subagentPolicy = policy; }); ctx.ui.notify(`missions.subagentPolicy set to ${policy} in ${r.file}`, "info"); }
+        if (policy) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.subagentPolicy = policy; }); workflowUiNotify(ctx, `missions.subagentPolicy set to ${policy} in ${r.file}`, "info"); }
       } else if (choice === "Mission Sub-agents / Workers" || choice === "Mission Worker Targets") {
         await showMissionSubagentWorkerSettingsMenu(ctx);
       } else if (choice === "Mission History") {
@@ -15408,50 +15578,50 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         if (setting === "Progress Widget" || setting === "Progress Bar Display") {
           const key = setting === "Progress Widget" ? "progressWidgetEnabled" : "showProgressBar";
           const enabled = await chooseBool(ctx, `missions.${key}?`);
-          if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.missions as typeof s.missions & Record<string, boolean>)[key] = enabled; }); ctx.ui.notify(`missions.${key} set to ${enabled} in ${r.file}`, "info"); }
+          if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.missions as typeof s.missions & Record<string, boolean>)[key] = enabled; }); workflowUiNotify(ctx, `missions.${key} set to ${enabled} in ${r.file}`, "info"); }
         } else if (setting === "Heartbeat / Watchdog") await showHeartbeatWatchdogMenu(ctx);
         else if (setting === "Token Budget") {
           const current = loadWorkflowSettings(ctx.cwd).missions.maxTokens ?? 0;
           const choice = await ctx.ui.select("Mission Token Budget", ["Default (unlimited)", "Custom..."]);
           if (choice === "Default (unlimited)") {
             const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.maxTokens = 0; });
-            ctx.ui.notify(`missions.maxTokens set to default (unlimited) in ${r.file}`, "info");
+            workflowUiNotify(ctx, `missions.maxTokens set to default (unlimited) in ${r.file}`, "info");
           } else if (choice === "Custom...") {
             const count = parsePositiveInt((await ctx.ui.input("Enter custom mission token budget", String(current > 0 ? current : ""))) ?? "");
-            if (count !== undefined && count >= 0) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.maxTokens = count; }); ctx.ui.notify(`missions.maxTokens set to ${count === 0 ? "unlimited" : count.toLocaleString()} in ${r.file}`, "info"); }
+            if (count !== undefined && count >= 0) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.maxTokens = count; }); workflowUiNotify(ctx, `missions.maxTokens set to ${count === 0 ? "unlimited" : count.toLocaleString()} in ${r.file}`, "info"); }
           }
         } else if (setting === "Runtime Budget") {
           const current = loadWorkflowSettings(ctx.cwd).missions.maxRuntimeHours;
           const choice = await ctx.ui.select("Mission Runtime Budget", ["Default (13 hours)", "Custom..."]);
           if (choice === "Default (13 hours)") {
             const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.maxRuntimeHours = 13; });
-            ctx.ui.notify(`missions.maxRuntimeHours set to default (13 hours) in ${r.file}`, "info");
+            workflowUiNotify(ctx, `missions.maxRuntimeHours set to default (13 hours) in ${r.file}`, "info");
           } else if (choice === "Custom...") {
             const count = parsePositiveInt((await ctx.ui.input("Enter custom runtime budget (hours)", String(current !== 13 ? current : ""))) ?? "");
-            if (count !== undefined && count > 0) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.maxRuntimeHours = count; }); ctx.ui.notify(`missions.maxRuntimeHours set to ${count} hours in ${r.file}`, "info"); }
+            if (count !== undefined && count > 0) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.maxRuntimeHours = count; }); workflowUiNotify(ctx, `missions.maxRuntimeHours set to ${count} hours in ${r.file}`, "info"); }
           }
         } else {
           const count = parsePositiveInt((await ctx.ui.input("checkpointIntervalMinutes", "30")) ?? "");
-          if (count !== undefined && count > 0) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.checkpointIntervalMinutes = count; }); ctx.ui.notify(`missions.checkpointIntervalMinutes set to ${count} in ${r.file}`, "info"); }
+          if (count !== undefined && count > 0) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.checkpointIntervalMinutes = count; }); workflowUiNotify(ctx, `missions.checkpointIntervalMinutes set to ${count} in ${r.file}`, "info"); }
         }
       } else if (choice === "Runtime Budget") {
         const current = loadWorkflowSettings(ctx.cwd).missions.maxRuntimeHours;
         const choice2 = await ctx.ui.select("Mission Runtime Budget", ["Default (13 hours)", "Custom..."]);
         if (choice2 === "Default (13 hours)") {
           const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.maxRuntimeHours = 13; });
-          ctx.ui.notify(`missions.maxRuntimeHours set to default (13 hours) in ${r.file}`, "info");
+          workflowUiNotify(ctx, `missions.maxRuntimeHours set to default (13 hours) in ${r.file}`, "info");
         } else if (choice2 === "Custom...") {
           const count = parsePositiveInt((await ctx.ui.input("Enter custom runtime budget (hours)", String(current !== 13 ? current : ""))) ?? "");
-          if (count !== undefined && count > 0) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.maxRuntimeHours = count; }); ctx.ui.notify(`missions.maxRuntimeHours set to ${count} hours in ${r.file}`, "info"); }
+          if (count !== undefined && count > 0) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.maxRuntimeHours = count; }); workflowUiNotify(ctx, `missions.maxRuntimeHours set to ${count} hours in ${r.file}`, "info"); }
         }
       } else if (choice === "Checkpoint Interval") {
         const count = parsePositiveInt((await ctx.ui.input("checkpointIntervalMinutes", "30")) ?? "");
-        if (count !== undefined && count > 0) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.checkpointIntervalMinutes = count; }); ctx.ui.notify(`missions.checkpointIntervalMinutes set to ${count} in ${r.file}`, "info"); }
+        if (count !== undefined && count > 0) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.missions.checkpointIntervalMinutes = count; }); workflowUiNotify(ctx, `missions.checkpointIntervalMinutes set to ${count} in ${r.file}`, "info"); }
       } else if (choice === "Approval Safety" || choice === "Validation Per Milestone" || choice === "Full Auto Safety" || choice === "Auto Resume") {
         const keyMap: Record<string, keyof ReturnType<typeof loadWorkflowSettings>["missions"]> = { "Validation Per Milestone": "requireValidationPerMilestone", "Approval Safety": "requireApprovalForDestructiveActions", "Full Auto Safety": "allowFullAuto", "Auto Resume": "autoResume" };
         const key = keyMap[choice];
         const enabled = await chooseBool(ctx, `${String(key)}?`);
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.missions as Record<string, unknown>)[String(key)] = enabled; }); ctx.ui.notify(`missions.${String(key)} set to ${enabled} in ${r.file}${key === "allowFullAuto" && enabled === false && r.settings.missions.defaultAutonomy === "full_auto" ? "; full_auto default is retained but blocked" : ""}`, "info"); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { (s.missions as Record<string, unknown>)[String(key)] = enabled; }); workflowUiNotify(ctx, `missions.${String(key)} set to ${enabled} in ${r.file}${key === "allowFullAuto" && enabled === false && r.settings.missions.defaultAutonomy === "full_auto" ? "; full_auto default is retained but blocked" : ""}`, "info"); }
       } else if (choice === "Review / Validation Behavior") {
         await showMissionReviewValidationBehaviorMenu(ctx);
       } else if (choice === "Repair / Validation Retry" || choice === "Mission Repair / Validation" || choice === "Repair / Validation Retry Settings") {
@@ -15484,18 +15654,18 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         const enabled = await chooseBool(ctx, "safety.repoLockEnabled for this project only?");
         if (enabled !== undefined) {
           const r = updateSettings(ctx.cwd, "project", (s) => { s.safety.repoLockEnabled = enabled; });
-          ctx.ui.notify(`Project Repo Lock set to ${enabled} in ${r.file}. This project override wins over global settings and does not apply to other repos.`, "info");
+          workflowUiNotify(ctx, `Project Repo Lock set to ${enabled} in ${r.file}. This project override wins over global settings and does not apply to other repos.`, "info");
         }
       } else {
         const key = keyMap[choice];
         const enabled = await chooseBool(ctx, `${String(key)}?`);
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.safety[key] = enabled; }); ctx.ui.notify(`safety.${String(key)} set to ${enabled} in ${r.file}`, "info"); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.safety[key] = enabled; }); workflowUiNotify(ctx, `safety.${String(key)} set to ${enabled} in ${r.file}`, "info"); }
       }
     }
   }
 
-  async function showFooterHintsSettingsMenu(ctx: ExtensionContext) {
-    if (!ctx.hasUI) return show(pi, renderWorkflowWidgetsStatus(ctx));
+  async function showEditorHintsSettingsMenu(ctx: ExtensionContext) {
+    if (!ctx.hasUI) return show(pi, renderEditorHintsSettings(ctx));
     const options = [
       { label: "Idle Entry Hint", key: "showIdleWorkflowEntryHint" as const },
       { label: "Active Switch Hint", key: "showActiveWorkflowSwitchHint" as const },
@@ -15506,17 +15676,31 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       const settings = loadWorkflowSettings(ctx.cwd);
       const ui = workflowWidgetUi(settings);
       const labels = options.map((option) => `${option.label}: ${ui[option.key] !== false ? "visible" : "hidden"}`);
-      const choice = await ctx.ui.select("Footer Hints", [...labels, "List Current Settings", "Back"]);
+      const contrastLabel = `Hint Contrast: ${workflowEditorHintContrastLabel(workflowEditorHintContrast(settings))}`;
+      const choice = await ctx.ui.select("Editor Hints", [...labels, contrastLabel, "List Current Settings", "Back"]);
       if (!choice || choice === "Back") return;
-      if (choice === "List Current Settings") { show(pi, renderWorkflowWidgetsStatus(ctx)); continue; }
+      if (choice === "List Current Settings") { show(pi, renderEditorHintsSettings(ctx)); continue; }
+      if (choice === contrastLabel) {
+        const current = workflowEditorHintContrast(settings);
+        const contrastChoice = await ctx.ui.select("Editor Hint Contrast", WORKFLOW_EDITOR_HINT_CONTRASTS.map((contrast) => `${workflowEditorHintContrastLabel(contrast)}${contrast === current ? " (current)" : ""}`).concat("Back"));
+        if (!contrastChoice || contrastChoice === "Back") continue;
+        const contrast = parseEditorHintContrast(contrastChoice.replace(/\s+\(current\)$/, ""));
+        if (contrast) {
+          updateSettings(ctx.cwd, "global", (s) => { workflowWidgetUi(s).editorHintContrast = contrast; });
+          setWorkflowUi(ctx, state, activeSubagents);
+          workflowEditorHintText = workflowEditorHintTextFor(state, loadWorkflowSettings(ctx.cwd));
+          workflowUiNotify(ctx, `Editor hint contrast set to ${workflowEditorHintContrastLabel(contrast)}.`, "info");
+        }
+        continue;
+      }
       const index = labels.indexOf(choice);
       const option = options[index];
       if (!option) continue;
       const enabled = await chooseBool(ctx, `ui.${option.key}?`);
       if (enabled !== undefined) {
-        const r = updateSettings(ctx.cwd, "global", (s) => { workflowWidgetUi(s)[option.key] = enabled; });
+        updateSettings(ctx.cwd, "global", (s) => { workflowWidgetUi(s)[option.key] = enabled; });
         setWorkflowUi(ctx, state, activeSubagents);
-        ctx.ui.notify(`ui.${option.key} set to ${enabled} in ${r.file}`, "info");
+        workflowUiNotify(ctx, `${option.label} ${enabled ? "shown" : "hidden"}.`, "info");
       }
     }
   }
@@ -15524,22 +15708,22 @@ ${renderMissionStatus(activeMission ?? paused)}`);
   async function showUiWidgetsSettingsMenu(ctx: ExtensionContext) {
     if (!ctx.hasUI) return show(pi, renderWorkflowWidgetsStatus(ctx));
     while (ctx.hasUI) {
-      const choice = await ctx.ui.select("UI Widgets", ["Plan Top Widget", "Plan Bottom Widget", "Mission Top Widget", "Mission Bottom Widget", "Enable Widget Shortcuts", "Remember Widget Visibility", "Footer Hints", "List Current Settings", "Back"]);
+      const choice = await ctx.ui.select("UI Widgets", ["Plan Top Widget", "Plan Bottom Widget", "Mission Top Widget", "Mission Bottom Widget", "Enable Widget Shortcuts", "Remember Widget Visibility", "Editor Hints", "List Current Settings", "Back"]);
       if (!choice || choice === "Back") return;
       if (choice === "List Current Settings") show(pi, renderWorkflowWidgetsStatus(ctx));
-      else if (choice === "Footer Hints") await showFooterHintsSettingsMenu(ctx);
+      else if (choice === "Editor Hints") await showEditorHintsSettingsMenu(ctx);
       else if (choice === "Enable Widget Shortcuts" || choice === "Remember Widget Visibility") {
         const key = choice === "Enable Widget Shortcuts" ? "enableWidgetShortcuts" : "rememberWidgetVisibility";
         const enabled = await chooseBool(ctx, `ui.${key}?`);
         if (enabled !== undefined) {
-          const r = updateSettings(ctx.cwd, "global", (s) => { workflowWidgetUi(s)[key] = enabled; });
+          updateSettings(ctx.cwd, "global", (s) => { workflowWidgetUi(s)[key] = enabled; });
           setWorkflowUi(ctx, state, activeSubagents);
-          ctx.ui.notify(`ui.${key} set to ${enabled} in ${r.file}`, "info");
+          workflowUiNotify(ctx, `${choice} ${enabled ? "enabled" : "disabled"}.`, "info");
         }
       } else {
         const slot: WorkflowWidgetSlot = choice === "Plan Top Widget" ? "planTop" : choice === "Plan Bottom Widget" ? "planBottom" : choice === "Mission Top Widget" ? "missionTop" : "missionBottom";
         const visible = await chooseBool(ctx, `${widgetSlotLabel(slot)} visible?`);
-        if (visible !== undefined) ctx.ui.notify(setWorkflowWidgetVisibility(ctx, slot, visible), "info");
+        if (visible !== undefined) workflowUiNotify(ctx, setWorkflowWidgetVisibility(ctx, slot, visible), "info");
       }
     }
   }
@@ -15591,14 +15775,14 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     const result = applyWorkflowPreset(ctx.cwd, undefined, resolved);
     setWorkflowUi(ctx, state, activeSubagents);
     const label = workflowPresetLabel(resolved, workflowPresetCatalog(result.settings)[resolved]);
-    if (notifyOnly) ctx.ui.notify(`Workflow preset active: ${label}`, "info");
+    if (notifyOnly) workflowUiNotify(ctx, `Workflow preset active: ${label}`, "info");
     else show(pi, presetActionMessage("Workflow Preset Applied", label, result.file, result.scope));
   }
 
   async function markWorkflowPresetCustom(ctx: ExtensionContext): Promise<void> {
     const result = updateSettings(ctx.cwd, undefined, (s) => { s.presets = { ...(s.presets ?? {}), activePreset: WORKFLOW_CUSTOM_PRESET_MARKER, items: { ...(s.presets?.items ?? {}) } }; });
     setWorkflowUi(ctx, state, activeSubagents);
-    ctx.ui.notify(`Workflow preset marker cleared in ${result.file}; workflow settings unchanged.`, "info");
+    workflowUiNotify(ctx, `Workflow preset marker cleared in ${result.file}; workflow settings unchanged.`, "info");
   }
 
   async function cycleWorkflowPreset(ctx: ExtensionContext, direction: 1 | -1): Promise<void> {
@@ -15666,7 +15850,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
           if (policy) updateSettings(ctx.cwd, undefined, (s) => { const item = (s.presets!.items![name] ??= { planning: {}, workflow: {}, missions: {}, subagents: {} }); item.subagents = { ...(item.subagents ?? {}), planningPolicy: policy, executionPolicy: policy, repairPolicy: policy, reviewPolicy: policy, validationPolicy: policy }; });
         }
         setWorkflowUi(ctx, state, activeSubagents);
-        ctx.ui.notify(`Preset ${name} updated in ${r.file}`, "info");
+        workflowUiNotify(ctx, `Preset ${name} updated in ${r.file}`, "info");
       } catch (e) { show(pi, `# Workflow Preset Error\n\n${e instanceof Error ? e.message : String(e)}`); }
     }
   }
@@ -15761,7 +15945,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
   async function showCustomBrandStartupVisualMenu(ctx: ExtensionContext): Promise<boolean | undefined> {
     if (!ctx.hasUI) return undefined;
     const saved = updateSettings(ctx.cwd, undefined, (s) => { s.ui.startupVisual = "custom_brand"; });
-    ctx.ui.notify(`ui.startupVisual set to custom_brand in ${saved.file}`, "info");
+    workflowUiNotify(ctx, `ui.startupVisual set to custom_brand in ${saved.file}`, "info");
     while (ctx.hasUI) {
       const choice = await ctx.ui.select("Custom Brand Startup Visual", ["Set Text", "Choose Base Template", "Preview", "List Theme Settings", "Back"]);
       if (!choice || choice === "Back") return undefined;
@@ -15770,13 +15954,13 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       } else if (choice === "Set Text") {
         const text = sanitizeCustomBrandText(await ctx.ui.input("Custom brand text", sanitizeCustomBrandText(loadWorkflowSettings(ctx.cwd).ui.customBrandText) || "WORKFLOW SUITE"));
         const r = updateSettings(ctx.cwd, undefined, (s) => { s.ui.customBrandEnabled = true; s.ui.customBrandText = text; s.ui.startupVisual = "custom_brand"; });
-        ctx.ui.notify(`ui.customBrandText set in ${r.file}`, "info");
+        workflowUiNotify(ctx, `ui.customBrandText set in ${r.file}`, "info");
         void showStartupVisual(ctx, { intent: "manual" });
       } else if (choice === "Choose Base Template") {
         const base = parseCustomBrandBaseVisual((await ctx.ui.select("Custom brand base template", WORKFLOW_CUSTOM_BRAND_BASE_VISUALS)) ?? "");
         if (base) {
           const r = updateSettings(ctx.cwd, undefined, (s) => { s.ui.customBrandBaseVisual = base; s.ui.startupVisual = "custom_brand"; });
-          ctx.ui.notify(`ui.customBrandBaseVisual set to ${base} in ${r.file}`, "info");
+          workflowUiNotify(ctx, `ui.customBrandBaseVisual set to ${base} in ${r.file}`, "info");
           void showStartupVisual(ctx, { intent: "manual" });
         }
       } else if (choice === "Preview") {
@@ -15798,27 +15982,27 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         const text = startupLogoText(loadWorkflowSettings(ctx.cwd)) || "WFS";
         const value = sanitizeCustomBrandText(await ctx.ui.input("Custom logo letters (max 6 A-Z/0-9)", text)).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
         const r = updateSettings(ctx.cwd, undefined, (s) => { s.ui.startupLogo = "custom"; s.ui.startupLogoText = value; });
-        ctx.ui.notify(`ui.startupLogoText set to ${value || "(empty)"} in ${r.file}`, "info");
+        workflowUiNotify(ctx, `ui.startupLogoText set to ${value || "(empty)"} in ${r.file}`, "info");
         void showStartupVisual(ctx, { intent: "manual" });
       } else if (choice === "Choose Font") {
         const font = parseStartupLogoFont((await ctx.ui.select("Custom logo font", WORKFLOW_STARTUP_LOGO_FONTS)) ?? "");
         if (font) {
           const r = updateSettings(ctx.cwd, undefined, (s) => { s.ui.startupLogo = "custom"; s.ui.startupLogoFont = font; });
-          ctx.ui.notify(`ui.startupLogoFont set to ${font} in ${r.file}`, "info");
+          workflowUiNotify(ctx, `ui.startupLogoFont set to ${font} in ${r.file}`, "info");
           void showStartupVisual(ctx, { intent: "manual" });
         }
       } else if (choice === "Choose Shadow Direction") {
         const direction = parseStartupLogoShadowDirection((await ctx.ui.select("Custom logo shadow direction", WORKFLOW_STARTUP_LOGO_SHADOW_DIRECTIONS)) ?? "");
         if (direction) {
           const r = updateSettings(ctx.cwd, undefined, (s) => { s.ui.startupLogo = "custom"; s.ui.startupLogoShadowDirection = direction; });
-          ctx.ui.notify(`ui.startupLogoShadowDirection set to ${direction} in ${r.file}`, "info");
+          workflowUiNotify(ctx, `ui.startupLogoShadowDirection set to ${direction} in ${r.file}`, "info");
           void showStartupVisual(ctx, { intent: "manual" });
         }
       } else if (choice === "Choose Color Style") {
         const colorStyle = parseStartupLogoColorStyle((await ctx.ui.select("Custom logo color style", WORKFLOW_STARTUP_LOGO_COLOR_STYLES)) ?? "");
         if (colorStyle) {
           const r = updateSettings(ctx.cwd, undefined, (s) => { s.ui.startupLogo = "custom"; s.ui.startupLogoColorStyle = colorStyle; });
-          ctx.ui.notify(`ui.startupLogoColorStyle set to ${colorStyle} in ${r.file}`, "info");
+          workflowUiNotify(ctx, `ui.startupLogoColorStyle set to ${colorStyle} in ${r.file}`, "info");
           void showStartupVisual(ctx, { intent: "manual" });
         }
       } else if (choice === "Preview") {
@@ -15843,7 +16027,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
           } else {
             const r = updateSettings(ctx.cwd, undefined, (s) => { s.ui.startupVisual = visual; });
             const canPreview = startupVisualOrDefault(r.settings) !== "none";
-            ctx.ui.notify(canPreview ? `Startup visual set to ${visual} in ${r.file}` : `Startup visual set to ${visual} (disabled) in ${r.file}`, "info");
+            workflowUiNotify(ctx, canPreview ? `Startup visual set to ${visual} in ${r.file}` : `Startup visual set to ${visual} (disabled) in ${r.file}`, "info");
             if (canPreview) void showStartupVisual(ctx, { intent: "manual" });
           }
         }
@@ -15851,14 +16035,14 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         const name = parseWidgetTextPreset((await ctx.ui.select("Startup text style", (WORKFLOW_WIDGET_TEXT_PRESETS as readonly string[]).map((p) => WORKFLOW_WIDGET_TEXT_PRESET_LABELS[p]))) ?? "");
         if (name) {
           const r = updateSettings(ctx.cwd, undefined, (s) => { s.ui.startupTextStyle = name; });
-          ctx.ui.notify(`Startup text style set to ${WORKFLOW_WIDGET_TEXT_PRESET_LABELS[name]} in ${r.file}.`, "info");
+          workflowUiNotify(ctx, `Startup text style set to ${WORKFLOW_WIDGET_TEXT_PRESET_LABELS[name]} in ${r.file}.`, "info");
           void showStartupVisual(ctx, { intent: "manual" });
         }
       } else if (choice === "Turn On" || choice === "Turn Off") {
         const visual: WorkflowStartupVisual = choice === "Turn On" ? "mission_control" : "none";
         const r = updateSettings(ctx.cwd, undefined, (s) => { s.ui.startupVisual = visual; });
         const canPreview = startupVisualOrDefault(r.settings) !== "none";
-        ctx.ui.notify(canPreview ? `Startup visual turned on (${visual}) in ${r.file}` : `Startup visual turned off in ${r.file}`, "info");
+        workflowUiNotify(ctx, canPreview ? `Startup visual turned on (${visual}) in ${r.file}` : `Startup visual turned off in ${r.file}`, "info");
         if (canPreview) void showStartupVisual(ctx, { intent: "manual" });
       } else if (choice === "On Session Start") {
         const enabled = await chooseBool(ctx, "Show startup visual on session start?");
@@ -15867,12 +16051,12 @@ ${renderMissionStatus(activeMission ?? paused)}`);
             s.ui.startupVisualOnSessionStart = enabled;
             if (enabled === true && (parseStartupVisual(s.ui.startupVisual) ?? "none") === "none") s.ui.startupVisual = "minimal";
           });
-          ctx.ui.notify(`Startup on session start ${enabled ? "enabled" : "disabled"} in ${r.file}`, "info");
+          workflowUiNotify(ctx, `Startup on session start ${enabled ? "enabled" : "disabled"} in ${r.file}`, "info");
           void showStartupVisual(ctx, { intent: "manual" });
         }
       } else if (choice === "Preview") {
         const previewed = await showStartupVisual(ctx, { intent: "manual" });
-        if (!previewed) ctx.ui.notify("Startup visual is disabled. Choose a visual or turn it on to preview.", "info");
+        if (!previewed) workflowUiNotify(ctx, "Startup visual is disabled. Choose a visual or turn it on to preview.", "info");
       }
     }
     return undefined;
@@ -15901,7 +16085,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
           const r = updateSettings(ctx.cwd, undefined, (s) => { s.ui.workflowTheme = name; });
           applyWorkflowEditorTheme(ctx);
           setWorkflowUi(ctx, state, activeSubagents);
-          ctx.ui.notify(`ui.workflowTheme set to ${workflowThemeDisplayName(name)} in ${r.file}`, "info");
+          workflowUiNotify(ctx, `ui.workflowTheme set to ${workflowThemeDisplayName(name)} in ${r.file}`, "info");
           void showStartupVisual(ctx, { intent: "manual" });
         }
       } else if (choice === "Startup Visual") {
@@ -15910,7 +16094,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         const logo = parseStartupLogo((await ctx.ui.select("Startup logo", WORKFLOW_STARTUP_LOGOS)) ?? "");
         if (logo) {
           const r = updateSettings(ctx.cwd, undefined, (s) => { s.ui.startupLogo = logo; });
-          ctx.ui.notify(`ui.startupLogo set to ${logo} in ${r.file}`, "info");
+          workflowUiNotify(ctx, `ui.startupLogo set to ${logo} in ${r.file}`, "info");
           if (logo === "custom") await showCustomStartupLogoMenu(ctx);
           else void showStartupVisual(ctx, { intent: "manual" });
         }
@@ -16070,20 +16254,20 @@ Pi Version: v${VERSION}
     workflowLastAutoCompactionAt = Date.now();
     clearDeferredWorkflowCompaction();
     rememberWorkflowCompactionCheck(`${checkpoint} boundary triggered at ${percent.toFixed(1)}% context`);
-    try { ctx.ui.notify(`Workflow auto-compaction triggered at ${percent.toFixed(1)}% context usage.`, "info"); } catch { /* UI may be unavailable */ }
+    try { workflowUiNotify(ctx, `Workflow auto-compaction triggered at ${percent.toFixed(1)}% context usage.`, "info"); } catch { /* UI may be unavailable */ }
     ctx.compact({
       customInstructions,
       onComplete: () => {
         workflowAutoCompactionRunning = false;
         workflowLastAutoCompactionAt = Date.now();
         rememberWorkflowCompactionCheck(`${checkpoint} boundary compaction completed`);
-        try { ctx.ui.notify("Workflow auto-compaction complete.", "info"); } catch { /* UI may be unavailable */ }
+        try { workflowUiNotify(ctx, "Workflow auto-compaction complete.", "info"); } catch { /* UI may be unavailable */ }
       },
       onError: (error: Error) => {
         workflowAutoCompactionRunning = false;
         rememberWorkflowCompactionCheck(`${checkpoint} boundary compaction failed — ${error.message}`);
         rememberCustomCompactionStatus(`proactive compaction request failed: ${error.message}`);
-        try { ctx.ui.notify(`Workflow auto-compaction skipped: ${error.message}`, "warning"); } catch { /* UI may be unavailable */ }
+        try { workflowUiNotify(ctx, `Workflow auto-compaction skipped: ${error.message}`, "warning"); } catch { /* UI may be unavailable */ }
       },
     });
   }
@@ -16136,7 +16320,7 @@ Pi Version: v${VERSION}
     const model = ctx.modelRegistry.find(provider, modelId);
     if (!model) {
       rememberCustomCompactionStatus(`fallback to Pi default: model not found ${provider}/${modelId}`);
-      ctx.ui.notify(`Custom compaction model not found: ${provider}/${modelId}; using Pi default compaction.`, "warning");
+      workflowUiNotify(ctx, `Custom compaction model not found: ${provider}/${modelId}; using Pi default compaction.`, "warning");
       return;
     }
 
@@ -16144,12 +16328,12 @@ Pi Version: v${VERSION}
     if (auth.ok === false) {
       const authError = auth.error;
       rememberCustomCompactionStatus(`fallback to Pi default: auth failed for ${provider}/${modelId}: ${authError}`);
-      ctx.ui.notify(`Custom compaction auth failed for ${provider}/${modelId}: ${authError}; using Pi default compaction.`, "warning");
+      workflowUiNotify(ctx, `Custom compaction auth failed for ${provider}/${modelId}: ${authError}; using Pi default compaction.`, "warning");
       return;
     }
     if (!auth.apiKey) {
       rememberCustomCompactionStatus(`fallback to Pi default: no API key for ${provider}/${modelId}`);
-      ctx.ui.notify(`No API key for custom compaction model ${provider}/${modelId}; using Pi default compaction.`, "warning");
+      workflowUiNotify(ctx, `No API key for custom compaction model ${provider}/${modelId}; using Pi default compaction.`, "warning");
       return;
     }
 
@@ -16161,14 +16345,14 @@ Pi Version: v${VERSION}
       const fitNote = fitted.adjusted && fitted.safeInputTokens
         ? ` Adaptive fit: summarizing about ${Math.round(fitted.inputTokens).toLocaleString()} tokens within ${Math.round(fitted.safeInputTokens).toLocaleString()} safe input tokens for the compaction model.`
         : "";
-      ctx.ui.notify(`Custom compaction using ${provider}/${modelId}. Keep recent: ${customCompactionKeepRecentTokens(settings).toLocaleString()} tokens; reserve: ${customCompactionReserveTokens(settings).toLocaleString()} tokens.${fitNote}`, "info");
+      workflowUiNotify(ctx, `Custom compaction using ${provider}/${modelId}. Keep recent: ${customCompactionKeepRecentTokens(settings).toLocaleString()} tokens; reserve: ${customCompactionReserveTokens(settings).toLocaleString()} tokens.${fitNote}`, "info");
       const result = await compactionApi.compact(fitted.preparation, model, auth.apiKey, auth.headers, event.customInstructions, event.signal);
       rememberCustomCompactionStatus(`custom compaction succeeded using ${provider}/${modelId}${fitted.adjusted ? " with adaptive context fit" : ""}`);
       return { compaction: result };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       rememberCustomCompactionStatus(`fallback to Pi default: custom compaction failed for ${provider}/${modelId}: ${message}`);
-      if (!event.signal.aborted) ctx.ui.notify(`Custom compaction failed: ${message}; using Pi default compaction.`, "warning");
+      if (!event.signal.aborted) workflowUiNotify(ctx, `Custom compaction failed: ${message}; using Pi default compaction.`, "warning");
       return;
     }
   });
@@ -17024,6 +17208,14 @@ Pi Version: v${VERSION}
         const result = updateSettings(ctx.cwd, scope ?? "global", (s) => { workflowWidgetUi(s)[key] = bool; });
         setWorkflowUi(ctx, state, activeSubagents);
         return show(pi, updatedMessage(result.scope, result.file, `ui.${key}`, String(bool)));
+      }
+      if (subject === "ui" && key === "editorHintContrast") {
+        const contrast = parseEditorHintContrast(value);
+        if (!contrast) return show(pi, "# Error\n\nUsage: `/workflow-settings set ui editorHintContrast <subtle|normal|bright|high>`");
+        const result = updateSettings(ctx.cwd, scope ?? "global", (s) => { workflowWidgetUi(s).editorHintContrast = contrast; });
+        setWorkflowUi(ctx, state, activeSubagents);
+        workflowEditorHintText = workflowEditorHintTextFor(state, loadWorkflowSettings(ctx.cwd));
+        return show(pi, updatedMessage(result.scope, result.file, "ui.editorHintContrast", contrast));
       }
       if (subject === "subagents" && (key === "enabled" || key === "activityIndicatorEnabled" || key === "autoUseDuringPlanning" || key === "autoUseDuringExecution" || key === "autoUseDuringRepair" || key === "autoUseDuringReview" || key === "autoUseDuringValidation" || key === "allowParallelReadOnly" || key === "allowParallelPlanning" || key === "allowParallelExecution" || key === "allowParallelRepair" || key === "allowParallelReview" || key === "allowParallelValidation" || key === "allowParallelEdits" || key === "requireParallelEditConflictProtection" || key === "allowBackgroundSubagents")) {
         if (bool === undefined) return show(pi, "# Error\n\nUsage: `/workflow-settings set subagents <enabled|activityIndicatorEnabled|autoUseDuringPlanning|autoUseDuringExecution|autoUseDuringRepair|autoUseDuringReview|autoUseDuringValidation|allowParallelReadOnly|allowParallelPlanning|allowParallelExecution|allowParallelRepair|allowParallelReview|allowParallelValidation|allowParallelEdits|requireParallelEditConflictProtection> <true|false>`");

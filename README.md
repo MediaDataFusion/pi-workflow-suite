@@ -11,7 +11,7 @@
   <a href="#settings-reference"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.3/docs/assets/readme-link-settings.svg" alt="Settings" /></a>
 </p>
 
-**Workflow Suite Version:** `v0.0.18`
+**Workflow Suite Version:** `v0.0.19`
 
 ## Overview
 
@@ -60,6 +60,7 @@ https://github.com/user-attachments/assets/77ba0456-1a44-477a-ad9e-d389fedfc753
 - [Workflow Roles And Model Selection](#workflow-roles-and-model-selection)
 - [Workflow Settings UI](#workflow-settings-ui)
 - [Workflow Presets](#workflow-presets)
+- [Workflow Widgets And Editor Hints](#workflow-widgets-and-editor-hints)
 - [Themes And UI](#themes-and-ui)
 - [Sub-Agents And Parallel Work](#sub-agents-and-parallel-work)
 - [Review, Validation, Repair, And Retry](#review-validation-repair-and-retry)
@@ -125,7 +126,7 @@ Pi Workflow Suite turns Pi into a guided workflow environment:
 | Standard Mode | Direct active work with optional dynamic task-specific To Do tracking, configurable clarification, widgets, shared or Standard-specific model roles, presets, safety controls, and sub-agent orchestration. |
 | Plan Mode | Approval-gated planning and execution where Planner, Reviewer, Executor, and Validator can each use the provider/model and thinking level that fits the phase. |
 | Mission Mode | Long-running milestone workflows with approval, checkpoints, Mission-specific model overrides, validation gates, repair/retry, pause/resume, final-validation controls, and continuity tracking. |
-| Themes And Startup UI | Workflow Suite themes, startup visual cards, startup logo modes, custom terminal logo text, custom brand cards, footer/status styling, widgets, and optional input border styling. |
+| Themes And Startup UI | Workflow Suite themes, startup visual cards, startup logo modes, custom terminal logo text, custom brand cards, editor hint/status styling, widgets, and optional input border styling. |
 | Interactive Diagrams | `workflow_diagram` Mermaid support with terminal preview, SVG-first clickable artifacts, PNG/runtime rendering support, dark-mode-friendly styling, and runtime artifact storage. |
 | Web Research & Browser Verification | First-party `workflow_web_search`, `workflow_web_fetch`, and `workflow_browser_check` tools. Search and fetch for public web evidence with source URLs, blocked local/private/internal hosts, and time/size limits. Headless browser verification for runtime web app validation with interactive UI actions (click, type, read, screenshot, evaluate). |
 | Repo Lock | Project-scoped Global Safety control that constrains normal file tools, bash path checks, and sub-agents to the active repository, with protected configuration paths and clear non-sandbox caveats. |
@@ -136,7 +137,7 @@ Pi Workflow Suite turns Pi into a guided workflow environment:
 | Presets | Built-in and custom workflow profiles with selector commands and Ctrl+Shift+U cycling while active modes are running. |
 | Settings | Interactive grouped settings UI plus direct commands for Standard, Plan, Mission, model selection, sub-agents, widgets, compaction, themes, and safety. |
 | Sub-agents And Skills | Bundled workflow agents and skills for discovery, planning, safe execution, validation, git-safe summaries, and project-rule audits, with clear capability boundaries. |
-| Widgets And Status | Mode-aware top/bottom widgets, footer hints, shortcut controls, progress display, runtime summaries, and current-setting visibility. |
+| Widgets And Status | Mode-aware top/bottom widgets, editor hints, shortcut controls, progress display, runtime summaries, and current-setting visibility. |
 | Safety And Recovery | Phase-specific tool restrictions, destructive-command blocking, validation gates, install backup, live verification, audit, quarantine, sync, resume, and checkpoint tooling. |
 
 ## Feature Overview
@@ -164,7 +165,7 @@ Pi Workflow Suite turns Pi into a guided workflow environment:
 
 Idle Mode is the default no-active-workflow state. It means there is no active Standard task, approved Plan execution, or Mission milestone running, but Workflow Suite still provides its management, inspection, and configuration surfaces.
 
-Idle Mode is a first-class part of the Workflow Suite hierarchy. Users can inspect workflow status, open settings, change themes, preview startup visuals, review widget/footer behavior, inspect Repo Lock status through Global Safety settings, configure compaction, review installed workflow resources, and run safe runtime hygiene/status checks. Idle Mode is also where footer hints expose the primary entry points for Standard, Plan, and Mission.
+Idle Mode is a first-class part of the Workflow Suite hierarchy. Users can inspect workflow status, open settings, change themes, preview startup visuals, review widget and editor hint behavior, inspect Repo Lock status through Global Safety settings, configure compaction, review installed workflow resources, and run safe runtime hygiene/status checks. Idle Mode is also where editor hints expose the primary entry points for Standard, Plan, and Mission.
 
 Idle Mode is not a sandbox and does not imply Pi is unable to run commands. It only means Workflow Suite is not currently inside an active Standard, Plan, or Mission workflow. Repo Lock, tool guards, Pi permissions, and sub-agent configuration still determine what can run.
 
@@ -608,7 +609,7 @@ Quick access:
 
 ```text
 /workflow presets              # open preset selector
-Ctrl+Shift+U                   # cycle presets from the footer/status line while Standard/Plan/Mission Mode is active
+Ctrl+Shift+U                   # cycle presets while Standard/Plan/Mission Mode is active
 /workflow presets list
 /workflow presets apply <name>
 /workflow presets next
@@ -620,7 +621,7 @@ Ctrl+Shift+U                   # cycle presets from the footer/status line while
 /workflow presets delete <name>
 ```
 
-The footer/status line stays mode-specific and avoids idle clutter. By default, active workflows display compact, human-readable hints and the other workflow mode:
+The inline editor hints stay mode-specific and avoid idle clutter. By default, active workflows display compact, human-readable shortcuts and the other workflow mode:
 
 ```text
 Idle:     Standard:Ctrl+Shift+S Plan:Ctrl+Shift+L Mission:Ctrl+Shift+M
@@ -642,9 +643,55 @@ Workflow Suite settings are separate from Pi core settings. Workflow Suite setti
 
 Pi core settings use a different file pair: global `~/.pi/agent/settings.json` plus exact-current-directory project settings at `<cwd>/.pi/settings.json`. Pi core project settings do not walk parent directories. Use `./scripts/audit-settings.sh [target-cwd]` to report both scopes without printing secrets.
 
+## Workflow Widgets And Editor Hints
+
+Workflow widgets are one of the core Workflow Suite surfaces. Standard, Plan, and Mission Mode can show active workflow status directly in the terminal through mode-aware top and bottom widgets.
+
+The top and bottom widgets are independent visibility surfaces. Users can show either one or both, and toggling a widget does not change the underlying workflow state. The widgets are designed to keep long-running work readable without requiring users to repeatedly ask for status.
+
+Depending on the active mode and settings, widgets can show:
+
+- active workflow mode and lifecycle state,
+- current and next task, step, or milestone,
+- segmented progress bars,
+- Standard Mode To Do progress,
+- Plan Mode approval, execution, validation, and repair state,
+- Mission Mode milestone, checkpoint, validation, retry, and runtime state,
+- selected model route and thinking level,
+- active preset and shortcut hints,
+- sub-agent activity when worker orchestration is active.
+
+Widget shortcuts:
+
+```text
+Ctrl+Shift+T  toggle the active workflow top widget
+Ctrl+Shift+B  toggle the active workflow bottom widget
+Ctrl+Shift+U  cycle workflow presets while Standard, Plan, or Mission Mode is active
+```
+
+Widget commands:
+
+```text
+/workflow widgets status
+/workflow widgets list
+/workflow widgets configure
+/workflow widgets toggle top
+/workflow widgets toggle bottom
+/workflow widgets on
+/workflow widgets off
+```
+
+Editor hints are compact inline hints shown in the editor/input area. They can show entry shortcuts while idle and widget, preset, and mode-switch shortcuts while a workflow is active. Editor hints are configurable separately from the widget commands themselves, including visibility and contrast.
+
+The interactive settings path is:
+
+```text
+/workflow settings UI Widgets
+```
+
 ## Themes And UI
 
-Workflow Suite themes control the palette used by Workflow Suite visual surfaces: status/footer text, Standard/Plan/Mission widgets, startup visuals, and optional input-area border styling. They are Workflow Suite settings, separate from Pi core themes.
+Workflow Suite themes control the palette used by Workflow Suite visual surfaces: status text, editor hints, Standard/Plan/Mission widgets, startup visuals, and optional input-area border styling. They are Workflow Suite settings, separate from Pi core themes.
 
 Open the interactive theme menu from the public settings surface:
 
@@ -668,7 +715,7 @@ Workflow Theme
 
 How the pieces fit together:
 
-- **Theme** changes Workflow Suite colors for widgets, footer/status text, startup visuals, and optional input border styling.
+- **Theme** changes Workflow Suite colors for widgets, editor hints, status text, startup visuals, and optional input border styling.
 - **Widget Text Style** controls the text treatment used by active workflow widgets.
 - **Startup Visual** chooses the startup card layout: `none`, `minimal`, `workflow_duo`, `mission_control`, `diagnostic_center`, `data_stream`, `neural_grid`, or `custom_brand`.
 - **Startup Text Style** controls startup visual text independently from active workflow widgets.
@@ -964,30 +1011,7 @@ Runtime tracking is active-runtime based:
 - Paused, blocked, stopped, completed, failed, draft, planned, and approved states do not accumulate active runtime.
 - `maxRuntimeHours` is enforced against active runtime at mission start/continue/validation/repair gates.
 
-Workflow entry and widget controls are available through `/standard`, `/plan`, `/mission`, and `/workflow widgets`. Keyboard shortcuts keep the footer mode-specific:
-
-```text
-Ctrl+Shift+S  toggle Standard Mode
-Ctrl+Shift+L  enter Plan Mode
-Ctrl+Shift+M  enter Mission Mode
-Ctrl+Shift+T  toggle active Standard/Plan/Mission top widget
-Ctrl+Shift+B  toggle active Standard/Plan/Mission bottom widget
-Ctrl+Shift+U  cycle presets while Standard/Plan/Mission Mode is active
-```
-
-Widget commands:
-
-```text
-/workflow widgets status
-/workflow widgets list
-/workflow widgets configure
-/workflow widgets toggle top
-/workflow widgets toggle bottom
-/workflow widgets on
-/workflow widgets off
-```
-
-Footer hints can be tuned without disabling the actual commands/shortcuts. The interactive path is `/workflow settings UI Widgets` → `Footer Hints`.
+Workflow entry and widget controls are available through `/standard`, `/plan`, `/mission`, and `/workflow widgets`. See [Workflow Widgets And Editor Hints](#workflow-widgets-and-editor-hints) for the top widget, bottom widget, shortcut, and editor hint controls.
 
 Mission heartbeat and stale-status fields are tracked and displayed. Checkpoint interval settings record the preferred cadence for future timed checkpoint automation, while recovery actions remain user-supervised for safety.
 
@@ -1025,8 +1049,8 @@ pi install -l npm:@mediadatafusion/pi-workflow-suite
 ### Installing specific versions
 
 ```bash
-pi install npm:@mediadatafusion/pi-workflow-suite@0.0.18
-pi install -l npm:@mediadatafusion/pi-workflow-suite@0.0.18
+pi install npm:@mediadatafusion/pi-workflow-suite@0.0.19
+pi install -l npm:@mediadatafusion/pi-workflow-suite@0.0.19
 ```
 
 An unversioned install follows normal update behavior: `pi update` and `pi update --extensions` will pick up new package releases. A versioned install pins the package to that version. Pinned package specs are intentionally skipped by Pi's normal package update commands. To move a pinned install to a newer version, reinstall with the desired version. To switch back to latest tracking, use the unversioned install command without `@<version>`.
@@ -1143,7 +1167,7 @@ Primary settings areas:
 - `missions` — Mission Mode autonomy, runtime, checkpoints, validation, repair, and mission-specific model selection.
 - `subagents` — workflow phase policies, worker targets, activity indicator, parallelism preferences, and edit-concurrency guidance. These settings do not edit arbitrary sub-agent tool permissions.
 - `context` — compaction provider/model, auto-trigger behavior, trigger percentage, cooldown, reserve tokens, and keep-recent tokens.
-- `ui` — widgets, shortcuts, Workflow Suite theme selection, startup visuals, startup logo text styling, footer/status hints, and optional themed input borders.
+- `ui` — widgets, shortcuts, Workflow Suite theme selection, startup visuals, startup logo text styling, editor hints, status text, and optional themed input borders.
 - `safety` — bash/tool guard settings.
 
 Important Standard Mode settings:
@@ -1232,10 +1256,10 @@ See `docs/TROUBLESHOOTING.md` for detailed diagnostics.
 
 ## Versioning
 
-The current preparation version is `v0.0.18`. Version information is intentionally aligned across:
+The current preparation version is `v0.0.19`. Version information is intentionally aligned across:
 
-- `VERSION` (`v0.0.18`),
-- `package.json` (`0.0.18`),
+- `VERSION` (`v0.0.19`),
+- `package.json` (`0.0.19`),
 - `package-lock.json`,
 - this README,
 - Workflow Suite settings/about output.

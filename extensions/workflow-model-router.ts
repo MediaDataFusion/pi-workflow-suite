@@ -38,6 +38,7 @@ export type WorkflowStartupLogoFont = "block" | "shadow" | "outline" | "wide" | 
 export type WorkflowStartupLogoShadowDirection = "down_right" | "down" | "up" | "left" | "right";
 export type WorkflowStartupLogoColorStyle = "theme" | "primary" | "split";
 export type WorkflowWidgetTextPreset = "normal" | "bold" | "light" | "rich" | "italic" | "underline" | "terminal" | "smallcaps" | "typewriter";
+export type WorkflowEditorHintContrast = "subtle" | "normal" | "bright" | "high";
 export type CustomBrandBaseVisual = "minimal" | "diagnostic_center" | "workflow_duo" | "mission_control" | "data_stream" | "neural_grid";
 export type RepairRetryGateName = "review" | "validation" | "missionValidation" | "missionFinalValidation";
 
@@ -239,6 +240,7 @@ export interface WorkflowSettings {
     showActiveWorkflowSwitchHint?: boolean;
     showWidgetShortcutHint?: boolean;
     showPresetShortcutHint?: boolean;
+    editorHintContrast?: WorkflowEditorHintContrast;
     workflowTheme?: string;
     workflowThemeOverrides?: Record<string, string>;
     widgetTextStyle?: WorkflowWidgetTextPreset;
@@ -528,6 +530,7 @@ const BUILTIN_DEFAULT_WORKFLOW_SETTINGS = {
     "showActiveWorkflowSwitchHint": true,
     "showWidgetShortcutHint": true,
     "showPresetShortcutHint": true,
+    "editorHintContrast": "normal",
     "workflowTheme": "aurora",
     "workflowThemeOverrides": {},
     "widgetTextStyle": undefined,

@@ -2,6 +2,13 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.19] - 2026-06-10
+
+### Improved
+
+- Improved workflow widget and settings UI documentation.
+- Refined editor hint readability controls.
+
 ## [0.0.18] - 2026-06-10
 
 ### Improved

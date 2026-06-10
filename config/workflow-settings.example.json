@@ -254,6 +254,7 @@
     "showActiveWorkflowSwitchHint": true,
     "showWidgetShortcutHint": true,
     "showPresetShortcutHint": true,
+    "editorHintContrast": "normal",
     "workflowTheme": "aurora",
     "workflowThemeOverrides": {},
     "startupVisual": "mission_control",
