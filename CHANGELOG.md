@@ -2,6 +2,13 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.18] - 2026-06-10
+
+### Improved
+
+- Improved package metadata and compaction settings documentation.
+- Refined compaction safeguards for default and custom configuration flows.
+
 ## [0.0.17] - 2026-06-10
 
 ### Improved

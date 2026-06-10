@@ -11,7 +11,7 @@
   <a href="#settings-reference"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.3/docs/assets/readme-link-settings.svg" alt="Settings" /></a>
 </p>
 
-**Workflow Suite Version:** `v0.0.17`
+**Workflow Suite Version:** `v0.0.18`
 
 ## Overview
 
@@ -129,7 +129,7 @@ Pi Workflow Suite turns Pi into a guided workflow environment:
 | Interactive Diagrams | `workflow_diagram` Mermaid support with terminal preview, SVG-first clickable artifacts, PNG/runtime rendering support, dark-mode-friendly styling, and runtime artifact storage. |
 | Web Research & Browser Verification | First-party `workflow_web_search`, `workflow_web_fetch`, and `workflow_browser_check` tools. Search and fetch for public web evidence with source URLs, blocked local/private/internal hosts, and time/size limits. Headless browser verification for runtime web app validation with interactive UI actions (click, type, read, screenshot, evaluate). |
 | Repo Lock | Project-scoped Global Safety control that constrains normal file tools, bash path checks, and sub-agents to the active repository, with protected configuration paths and clear non-sandbox caveats. |
-| Compaction | Pi default, custom model, or disabled Workflow Suite compaction so context summarization can use its own provider/model, proactive threshold checks, idle-boundary execution, custom token tuning, adaptive fitting, status reporting, and safe fallback. |
+| Compaction | Shared compaction controls for Pi default or custom summary model selection, Pi default or custom trigger thresholds, idle-boundary proactive checks, custom token tuning, adaptive fitting, status reporting, and safe fallback. |
 | Token Budgets | Optional per-mode token and runtime caps (`maxTokens`, `maxRuntimeHours`) for Plan, Mission, and Standard Mode. Off by default (unlimited). When enabled, Workflow Suite tracks cumulative usage and blocks further agent turns when the budget is exceeded. |
 | Workflow Roles | Planner, Executor, Reviewer, Validator, Mission, and compaction responsibilities are separated by phase so each job has clear boundaries and can be matched to the right model. |
 | Model Selection | Configure which provider/model and thinking level powers each workflow role, with shared defaults plus Standard-specific and Mission-specific overrides for simpler or higher-rigor setups. |
@@ -810,27 +810,34 @@ Compaction settings are available through:
 /workflow settings Shared Compaction
 ```
 
-Supported modes:
+The grouped Shared Compaction menu separates trigger behavior from summary model selection. The trigger can use Pi default behavior or an explicit Workflow Suite threshold, while the compaction provider/model controls which model writes compaction summaries when configured.
 
-- **Pi default** — preserve Pi built-in compaction.
-- **Custom model** — route compaction summaries through a configured provider/model when available.
-- **Disabled** — disables Workflow Suite custom compaction and leaves Pi fallback behavior.
-- **Custom agent** — planned-only/backward-compatible mode; current releases keep Pi default fallback behavior instead of running agent-routed compaction.
+Workflow Suite can request proactive compaction when context usage reaches the configured threshold. Actual proactive compaction runs only at a safe after-turn idle agent boundary, so it does not interrupt arbitrary tool execution or queued workflow handoffs. Pi default auto-compaction remains available as a safety fallback near the model limit.
 
-Workflow Suite can request proactive compaction when context usage reaches the configured threshold. For Custom model mode, a configured compaction provider/model with custom compaction enabled arms the threshold trigger even when generic auto-trigger behavior is otherwise off. This lets compaction use a different model than planning, execution, review, or validation, which is useful when context summarization has a different cost, speed, or context-window requirement than active workflow work. Actual proactive compaction runs only at a safe after-turn idle agent boundary, so it does not interrupt arbitrary tool execution or queued workflow handoffs. Pi default auto-compaction remains available as a safety fallback near the model limit.
+The menu controls provider/model preference, auto-trigger behavior, trigger threshold, cooldown, reserve tokens, and keep-recent tokens:
 
-The grouped Shared Compaction menu controls auto-compaction, trigger threshold, cooldown, reserve tokens, keep-recent tokens, and custom compaction model behavior.
+```text
+Shared Compaction Settings
+
+Compaction Provider
+Compaction Model
+Workflow Auto Trigger Enabled
+Workflow Trigger Percent
+Workflow Trigger Cooldown
+Custom Reserve Tokens
+Custom Keep Recent Tokens
+List Current Settings
+Back
+```
+
+Each configurable compaction setting includes a Pi default option. Provider and model choices do not change the trigger threshold. The trigger reports `Pi default` when the native Pi threshold formula is in control and reports `custom, <percent>%` only when an explicit Workflow Suite trigger override is set.
 
 Important behavior:
 
 - **Safe boundary**: proactive compaction runs at a safe after-turn idle agent boundary only.
 - **Cooldown**: the cooldown is the minimum wait between proactive attempts; it is not a delay before compaction starts and does not block manual compaction.
-- **Adaptive fit**: Custom model preparation is fit to the selected compaction model context window using configured reserve and keep-recent token settings.
-- **Fallback**: Custom model compaction falls back to Pi default behavior if required settings are missing, the model cannot be found, authentication or API key checks fail, preparation cannot fit, or the compaction call errors.
-- **Status**: `/workflow settings Show Current Settings` reports the effective trigger state, runtime status, selected custom model, reserve/keep-recent token settings, latest check decision, and `Last Custom Compaction Status`.
-
-The legacy `workflowCompactionCheckMode` setting may still exist for compatibility, but the primary release behavior is safe after-turn idle-boundary compaction. It is not permission to compact in the middle of arbitrary tool execution.
-
+- **Adaptive fit**: Custom summary model preparation is fit to the selected model context window using configured reserve and keep-recent token settings.
+- **Fallback**: Custom summary model compaction falls back to Pi default behavior if required settings are missing, the model cannot be found, authentication or API key checks fail, preparation cannot fit, or the compaction call errors.
 ## Diagram Support
 
 Workflow Suite includes a `workflow_diagram` tool for Mermaid diagrams in workflow explanations, architecture notes, state transitions, data flows, export/share flows, and dependency maps. It is available to Workflow Suite execution and validation surfaces through the shared workflow tool set.
@@ -1018,8 +1025,8 @@ pi install -l npm:@mediadatafusion/pi-workflow-suite
 ### Installing specific versions
 
 ```bash
-pi install npm:@mediadatafusion/pi-workflow-suite@0.0.17
-pi install -l npm:@mediadatafusion/pi-workflow-suite@0.0.17
+pi install npm:@mediadatafusion/pi-workflow-suite@0.0.18
+pi install -l npm:@mediadatafusion/pi-workflow-suite@0.0.18
 ```
 
 An unversioned install follows normal update behavior: `pi update` and `pi update --extensions` will pick up new package releases. A versioned install pins the package to that version. Pinned package specs are intentionally skipped by Pi's normal package update commands. To move a pinned install to a newer version, reinstall with the desired version. To switch back to latest tracking, use the unversioned install command without `@<version>`.
@@ -1135,7 +1142,7 @@ Primary settings areas:
 - `standard` — Standard Mode enablement, dynamic To Do tracking, configurable clarification, widgets, model role, Standard sub-agent orchestration, and shared model selection.
 - `missions` — Mission Mode autonomy, runtime, checkpoints, validation, repair, and mission-specific model selection.
 - `subagents` — workflow phase policies, worker targets, activity indicator, parallelism preferences, and edit-concurrency guidance. These settings do not edit arbitrary sub-agent tool permissions.
-- `context` — compaction mode, custom compaction provider/model, proactive trigger percentage, check mode, cooldown, and fallback status.
+- `context` — compaction provider/model, auto-trigger behavior, trigger percentage, cooldown, reserve tokens, and keep-recent tokens.
 - `ui` — widgets, shortcuts, Workflow Suite theme selection, startup visuals, startup logo text styling, footer/status hints, and optional themed input borders.
 - `safety` — bash/tool guard settings.
 
@@ -1218,17 +1225,17 @@ See `docs/TROUBLESHOOTING.md` for detailed diagnostics.
 
 ## Operational Notes
 
-- Use Custom model mode for active custom compaction today. Custom agent mode is reserved for agent-routed compaction and keeps Pi fallback behavior in current releases.
+- Configure a compaction provider/model when summaries should use a custom model; trigger behavior remains separate and can stay on Pi default behavior.
 - Mission checkpoints are created at workflow gates and progress saves. The checkpoint interval setting records the preferred cadence for future timed checkpoint automation.
 - Watchdog status can report stale mission activity when enabled. Recovery remains user-supervised so Mission Mode does not resume or mutate work unexpectedly.
 - Parallel file edits are governed separately from parallel sub-agent work. Scoped parallel edit mode requires conflict protection; otherwise the main workflow keeps writes serialized for safety.
 
 ## Versioning
 
-The current preparation version is `v0.0.17`. Version information is intentionally aligned across:
+The current preparation version is `v0.0.18`. Version information is intentionally aligned across:
 
-- `VERSION` (`v0.0.17`),
-- `package.json` (`0.0.17`),
+- `VERSION` (`v0.0.18`),
+- `package.json` (`0.0.18`),
 - `package-lock.json`,
 - this README,
 - Workflow Suite settings/about output.

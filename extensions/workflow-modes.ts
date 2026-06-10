@@ -206,6 +206,15 @@ type PiSessionEntry = SessionEntry;
 const DEFAULT_PI_COMPACTION_RESERVE_TOKENS = 16_384;
 const DEFAULT_PI_COMPACTION_KEEP_RECENT_TOKENS = 20_000;
 const CUSTOM_COMPACTION_PROMPT_OVERHEAD_TOKENS = 8_192;
+const PI_SETTINGS_FILE = join(AGENT_DIR, "settings.json");
+
+type PiNativeCompactionSettings = {
+  enabled: boolean;
+  reserveTokens: number;
+  keepRecentTokens: number;
+  source: "default" | "global" | "project";
+  file?: string;
+};
 
 function loadPiCompactionApi(): PiCompactionApi {
   return {
@@ -213,6 +222,85 @@ function loadPiCompactionApi(): PiCompactionApi {
     estimateTokens: piEstimateTokens,
     findCutPoint: piFindCutPoint,
   };
+}
+
+function readJsonObject(path: string): Record<string, unknown> | undefined {
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function findProjectPiSettings(cwd: string): string | undefined {
+  let dir = cwd;
+  for (let i = 0; i < 40; i += 1) {
+    const candidate = join(dir, ".pi", "settings.json");
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
+}
+
+function coercePiCompactionSettings(raw: unknown): Partial<PiNativeCompactionSettings> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const compaction = raw as Record<string, unknown>;
+  const settings: Partial<PiNativeCompactionSettings> = {};
+  if (typeof compaction.enabled === "boolean") settings.enabled = compaction.enabled;
+  const reserveTokens = Number(compaction.reserveTokens);
+  if (Number.isFinite(reserveTokens) && reserveTokens > 0) settings.reserveTokens = Math.round(reserveTokens);
+  const keepRecentTokens = Number(compaction.keepRecentTokens);
+  if (Number.isFinite(keepRecentTokens) && keepRecentTokens > 0) settings.keepRecentTokens = Math.round(keepRecentTokens);
+  return settings;
+}
+
+function loadPiNativeCompactionSettings(cwd?: string): PiNativeCompactionSettings {
+  let settings: PiNativeCompactionSettings = {
+    enabled: true,
+    reserveTokens: DEFAULT_PI_COMPACTION_RESERVE_TOKENS,
+    keepRecentTokens: DEFAULT_PI_COMPACTION_KEEP_RECENT_TOKENS,
+    source: "default",
+  };
+  const globalSettings = existsSync(PI_SETTINGS_FILE) ? coercePiCompactionSettings(readJsonObject(PI_SETTINGS_FILE)?.compaction) : undefined;
+  if (globalSettings) settings = { ...settings, ...globalSettings, source: "global", file: PI_SETTINGS_FILE };
+
+  const projectFile = cwd ? findProjectPiSettings(cwd) : undefined;
+  const projectSettings = projectFile ? coercePiCompactionSettings(readJsonObject(projectFile)?.compaction) : undefined;
+  if (projectSettings) settings = { ...settings, ...projectSettings, source: "project", file: projectFile };
+  return settings;
+}
+
+function contextWindowFrom(ctx?: ExtensionContext, usage?: { contextWindow?: number }): number | undefined {
+  const contextWindow = Number(usage?.contextWindow ?? ctx?.getContextUsage?.()?.contextWindow ?? ctx?.model?.contextWindow);
+  return Number.isFinite(contextWindow) && contextWindow > 0 ? contextWindow : undefined;
+}
+
+function piNativeCompactionThreshold(cwd: string | undefined, contextWindow: number | undefined): { settings: PiNativeCompactionSettings; triggerTokens?: number; triggerPercent?: number } {
+  const settings = loadPiNativeCompactionSettings(cwd);
+  if (!settings.enabled || !contextWindow) return { settings };
+  const threshold = compactionThresholdForReserve(contextWindow, settings.reserveTokens);
+  return { settings, ...threshold };
+}
+
+function compactionThresholdForReserve(contextWindow: number, reserveTokens: number): { triggerTokens: number; triggerPercent: number } {
+  const triggerTokens = Math.max(0, contextWindow - reserveTokens);
+  return { triggerTokens, triggerPercent: (triggerTokens / contextWindow) * 100 };
+}
+
+function formatPiNativeCompactionThreshold(cwd: string | undefined, contextWindow: number | undefined): string {
+  const threshold = piNativeCompactionThreshold(cwd, contextWindow);
+  if (!threshold.settings.enabled) return "disabled";
+  return "Pi default";
+}
+
+function formatSharedCompactionTrigger(settings: ReturnType<typeof loadWorkflowSettings>, ctx?: ExtensionContext): string {
+  if (settings.context.compactionMode === "disabled" || settings.context.autoCompactionEnabled === false) return "disabled";
+  const override = compactionTriggerPercentOverride(settings);
+  if (override != null) return `custom, ${override}%`;
+  return formatPiNativeCompactionThreshold(ctx?.cwd, contextWindowFrom(ctx));
 }
 
 function createWorkflowCompactionFileOps(): FileOperations {
@@ -2675,15 +2763,15 @@ Mission Mode settings:
 
 Compaction:
 - /workflow-settings configure compaction opens the selectable compaction menu
-- Compaction Provider and Compaction Model use the model registry provider/model picker
-- /workflow-settings set context compactionMode pi_default|custom_model|disabled (custom_agent remains backward-compatible but hidden until implemented)
-- /workflow-settings set context customCompactionEnabled true|false
-- /workflow-settings set context autoCompactionEnabled true|false
+- Compaction Provider and Compaction Model select the summary model preference
+- /workflow-settings set context autoCompactionEnabled true|false|default
 - /workflow-settings set context compactionTriggerPercent 50-95|default|reset
-- /workflow-settings set context compactionCooldownMinutes 0-240
+- /workflow-settings set context compactionCooldownMinutes 0-240|default|reset
 - /workflow-settings set context customCompactionReserveTokens 4096-65536|default|reset
 - /workflow-settings set context customCompactionKeepRecentTokens 1000-200000|default|reset
 - /workflow-settings set context workflowCompactionCheckMode boundary|in_session (legacy/backward-compatible; primary UI uses safe after-turn compaction)
+- /workflow-settings set context compactionMode pi_default|custom_model|disabled (legacy/backward-compatible; primary UI uses trigger/provider/model controls)
+- /workflow-settings set context customCompactionEnabled true|false (legacy/backward-compatible; no longer required for summary model routing)
 - /workflow-settings set context compactionModelProvider <provider> (advanced/manual fallback)
 - /workflow-settings set context compactionModel <model> (advanced/manual fallback)
 - /workflow-settings set context compactionAgent <agent> (legacy/backward-compatible; custom agent is planned only)
@@ -3172,11 +3260,13 @@ function workflowCompactionCheckRuntimeStatus(): string {
   return `Last Check: ${workflowLastCompactionCheckAt}\nLast Decision: ${workflowLastCompactionDecision}`;
 }
 
-function customModelCompactionConfigured(settings: ReturnType<typeof loadWorkflowSettings>): boolean {
-  return settings.context.customCompactionEnabled === true
-    && settings.context.compactionMode === "custom_model"
-    && Boolean(settings.context.compactionModelProvider)
+function summaryModelConfigured(settings: ReturnType<typeof loadWorkflowSettings>): boolean {
+  return Boolean(settings.context.compactionModelProvider)
     && Boolean(settings.context.compactionModel);
+}
+
+function customModelCompactionConfigured(settings: ReturnType<typeof loadWorkflowSettings>): boolean {
+  return settings.context.compactionMode !== "disabled" && summaryModelConfigured(settings);
 }
 
 function workflowProactiveCompactionEffective(settings: ReturnType<typeof loadWorkflowSettings>): boolean {
@@ -3185,27 +3275,19 @@ function workflowProactiveCompactionEffective(settings: ReturnType<typeof loadWo
 }
 
 function compactionIntegrationStatus(settings: ReturnType<typeof loadWorkflowSettings>): string {
-  if (!settings.context.customCompactionEnabled || settings.context.compactionMode === "pi_default") return "Pi default behavior is active";
-  if (settings.context.compactionMode === "custom_model") {
-    if (!settings.context.compactionModelProvider || !settings.context.compactionModel) return "Custom model selected but provider/model is missing. Fallback: Pi default compaction.";
-    return `Custom model active through Pi's session_before_compact hook using ${settings.context.compactionModelProvider}/${settings.context.compactionModel}. Fallback: Pi default if custom compaction cannot run or fails.`;
-  }
+  if (settings.context.compactionMode === "disabled") return "Workflow compaction disabled";
+  if (summaryModelConfigured(settings)) return `Custom summary model configured through Pi's session_before_compact hook using ${settings.context.compactionModelProvider}/${settings.context.compactionModel}. Fallback: Pi default if custom compaction cannot run or fails.`;
   if (settings.context.compactionMode === "custom_agent") return "Custom agent compaction is planned only. Fallback: Pi default compaction.";
-  return "Workflow custom compaction disabled; Pi default behavior applies";
+  return "Pi default summary model is active";
 }
 
-function defaultCompactionTriggerPercent(): number {
-  return 50;
-}
-
-function compactionTriggerPercent(settings: ReturnType<typeof loadWorkflowSettings>): number {
-  const fallback = defaultCompactionTriggerPercent();
-  const value = Number(settings.context.compactionTriggerPercent ?? fallback);
-  return Number.isFinite(value) && value >= 50 && value <= 95 ? Math.round(value) : fallback;
+function compactionTriggerPercentOverride(settings: ReturnType<typeof loadWorkflowSettings>): number | undefined {
+  const value = Number(settings.context.compactionTriggerPercent);
+  return Number.isFinite(value) && value >= 50 && value <= 95 ? Math.round(value) : undefined;
 }
 
 function compactionTriggerOverrideLabel(settings: ReturnType<typeof loadWorkflowSettings>): string {
-  const value = settings.context.compactionTriggerPercent;
+  const value = compactionTriggerPercentOverride(settings);
   return typeof value === "number" ? `${value}%` : "none";
 }
 
@@ -3220,23 +3302,24 @@ function resetCompactionContextToPiDefault(context: ReturnType<typeof loadWorkfl
 }
 
 function effectiveWorkflowCompactionTriggerPercent(settings: ReturnType<typeof loadWorkflowSettings>, ctx: ExtensionContext, usage: { contextWindow?: number }): number {
-  const configured = compactionTriggerPercent(settings);
-  if (!customModelCompactionConfigured(settings)) return configured;
-  const contextWindow = Number(usage.contextWindow);
-  if (!Number.isFinite(contextWindow) || contextWindow <= 0) return configured;
-  const model = ctx.modelRegistry.find(settings.context.compactionModelProvider, settings.context.compactionModel);
-  if (!model) return configured;
-  const safeInputTokens = customCompactionSafeInputTokens(model);
-  if (!safeInputTokens) return configured;
-  const safeTotalBeforeCompaction = safeInputTokens + DEFAULT_PI_COMPACTION_KEEP_RECENT_TOKENS;
-  const modelSafePercent = Math.floor((safeTotalBeforeCompaction / contextWindow) * 100);
-  if (!Number.isFinite(modelSafePercent) || modelSafePercent <= 0) return configured;
-  return Math.max(10, Math.min(configured, modelSafePercent));
+  const contextWindow = contextWindowFrom(ctx, usage);
+  const nativeThreshold = piNativeCompactionThreshold(ctx.cwd, contextWindow);
+  return compactionTriggerPercentOverride(settings) ?? nativeThreshold.triggerPercent ?? NaN;
 }
 
 function compactionCooldownMinutes(settings: ReturnType<typeof loadWorkflowSettings>): number {
   const value = Number(settings.context.compactionCooldownMinutes ?? 5);
   return Number.isFinite(value) && value >= 0 && value <= 240 ? Math.round(value) : 5;
+}
+
+function compactionCooldownLabel(settings: ReturnType<typeof loadWorkflowSettings>): string {
+  const value = compactionCooldownMinutes(settings);
+  return value === 5 ? "Pi default" : `${value} min`;
+}
+
+function workflowAutoTriggerLabel(settings: ReturnType<typeof loadWorkflowSettings>): string {
+  if (settings.context.compactionMode === "disabled" || settings.context.autoCompactionEnabled === false) return "disabled";
+  return settings.context.autoCompactionEnabled === true ? "enabled" : "Pi default";
 }
 
 function customCompactionReserveTokens(settings: ReturnType<typeof loadWorkflowSettings>): number {
@@ -3247,6 +3330,16 @@ function customCompactionReserveTokens(settings: ReturnType<typeof loadWorkflowS
 function customCompactionKeepRecentTokens(settings: ReturnType<typeof loadWorkflowSettings>): number {
   const value = Number(settings.context.customCompactionKeepRecentTokens ?? DEFAULT_PI_COMPACTION_KEEP_RECENT_TOKENS);
   return Number.isFinite(value) && value >= 1000 && value <= 200000 ? Math.round(value) : DEFAULT_PI_COMPACTION_KEEP_RECENT_TOKENS;
+}
+
+function compactionReserveTokensLabel(settings: ReturnType<typeof loadWorkflowSettings>): string {
+  const value = customCompactionReserveTokens(settings);
+  return value === DEFAULT_PI_COMPACTION_RESERVE_TOKENS ? "Pi default" : value.toLocaleString();
+}
+
+function compactionKeepRecentTokensLabel(settings: ReturnType<typeof loadWorkflowSettings>): string {
+  const value = customCompactionKeepRecentTokens(settings);
+  return value === DEFAULT_PI_COMPACTION_KEEP_RECENT_TOKENS ? "Pi default" : value.toLocaleString();
 }
 
 function customCompactionPreparationSettings(settings: ReturnType<typeof loadWorkflowSettings>, fallback: PiCompactionPreparation["settings"]): PiCompactionPreparation["settings"] {
@@ -3261,14 +3354,15 @@ function compactionTriggerStatus(settings: ReturnType<typeof loadWorkflowSetting
   if (settings.context.compactionMode === "disabled") return "Workflow compaction disabled";
   const cooldown = `${compactionCooldownMinutes(settings)} minute cooldown`;
   const safeBoundary = "safe after-turn idle boundary only";
-  if (customModelCompactionConfigured(settings) && settings.context.autoCompactionEnabled === true) return `Armed at ${compactionTriggerPercent(settings)}%; ${cooldown}; Compaction runs at ${safeBoundary}; Custom Model: ${settings.context.compactionModelProvider}/${settings.context.compactionModel}; Custom Prep: keep ${customCompactionKeepRecentTokens(settings).toLocaleString()} recent tokens, reserve ${customCompactionReserveTokens(settings).toLocaleString()} tokens`;
-  if (customModelCompactionConfigured(settings)) return `Custom compaction model configured for Pi session_before_compact only: ${settings.context.compactionModelProvider}/${settings.context.compactionModel}. Workflow proactive trigger is not enabled.`;
+  const override = compactionTriggerPercentOverride(settings);
+  if (workflowProactiveCompactionEffective(settings)) return `Armed at ${override == null ? "Pi default formula" : `${override}%`}; ${cooldown}; Compaction runs at ${safeBoundary}`;
+  if (summaryModelConfigured(settings)) return `Custom summary model configured for Pi session_before_compact: ${settings.context.compactionModelProvider}/${settings.context.compactionModel}. Workflow proactive trigger is not enabled.`;
   if (settings.context.autoCompactionEnabled !== true) return "Workflow proactive compaction disabled; Pi default auto-compaction still applies";
-  return `Armed at ${compactionTriggerPercent(settings)}%; ${cooldown}; Compaction runs at ${safeBoundary}; Pi default fallback enabled`;
+  return "Pi default auto-compaction applies";
 }
 
 function missionCheckpointModelLabel(settings: ReturnType<typeof loadWorkflowSettings>): string {
-  if (settings.context.customCompactionEnabled && settings.context.compactionMode === "custom_model" && settings.context.compactionModelProvider && settings.context.compactionModel) {
+  if (customModelCompactionConfigured(settings)) {
     return `concise checkpoint summaries; Pi session compaction uses configured compaction model when active (currently ${settings.context.compactionModelProvider}/${settings.context.compactionModel})`;
   }
   return "concise checkpoint summaries; Pi session compaction uses configured compaction model when active";
@@ -3294,7 +3388,7 @@ Mission Checkpoint Model: ${missionCheckpointModelLabel(settings)}`;
 function renderPlanModelSettings(settings: ReturnType<typeof loadWorkflowSettings>): string {
   return `Plan Model Source: shared workflow role models
 ${renderWorkflowModels(settings)}
-Compaction Model: ${settings.context.compactionMode === "custom_model" && settings.context.compactionModelProvider && settings.context.compactionModel ? `${settings.context.compactionModelProvider}/${settings.context.compactionModel}` : "Pi default / not configured"}`;
+Compaction Model: ${settings.context.compactionModelProvider && settings.context.compactionModel ? `${settings.context.compactionModelProvider}/${settings.context.compactionModel}` : "Pi default"}`;
 }
 
 function renderPlanSubagentWorkerSettings(settings: ReturnType<typeof loadWorkflowSettings>): string {
@@ -3393,8 +3487,10 @@ function renderWorkflowSettingsHealth(settings: ReturnType<typeof loadWorkflowSe
     `Validator: ${configuredLabel(settings.models.validator)}`,
     "",
     "## Compaction",
-    `Mode: ${compactionModeLabel(settings.context.compactionMode)}`,
-    `Workflow Auto Trigger: ${workflowProactiveCompactionEffective(settings) ? "armed" : "inactive"}`,
+    `Provider: ${settings.context.compactionModelProvider || "Pi default"}`,
+    `Model: ${settings.context.compactionModel || "Pi default"}`,
+    `Workflow Auto Trigger: ${workflowAutoTriggerLabel(settings)}`,
+    `Trigger: ${formatSharedCompactionTrigger(settings)}`,
     "Runtime: safe after-turn compaction",
     "",
     "## Capability Matrix Summary",
@@ -3652,18 +3748,16 @@ Note: Parallel File Edits controls simultaneous file writes only. It must not di
 ${renderSafetySettings(settings)}
 
 ## Compaction
-Compaction Mode: ${compactionModeLabel(settings.context.compactionMode)}
-Custom Compaction Enabled: ${settings.context.customCompactionEnabled ? "enabled" : "disabled"}
-Compaction Model Provider: ${settings.context.compactionModelProvider || "(not set)"}
-Compaction Model: ${settings.context.compactionModel || "(not set)"}
-${compactionAgentLine(settings)}${compactionAgentLine(settings) ? "\n" : ""}Workflow Auto Compaction Trigger Setting: ${settings.context.autoCompactionEnabled === true ? "enabled" : "disabled"}
+Compaction Provider: ${settings.context.compactionModelProvider || "Pi default"}
+Compaction Model: ${settings.context.compactionModel || "Pi default"}
+${compactionAgentLine(settings)}${compactionAgentLine(settings) ? "\n" : ""}Workflow Auto Compaction Trigger Setting: ${workflowAutoTriggerLabel(settings)}
 Effective Workflow Compaction Trigger: ${workflowProactiveCompactionEffective(settings) ? "armed" : "inactive"}
 Compaction Runtime: safe after-turn idle boundary only
 Workflow Compaction Trigger Override: ${compactionTriggerOverrideLabel(settings)}
-Effective Workflow Compaction Trigger Percent: ${compactionTriggerPercent(settings)}%
+Trigger: ${formatSharedCompactionTrigger(settings)}
 Workflow Compaction Cooldown: ${compactionCooldownMinutes(settings)} minute(s)
-Custom Compaction Reserve Tokens: ${customCompactionReserveTokens(settings)}
-Custom Compaction Keep Recent Tokens: ${customCompactionKeepRecentTokens(settings)}
+Compaction Reserve Tokens: ${compactionReserveTokensLabel(settings)}
+Compaction Keep Recent Tokens: ${compactionKeepRecentTokensLabel(settings)}
 Compaction Integration Status: ${compactionIntegrationStatus(settings)}
 Compaction Trigger Status: ${compactionTriggerStatus(settings)}
 ${workflowCompactionCheckRuntimeStatus()}
@@ -14651,33 +14745,62 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     return { provider: providerChoice, model: modelChoice.replace(`${providerChoice}/`, "") };
   }
 
-  async function selectCompactionModel(ctx: ExtensionContext) {
-    const selected = await selectProviderAndModel(ctx, "Compaction model");
-    if (!selected) return;
-    const result = updateSettings(ctx.cwd, undefined, (s) => {
-      s.context.compactionMode = "custom_model";
-      s.context.compactionModelProvider = selected.provider;
-      s.context.compactionModel = selected.model;
-      s.context.customCompactionEnabled = true;
-    });
-    ctx.ui.notify(`Compaction model stored as ${selected.provider}/${selected.model} in ${result.file}. It will be used by session_before_compact when available, with Pi default fallback on failure.`, "info");
+  async function chooseCompactionProvider(ctx: ExtensionContext): Promise<string | undefined> {
+    const models = ctx.modelRegistry.getAll();
+    const providers = [...new Set(models.map((m) => m.provider))].sort();
+    const providerChoice = await ctx.ui.select("Compaction Provider", ["Pi default", "Custom provider", "Back"]);
+    if (!providerChoice || providerChoice === "Back") return undefined;
+    if (providerChoice === "Pi default") return "";
+    const choice = await ctx.ui.select("Custom provider", [...providers, "Custom provider name", "Back"]);
+    if (!choice || choice === "Back") return undefined;
+    if (choice === "Custom provider name") return (await ctx.ui.input("Custom compaction provider:", "provider-name"))?.trim();
+    return choice;
   }
 
-  async function selectCompactionModelForCurrentProvider(ctx: ExtensionContext) {
+  async function selectCompactionProvider(ctx: ExtensionContext) {
+    const provider = await chooseCompactionProvider(ctx);
+    if (provider === undefined) return;
+    const result = updateSettings(ctx.cwd, undefined, (s) => {
+      s.context.compactionModelProvider = provider;
+      s.context.compactionModel = "";
+    });
+    ctx.ui.notify(provider ? `Compaction provider preference stored as ${provider} in ${result.file}. Trigger behavior was not changed.` : `Compaction provider reset to Pi default in ${result.file}. Trigger behavior was not changed.`, "info");
+  }
+
+  async function selectCompactionModel(ctx: ExtensionContext) {
     const settings = loadWorkflowSettings(ctx.cwd);
     const provider = settings.context.compactionModelProvider;
-    if (!provider) return selectCompactionModel(ctx);
-    const providerModels = ctx.modelRegistry.getAll().filter((m) => m.provider === provider).map((m) => m.id).sort();
-    if (providerModels.length === 0) return selectCompactionModel(ctx);
-    const modelChoice = await ctx.ui.select(`Compaction model for ${provider}:`, providerModels.map((model) => `${provider}/${model}`));
-    if (!modelChoice) return;
-    const model = modelChoice.replace(`${provider}/`, "");
+    const mode = await ctx.ui.select("Compaction Model", ["Pi default", "Custom model", "Back"]);
+    if (!mode || mode === "Back") return;
+    if (mode === "Pi default") {
+      const result = updateSettings(ctx.cwd, undefined, (s) => {
+        s.context.compactionModelProvider = "";
+        s.context.compactionModel = "";
+      });
+      ctx.ui.notify(`Compaction summary model reset to Pi default in ${result.file}. Trigger behavior was not changed.`, "info");
+      return;
+    }
+
+    let selectedProvider = provider;
+    if (!selectedProvider) {
+      const chosen = await chooseCompactionProvider(ctx);
+      if (chosen === undefined) return;
+      selectedProvider = chosen;
+    }
+    if (!selectedProvider) {
+      ctx.ui.notify("Select a custom compaction provider before selecting a custom model.", "warning");
+      return;
+    }
+    const providerModels = ctx.modelRegistry.getAll().filter((m) => m.provider === selectedProvider).map((m) => m.id).sort();
+    const modelChoice = await ctx.ui.select(`Custom model for ${selectedProvider}:`, [...providerModels.map((model) => `${selectedProvider}/${model}`), "Custom model name", "Back"]);
+    if (!modelChoice || modelChoice === "Back") return;
+    const model = modelChoice === "Custom model name" ? (await ctx.ui.input("Custom compaction model:", "model-name"))?.trim() : modelChoice.replace(`${selectedProvider}/`, "");
+    if (!model) return;
     const result = updateSettings(ctx.cwd, undefined, (s) => {
-      s.context.compactionMode = "custom_model";
+      s.context.compactionModelProvider = selectedProvider;
       s.context.compactionModel = model;
-      s.context.customCompactionEnabled = true;
     });
-    ctx.ui.notify(`Compaction model stored as ${provider}/${model} in ${result.file}. It will be used by session_before_compact when available, with Pi default fallback on failure.`, "info");
+    ctx.ui.notify(`Compaction model preference stored as ${selectedProvider}/${model} in ${result.file}. Trigger behavior was not changed.`, "info");
   }
 
   async function selectCompactionAgent(ctx: ExtensionContext) {
@@ -14697,60 +14820,70 @@ ${renderMissionStatus(activeMission ?? paused)}`);
   async function showCompactionSettingsMenu(ctx: ExtensionContext) {
     if (!ctx.hasUI) return show(pi, renderFullWorkflowSettings(loadWorkflowSettings(ctx.cwd)));
     while (ctx.hasUI) {
-      const choice = await ctx.ui.select("Shared Compaction Settings", ["Compaction Mode", "Compaction Provider", "Compaction Model", "Custom Compaction Enabled", "Workflow Auto Trigger Enabled", "Workflow Trigger Percent", "Workflow Trigger Cooldown", "Custom Reserve Tokens", "Custom Keep Recent Tokens", "List Current Settings", "Back"]);
+      const choice = await ctx.ui.select("Shared Compaction Settings", ["Compaction Provider", "Compaction Model", "Workflow Auto Trigger Enabled", "Workflow Trigger Percent", "Workflow Trigger Cooldown", "Custom Reserve Tokens", "Custom Keep Recent Tokens", "List Current Settings", "Back"]);
       if (!choice || choice === "Back") return;
-      if (choice === "Compaction Mode") {
-        const mode = parseCompactionMode((await ctx.ui.select("Compaction mode", ["Pi default", "Custom model", "Disabled"])) ?? "");
-        if (!mode) continue;
-        if (mode === "custom_model") { await selectCompactionModel(ctx); continue; }
-        const r = updateSettings(ctx.cwd, undefined, (s) => {
-          if (mode === "pi_default") resetCompactionContextToPiDefault(s.context);
-          else {
-            s.context.compactionMode = mode;
-            s.context.customCompactionEnabled = false;
-          }
-        });
-        ctx.ui.notify(`Compaction mode set to ${compactionModeLabel(mode)} in ${r.file}${mode === "pi_default" ? "; custom compaction overrides reset, selected provider/model preserved" : ""}.`, "info");
-      } else if (choice === "Compaction Provider") {
-        await selectCompactionModel(ctx);
+      if (choice === "Compaction Provider") {
+        await selectCompactionProvider(ctx);
       } else if (choice === "Compaction Model") {
-        await selectCompactionModelForCurrentProvider(ctx);
-      } else if (choice === "Custom Compaction Enabled") {
-        const enabled = await chooseBool(ctx, "Custom compaction enabled?");
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.customCompactionEnabled = enabled; }); ctx.ui.notify(`Custom compaction set to ${enabled ? "enabled" : "disabled"} in ${r.file}. Custom model routing uses the session compaction hook when configured; Pi default fallback remains enabled.`, "info"); }
+        await selectCompactionModel(ctx);
       } else if (choice === "Workflow Auto Trigger Enabled") {
-        const enabled = await chooseBool(ctx, "Workflow proactive auto-compaction trigger enabled?");
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.autoCompactionEnabled = enabled; }); ctx.ui.notify(`Workflow auto trigger set to ${enabled ? "enabled" : "disabled"} in ${r.file}. Pi default auto-compaction remains available as fallback.`, "info"); }
+        const trigger = await ctx.ui.select("Workflow Auto Trigger Enabled", ["Pi default", "Enabled", "Disabled", "Back"]);
+        if (!trigger || trigger === "Back") continue;
+        const r = updateSettings(ctx.cwd, undefined, (s) => {
+          if (trigger === "Pi default") delete s.context.autoCompactionEnabled;
+          else s.context.autoCompactionEnabled = trigger === "Enabled";
+        });
+        ctx.ui.notify(`Workflow auto trigger set to ${trigger.toLowerCase()} in ${r.file}.`, "info");
       } else if (choice === "Workflow Trigger Percent") {
-        const current = loadWorkflowSettings(ctx.cwd).context.compactionTriggerPercent;
-        const raw = String((await ctx.ui.input("Workflow compaction trigger percent (50-95, default, or reset)", current == null ? "Pi default" : String(compactionTriggerPercent(loadWorkflowSettings(ctx.cwd)))) ?? "")).trim().toLowerCase();
-        if (raw === "default" || raw === "reset") {
+        const mode = await ctx.ui.select("Workflow Trigger Percent", ["Pi default", "Custom percent", "Back"]);
+        if (!mode || mode === "Back") continue;
+        if (mode === "Pi default") {
           const r = updateSettings(ctx.cwd, undefined, (s) => { delete s.context.compactionTriggerPercent; });
-          ctx.ui.notify(`Workflow compaction trigger percent override removed in ${r.file}; Pi default compaction behavior remains in control.`, "info");
+          ctx.ui.notify(`Workflow compaction trigger percent override removed in ${r.file}; Pi native trigger formula remains in control.`, "info");
         } else {
+          const raw = String((await ctx.ui.input("Workflow compaction trigger percent (50-95)", String(compactionTriggerPercentOverride(loadWorkflowSettings(ctx.cwd)) ?? 85))) ?? "").trim();
           const count = Number(raw);
           if (Number.isInteger(count) && count >= 50 && count <= 95) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.compactionTriggerPercent = count; }); ctx.ui.notify(`Workflow compaction trigger percent set to ${count}% in ${r.file}`, "info"); }
-          else ctx.ui.notify("Trigger percent must be an integer from 50 to 95, default, or reset.", "error");
+          else ctx.ui.notify("Trigger percent must be an integer from 50 to 95.", "error");
         }
       } else if (choice === "Workflow Trigger Cooldown") {
-        const count = Number((await ctx.ui.input("Minimum minutes between Workflow Suite proactive compaction attempts", String(compactionCooldownMinutes(loadWorkflowSettings(ctx.cwd)))) ?? ""));
-        if (Number.isInteger(count) && count >= 0 && count <= 240) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.compactionCooldownMinutes = count; }); ctx.ui.notify(`Compaction cooldown set to ${count} minute(s) in ${r.file}. This is the minimum wait between proactive compaction attempts, not a delay before compaction starts.`, "info"); }
-        else ctx.ui.notify("Cooldown must be an integer from 0 to 240 minutes.", "error");
+        const mode = await ctx.ui.select("Workflow Trigger Cooldown", ["Pi default", "Custom cooldown", "Back"]);
+        if (!mode || mode === "Back") continue;
+        if (mode === "Pi default") {
+          const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.compactionCooldownMinutes = 5; });
+          ctx.ui.notify(`Compaction cooldown reset to Pi default (5 minutes) in ${r.file}.`, "info");
+        } else {
+          const count = Number((await ctx.ui.input("Minimum minutes between Workflow Suite proactive compaction attempts", String(compactionCooldownMinutes(loadWorkflowSettings(ctx.cwd)))) ?? ""));
+          if (Number.isInteger(count) && count >= 0 && count <= 240) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.compactionCooldownMinutes = count; }); ctx.ui.notify(`Compaction cooldown set to ${count} minute(s) in ${r.file}. This is the minimum wait between proactive compaction attempts, not a delay before compaction starts.`, "info"); }
+          else ctx.ui.notify("Cooldown must be an integer from 0 to 240 minutes.", "error");
+        }
       } else if (choice === "Custom Reserve Tokens") {
-        const raw = String((await ctx.ui.input("Custom compaction reserve tokens (4096-65536, default, or reset)", String(customCompactionReserveTokens(loadWorkflowSettings(ctx.cwd)))) ?? "")).trim().toLowerCase();
-        const count = Number(raw);
-        if (raw === "default" || raw === "reset") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.customCompactionReserveTokens = DEFAULT_PI_COMPACTION_RESERVE_TOKENS; }); ctx.ui.notify(`Custom compaction reserve tokens reset to ${DEFAULT_PI_COMPACTION_RESERVE_TOKENS.toLocaleString()} in ${r.file}`, "info"); }
-        else if (Number.isInteger(count) && count >= 4096 && count <= 65536) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.customCompactionReserveTokens = count; }); ctx.ui.notify(`Custom compaction reserve tokens set to ${count.toLocaleString()} in ${r.file}`, "info"); }
-        else ctx.ui.notify("Reserve tokens must be an integer from 4096 to 65536, default, or reset.", "error");
+        const mode = await ctx.ui.select("Custom Reserve Tokens", ["Pi default", "Custom reserve tokens", "Back"]);
+        if (!mode || mode === "Back") continue;
+        if (mode === "Pi default") {
+          const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.customCompactionReserveTokens = DEFAULT_PI_COMPACTION_RESERVE_TOKENS; });
+          ctx.ui.notify(`Custom compaction reserve tokens reset to Pi default (${DEFAULT_PI_COMPACTION_RESERVE_TOKENS.toLocaleString()}) in ${r.file}`, "info");
+        } else {
+          const raw = String((await ctx.ui.input("Custom compaction reserve tokens (4096-65536)", String(customCompactionReserveTokens(loadWorkflowSettings(ctx.cwd)))) ?? "")).trim();
+          const count = Number(raw);
+          if (Number.isInteger(count) && count >= 4096 && count <= 65536) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.customCompactionReserveTokens = count; }); ctx.ui.notify(`Custom compaction reserve tokens set to ${count.toLocaleString()} in ${r.file}`, "info"); }
+          else ctx.ui.notify("Reserve tokens must be an integer from 4096 to 65536.", "error");
+        }
       } else if (choice === "Custom Keep Recent Tokens") {
-        const raw = String((await ctx.ui.input("Custom compaction keep-recent tokens (1000-200000, default, or reset)", String(customCompactionKeepRecentTokens(loadWorkflowSettings(ctx.cwd)))) ?? "")).trim().toLowerCase();
-        const count = Number(raw);
-        if (raw === "default" || raw === "reset") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.customCompactionKeepRecentTokens = DEFAULT_PI_COMPACTION_KEEP_RECENT_TOKENS; }); ctx.ui.notify(`Custom compaction keep-recent tokens reset to ${DEFAULT_PI_COMPACTION_KEEP_RECENT_TOKENS.toLocaleString()} in ${r.file}`, "info"); }
-        else if (Number.isInteger(count) && count >= 1000 && count <= 200000) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.customCompactionKeepRecentTokens = count; }); ctx.ui.notify(`Custom compaction keep-recent tokens set to ${count.toLocaleString()} in ${r.file}`, "info"); }
-        else ctx.ui.notify("Keep-recent tokens must be an integer from 1000 to 200000, default, or reset.", "error");
+        const mode = await ctx.ui.select("Custom Keep Recent Tokens", ["Pi default", "Custom keep-recent tokens", "Back"]);
+        if (!mode || mode === "Back") continue;
+        if (mode === "Pi default") {
+          const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.customCompactionKeepRecentTokens = DEFAULT_PI_COMPACTION_KEEP_RECENT_TOKENS; });
+          ctx.ui.notify(`Custom compaction keep-recent tokens reset to Pi default (${DEFAULT_PI_COMPACTION_KEEP_RECENT_TOKENS.toLocaleString()}) in ${r.file}`, "info");
+        } else {
+          const raw = String((await ctx.ui.input("Custom compaction keep-recent tokens (1000-200000)", String(customCompactionKeepRecentTokens(loadWorkflowSettings(ctx.cwd)))) ?? "")).trim();
+          const count = Number(raw);
+          if (Number.isInteger(count) && count >= 1000 && count <= 200000) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.context.customCompactionKeepRecentTokens = count; }); ctx.ui.notify(`Custom compaction keep-recent tokens set to ${count.toLocaleString()} in ${r.file}`, "info"); }
+          else ctx.ui.notify("Keep-recent tokens must be an integer from 1000 to 200000.", "error");
+        }
       } else if (choice === "List Current Settings") {
         const s = loadWorkflowSettings(ctx.cwd);
-        show(pi, `# Shared Compaction\n\nCompaction Mode: ${s.context.compactionMode ?? "pi_default"}\nCustom Compaction: ${s.context.customCompactionEnabled ? "enabled" : "disabled"}\nProvider: ${s.context.compactionModelProvider ?? "none"}\nModel: ${s.context.compactionModel ?? "none"}\nWorkflow Auto Trigger: ${s.context.autoCompactionEnabled === true ? "enabled" : "disabled; Pi default applies"}\nWorkflow Trigger Percent Override: ${compactionTriggerOverrideLabel(s)}\nEffective Workflow Trigger Percent: ${compactionTriggerPercent(s)}%\nCooldown: ${s.context.compactionCooldownMinutes ?? 0} min\nReserve Tokens: ${s.context.customCompactionReserveTokens?.toLocaleString() ?? "default"}\nKeep Recent Tokens: ${s.context.customCompactionKeepRecentTokens?.toLocaleString() ?? "default"}`);
+        show(pi, `# Shared Compaction\n\nProvider: ${s.context.compactionModelProvider || "Pi default"}\nModel: ${s.context.compactionModel || "Pi default"}\nWorkflow Auto Trigger: ${workflowAutoTriggerLabel(s)}\nTrigger: ${formatSharedCompactionTrigger(s, ctx)}\nCooldown: ${compactionCooldownLabel(s)}\nReserve Tokens: ${compactionReserveTokensLabel(s)}\nKeep Recent Tokens: ${compactionKeepRecentTokensLabel(s)}`);
       }
     }
   }
@@ -15868,10 +16001,9 @@ Pi Version: v${VERSION}
 
   function workflowAutoCompactionDecision(ctx: ExtensionContext, options: { allowPendingMessages?: boolean } = {}): { ok: true; percent: number; trigger: number; cooldownMinutes: number } | { ok: false; reason: string } {
     const settings = loadWorkflowSettings(ctx.cwd);
-    const customModelTrigger = customModelCompactionConfigured(settings);
     if (!workflowProactiveCompactionEffective(settings)) return { ok: false, reason: "workflow proactive compaction disabled" };
     if (settings.context.compactionMode === "disabled") return { ok: false, reason: "workflow compaction mode disabled" };
-    if (!customModelTrigger && !workflowAutoCompactionModeEligible(state.mode)) return { ok: false, reason: `workflow mode ${state.mode} is active` };
+    if (!workflowAutoCompactionModeEligible(state.mode)) return { ok: false, reason: `workflow mode ${state.mode} is active` };
     if (!options.allowPendingMessages) {
       if (workflowScheduledAgentTurns > 0) return { ok: false, reason: "pending workflow handoff queued" };
       try { if (ctx.hasPendingMessages()) return { ok: false, reason: "pending messages queued" }; } catch { /* pending state unavailable */ }
@@ -15880,6 +16012,7 @@ Pi Version: v${VERSION}
     const percent = Number(usage?.percent);
     if (!Number.isFinite(percent)) return { ok: false, reason: "context usage unavailable" };
     const trigger = effectiveWorkflowCompactionTriggerPercent(settings, ctx, usage ?? {});
+    if (!Number.isFinite(trigger)) return { ok: false, reason: "compaction trigger unavailable" };
     if (percent < trigger) return { ok: false, reason: `context ${percent.toFixed(1)}% below trigger ${trigger}%` };
     const cooldownMinutes = compactionCooldownMinutes(settings);
     const cooldownMs = cooldownMinutes * 60 * 1000;
@@ -15992,19 +16125,11 @@ Pi Version: v${VERSION}
 
   pi.on("session_before_compact", async (event, ctx) => {
     const settings = loadWorkflowSettings(ctx.cwd);
-    if (!settings.context.customCompactionEnabled) return;
-    if (settings.context.compactionMode === "pi_default" || settings.context.compactionMode === "disabled") return;
-    if (settings.context.compactionMode !== "custom_model") {
-      rememberCustomCompactionStatus(`fallback to Pi default: ${compactionModeLabel(settings.context.compactionMode)} uses Pi fallback behavior in current releases`);
-      ctx.ui.notify("Agent-routed custom compaction uses Pi default fallback behavior in current releases.", "warning");
-      return;
-    }
+    if (settings.context.compactionMode === "disabled") return;
 
     const provider = settings.context.compactionModelProvider;
     const modelId = settings.context.compactionModel;
     if (!provider || !modelId) {
-      rememberCustomCompactionStatus("fallback to Pi default: custom compaction model is missing provider/model");
-      ctx.ui.notify("Custom compaction model is missing provider/model; using Pi default compaction.", "warning");
       return;
     }
 
@@ -16715,7 +16840,7 @@ Pi Version: v${VERSION}
     if (action === "scope" || action === "write-target") {
       const effective = loadEffectiveSettings(ctx.cwd);
       const target = getDefaultWriteTarget(ctx.cwd);
-      show(pi, `# Workflow Settings Scope\n\nCurrent Directory: ${ctx.cwd}\nProject Override: ${effective.projectOverridePath ?? "none"}\nWrite Target: ${target.scope}\nWrite Target File: ${target.file}\nGlobal Settings File: ${WORKFLOW_SETTINGS_FILE}\nSettings Priority: project workflow settings > global workflow-settings.json > example config defaults > built-in emergency fallback\nCompaction Effective Source: ${effective.projectOverridePath ? "project override may override global compaction settings" : "global workflow-settings.json"}\nEffective Compaction Model: ${effective.settings.context.compactionMode === "custom_model" ? `${effective.settings.context.compactionModelProvider || "(missing provider)"}/${effective.settings.context.compactionModel || "(missing model)"}` : effective.settings.context.compactionMode}`);
+      show(pi, `# Workflow Settings Scope\n\nCurrent Directory: ${ctx.cwd}\nProject Override: ${effective.projectOverridePath ?? "none"}\nWrite Target: ${target.scope}\nWrite Target File: ${target.file}\nGlobal Settings File: ${WORKFLOW_SETTINGS_FILE}\nSettings Priority: project workflow settings > global workflow-settings.json > example config defaults > built-in emergency fallback\nCompaction Effective Source: ${effective.projectOverridePath ? "project override may override global compaction settings" : "global workflow-settings.json"}\nCompaction Summary Model: ${effective.settings.context.compactionModelProvider && effective.settings.context.compactionModel ? `${effective.settings.context.compactionModelProvider}/${effective.settings.context.compactionModel}` : "Pi default"}`);
       return;
     }
     if (action === "create-project-override") {
@@ -17022,7 +17147,12 @@ Pi Version: v${VERSION}
         return show(pi, updatedMessage(result.scope, result.file, "context.customCompactionEnabled", String(bool)));
       }
       if (subject === "context" && key === "autoCompactionEnabled") {
-        if (bool === undefined) return show(pi, "# Error\n\nUsage: `/workflow-settings set context autoCompactionEnabled <true|false>`");
+        const normalizedValue = String(value ?? "").trim().toLowerCase();
+        if (normalizedValue === "default" || normalizedValue === "reset") {
+          const result = updateSettings(ctx.cwd, scope, (s) => { delete s.context.autoCompactionEnabled; });
+          return show(pi, updatedMessage(result.scope, result.file, "context.autoCompactionEnabled", "Pi default") + `\n\n${compactionTriggerStatus(result.settings)}`);
+        }
+        if (bool === undefined) return show(pi, "# Error\n\nUsage: `/workflow-settings set context autoCompactionEnabled <true|false|default>`");
         const result = updateSettings(ctx.cwd, scope, (s) => { s.context.autoCompactionEnabled = bool; });
         return show(pi, updatedMessage(result.scope, result.file, "context.autoCompactionEnabled", String(bool)) + `\n\n${compactionTriggerStatus(result.settings)}`);
       }
@@ -17036,18 +17166,18 @@ Pi Version: v${VERSION}
         const normalizedValue = String(value ?? "").trim().toLowerCase();
         if (key === "compactionTriggerPercent" && (normalizedValue === "default" || normalizedValue === "reset")) {
           const result = updateSettings(ctx.cwd, scope, (s) => { delete s.context.compactionTriggerPercent; });
-          return show(pi, updatedMessage(result.scope, result.file, "context.compactionTriggerPercent", "removed override; Pi default applies") + `\n\n${compactionTriggerStatus(result.settings)}`);
+          return show(pi, updatedMessage(result.scope, result.file, "context.compactionTriggerPercent", "removed override; Pi native formula applies") + `\n\n${compactionTriggerStatus(result.settings)}`);
         }
-        if ((key === "customCompactionReserveTokens" || key === "customCompactionKeepRecentTokens") && (normalizedValue === "default" || normalizedValue === "reset")) {
-          const fallback = key === "customCompactionReserveTokens" ? DEFAULT_PI_COMPACTION_RESERVE_TOKENS : DEFAULT_PI_COMPACTION_KEEP_RECENT_TOKENS;
+        if ((key === "compactionCooldownMinutes" || key === "customCompactionReserveTokens" || key === "customCompactionKeepRecentTokens") && (normalizedValue === "default" || normalizedValue === "reset")) {
+          const fallback = key === "compactionCooldownMinutes" ? 5 : key === "customCompactionReserveTokens" ? DEFAULT_PI_COMPACTION_RESERVE_TOKENS : DEFAULT_PI_COMPACTION_KEEP_RECENT_TOKENS;
           const result = updateSettings(ctx.cwd, scope, (s) => { (s.context as typeof s.context & Record<string, number>)[key] = fallback; });
-          return show(pi, updatedMessage(result.scope, result.file, `context.${key}`, `default ${fallback}`) + `\n\n${compactionTriggerStatus(result.settings)}`);
+          return show(pi, updatedMessage(result.scope, result.file, `context.${key}`, `Pi default ${fallback}`) + `\n\n${compactionTriggerStatus(result.settings)}`);
         }
         const rawCount = value === undefined ? NaN : Number(value);
         const count = Number.isInteger(rawCount) ? rawCount : undefined;
         const min = key === "compactionTriggerPercent" ? 50 : key === "compactionCooldownMinutes" ? 0 : key === "customCompactionReserveTokens" ? 4096 : 1000;
         const max = key === "compactionTriggerPercent" ? 95 : key === "compactionCooldownMinutes" ? 240 : key === "customCompactionReserveTokens" ? 65536 : 200000;
-        const usage = key === "compactionTriggerPercent" || key === "customCompactionReserveTokens" || key === "customCompactionKeepRecentTokens" ? `<${min}-${max}|default|reset>` : `<${min}-${max}>`;
+        const usage = `<${min}-${max}|default|reset>`;
         if (count === undefined || count < min || count > max) return show(pi, `# Error\n\nUsage: \`/workflow-settings set context ${key} ${usage}\``);
         const result = updateSettings(ctx.cwd, scope, (s) => { (s.context as typeof s.context & Record<string, number>)[key] = count; });
         return show(pi, updatedMessage(result.scope, result.file, `context.${key}`, String(count)) + `\n\n${compactionTriggerStatus(result.settings)}`);

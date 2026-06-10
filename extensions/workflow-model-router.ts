@@ -1434,14 +1434,8 @@ export function workflowSettingsConsistencyDiagnostics(settings: WorkflowSetting
   if (settings.missions.finalValidationEnabled === true && (!settings.models.validator.enabled || !roleIsConfigured(settings.models.validator))) {
     diagnostics.push("mission final validation is enabled but the shared validator model is disabled or unconfigured");
   }
-  if (settings.context.compactionMode === "custom_model" && (!settings.context.compactionModelProvider || !settings.context.compactionModel)) {
-    diagnostics.push("custom compaction model mode is selected but compaction provider/model is incomplete");
-  }
-  if (settings.context.compactionMode === "custom_model" && settings.context.customCompactionEnabled !== true) {
-    diagnostics.push("custom compaction mode is selected but customCompactionEnabled is not set — custom compaction will not activate");
-  }
-  if (settings.context.customCompactionEnabled === true && settings.context.compactionMode !== "custom_model") {
-    diagnostics.push(`customCompactionEnabled=true but compactionMode=${settings.context.compactionMode}`);
+  if ((settings.context.compactionModelProvider || settings.context.compactionModel) && (!settings.context.compactionModelProvider || !settings.context.compactionModel)) {
+    diagnostics.push("custom compaction summary model preference is incomplete");
   }
   if (settings.missions.autoRepairReviewFailures !== false && settings.missions.reviewRetryMode === "off") {
     diagnostics.push("mission review auto-repair is enabled but reviewRetryMode is off — override to safe_only will be applied at runtime; set reviewRetryMode explicitly to avoid confusion");
