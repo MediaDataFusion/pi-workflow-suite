@@ -13,6 +13,7 @@ import { renderHandoffProjectContext, renderWorkflowStatus, renderWorkflowSummar
 import { BASE_EXECUTE_TOOLS, EXECUTE_TOOLS, PLAN_TOOLS, REVIEW_TOOLS, WORKFLOW_DIAGRAM_TOOL, WORKFLOW_PLAN_RESULT_TOOL, WORKFLOW_REVIEW_RESULT_TOOL, WORKFLOW_EXECUTION_RESULT_TOOL, WORKFLOW_VALIDATION_RESULT_TOOL, WORKFLOW_REPAIR_RESULT_TOOL, WORKFLOW_PROGRESS_TOOL, MISSION_PLAN_RESULT_TOOL, MISSION_MILESTONE_RESULT_TOOL, STANDARD_HANDOFF_RESULT_TOOL, isBlockedExecuteCommand, registerToolGuard, standardSafeReadOnlyBash, VALIDATOR_TOOLS } from "./workflow-tool-guard.js";
 import { refreshRuntimeWebTools, registerWorkflowWebTools, runtimeWebResearchGuidance, webSafePlanTools, withRuntimeWebTools } from "./workflow-web-tools.js";
 import { addMissionCheckpoint, applyPlanRuntimeAccounting, applyStandardRuntimeAccounting, clearOldMissionStates, clearOldWorkflowPlans, compact, createMissionState, createStandardRuntimeId, createWorkflowPlanId, emptyState, extractVerdict, isMissionRuntimeActiveStatus, isPlanRuntimeActiveMode, listMissionStates, listWorkflowPlans, loadMissionState, loadState, loadWorkflowPlan, missionActiveRuntimeMs, missionRuntimeCounterState, missionWallClockAgeMs, planActiveRuntimeMs, planRuntimeCounterState, planWallClockAgeMs, saveMissionState, saveState, saveWorkflowPlan, standardActiveRuntimeMs, standardRuntimeCounterState, standardWallClockAgeMs, PLAN_HISTORY_DIR, MISSION_HISTORY_DIR, type ClarificationAnswer, type ClarificationQuestion, type MissionAutonomy, type MissionMilestone, type MissionState, type PlanProgressState, type PlanStepStatus, type PlanValidationStatus, type SavedWorkflowPlan, type StandardTodoItemStatus, type StandardTodoState, type WorkflowState, type WorkflowTypedHandoffType } from "./workflow-state.js";
+import { WORKFLOW_SHORTCUTS, workflowEntryShortcutLabel as workflowRegistryEntryShortcutLabel, workflowPresetCycleShortcutLabel, workflowSettingsShortcutLines, workflowShortcutKey, workflowWidgetShortcutLabel, type WorkflowShortcutActionId } from "./workflow-shortcuts.js";
 import { cleanupOrphanProcesses, clearSubagentResultCache, runWorkflowSubagents, workflowSubagentResultOutput, type WorkflowSubagentResult, type WorkflowSubagentTask } from "./subagent/runner.js";
 import { parseScope, parseBool, parsePlanningDepth, parseClarificationMode, parseStandardTodoTriggerMode, parseStandardClarificationMode, parseStandardModelRole, parseWorkflowAgentScope, parseClarificationTiming, parseSubagentPolicy, parseSubagentPlanningPolicy, parseEditConcurrencyMode, parsePlanningOrchestrationPolicy, parseCompactionMode, parseWorkflowCompactionCheckMode, parseMissionAutonomy, parseValidationRetryMode, parsePositiveInt, updatedMessage, parseClarifyingQuestions, parseShorthandAnswers, formatAnswersForPlanner, planValidationStatusForVerdict } from "./workflow-parsers.js";
 import { classifyValidationFailure, normalizeValidationVerdict, validationReportHasRepairableIssue } from "./workflow-validation-classifier.js";
@@ -2561,13 +2562,13 @@ Themes:
 - /workflow-settings theme brand base minimal|workflow_duo|mission_control|diagnostic_center|data_stream|neural_grid
 
 Workflow entry shortcuts:
-- Ctrl+Shift+S toggles Standard Mode
-- Ctrl+Shift+L enters Plan Mode
-- Ctrl+Shift+M enters Mission Mode
-- In the opposite active mode, Ctrl+Shift+L/M switches directly to that mode
+- ${workflowEntryShortcutLabel("standard").replace(/^Standard:/, "")} toggles Standard Mode
+- ${workflowEntryShortcutLabel("plan").replace(/^Plan:/, "")} enters Plan Mode
+- ${workflowEntryShortcutLabel("mission").replace(/^Mission:/, "")} enters Mission Mode
+- In the opposite active mode, ${workflowEntryShortcutLabel("plan").replace(/^Plan:/, "")}/${workflowEntryShortcutLabel("mission").replace(/^Mission:/, "")} switches directly to that mode
 
 Presets:
-- Ctrl+Shift+U cycles workflow presets from the active Plan/Mission/Standard footer/status line
+- ${workflowPresetCycleShortcutLabel()} cycles workflow presets from the active Plan/Mission/Standard footer/status line
 - /workflow presets opens the preset selector
 - /workflow presets list
 - /workflow presets apply <name>
@@ -3708,11 +3709,7 @@ Startup On Session Start: ${settings.ui.startupVisualOnSessionStart === true ? "
 Custom Brand: ${settings.ui.customBrandEnabled === true ? "enabled" : "disabled"}
 Custom Brand Text: ${sanitizeCustomBrandText(settings.ui.customBrandText) || "(empty)"}
 Custom Brand Base Template: ${customBrandBaseVisualOrDefault(settings)}
-Standard Shortcut: Ctrl+Shift+S toggles Standard Mode
-Plan Shortcut: Ctrl+Shift+L enters Plan Mode
-Mission Shortcut: Ctrl+Shift+M enters Mission Mode
-Widget Shortcuts: Ctrl+Shift+T/B while Plan/Mission/Standard Mode is active
-Preset Cycle Shortcut: Ctrl+Shift+U while Plan/Mission/Standard Mode is active
+${workflowSettingsShortcutLines().join("\n")}
 Footer Line: idle displays Plan/Mission entry hints only; active workflows display compact widget/preset hints and workflow switch hints by default
 Fallback Commands: /workflow widgets status, /workflow presets, /standard, /plan, /mission
 
@@ -5032,15 +5029,10 @@ function planProgressWidget(state: WorkflowState, settings: ReturnType<typeof lo
   return lines;
 }
 
-const STANDARD_MODE_SHORTCUT = "Ctrl+Shift+S";
-const PLAN_MODE_SHORTCUT = "Ctrl+Shift+L";
-const MISSION_MODE_SHORTCUT = "Ctrl+Shift+M";
-
 type WorkflowEntryMode = "standard" | "plan" | "mission";
 
 function workflowEntryShortcutLabel(mode: WorkflowEntryMode): string {
-  if (mode === "standard") return `Standard:${STANDARD_MODE_SHORTCUT}`;
-  return mode === "plan" ? `Plan:${PLAN_MODE_SHORTCUT}` : `Mission:${MISSION_MODE_SHORTCUT}`;
+  return workflowRegistryEntryShortcutLabel(mode);
 }
 
 function workflowFooterShortcutsEnabled(): boolean {
@@ -5053,10 +5045,10 @@ function workflowActiveShortcutSummary(mode: WorkflowEntryMode, state: WorkflowS
   const parts: string[] = [];
   if (shortcuts && ui.showWidgetShortcutHint !== false) {
     const bottomRelevant = mode === "plan" ? planBottomRelevant(state) : mode === "mission" ? missionBottomRelevant(state, activeMissionForUi(state)) : Boolean(state.standardTodo?.items.length);
-    parts.push(bottomRelevant ? "Widgets:Ctrl+Shift+T/B" : "Widget:Ctrl+Shift+T");
+    parts.push(workflowWidgetShortcutLabel(bottomRelevant));
   }
   if (ui.showPresetShortcutHint !== false) {
-    parts.push(`Preset:${activeWorkflowPresetLabel(settings)}${shortcuts ? " Ctrl+Shift+U" : ""}`);
+    parts.push(`Preset:${activeWorkflowPresetLabel(settings)}${shortcuts ? ` ${workflowPresetCycleShortcutLabel()}` : ""}`);
   }
   if (ui.showActiveWorkflowSwitchHint !== false) {
     const switchHints = (["standard", "plan", "mission"] as WorkflowEntryMode[])
@@ -5416,7 +5408,7 @@ function renderWorkflowThemePreview(settings: ReturnType<typeof loadWorkflowSett
 }
 
 function renderWorkflowFooterThemePreview(settings: ReturnType<typeof loadWorkflowSettings>): string {
-  const suffix = ` ${workflowShortcutStatusText(settings, "Widgets:Ctrl+Shift+T/B Preset:simple Mission:Ctrl+Shift+M")}`;
+  const suffix = ` ${workflowShortcutStatusText(settings, `${workflowWidgetShortcutLabel(true)} Preset:simple ${workflowPresetCycleShortcutLabel()} ${workflowEntryShortcutLabel("mission")}`)}`;
   return [
     `${workflowWidgetRgb(settings, "title", "workflow:")}${workflowWidgetRgb(settings, "emphasis", "planning")}${suffix}`,
     `${workflowWidgetRgb(settings, "title", "workflow:")}${workflowWidgetRgb(settings, "progress", "executing")}${suffix}`,
@@ -7179,7 +7171,7 @@ function renderSavedPlan(plan: SavedWorkflowPlan): string {
 }
 
 function missionHelp(): string {
-  return `# Mission Mode Help\n\nMission Mode is a persistent milestone workflow for longer-running work. It runs alongside Plan Mode and does not replace /p.\n\nCommands:\n- /mission enters Mission Mode and waits for a goal\n- /mission help\n- /mission start <goal>\n- /mission <goal>\n- /mission clarify\n- /mission clarify answer 1A 2C\n- /mission clarify skip 1\n- /mission plan\n- /mission review\n- /mission approve\n- /mission run\n- /mission continue\n- /mission next\n- /mission pause\n- /mission resume\n- /mission retry\n- /mission repair\n- /mission revalidate\n- /mission set autonomy manual|approval_gated|supervised_auto|full_auto\n- /mission sync-settings\n- /mission status\n- /mission checkpoints\n- /mission stop\n- /mission list\n- /mission latest\n- /mission cleanup [limit]\n\nShortcuts:\n- Ctrl+Shift+M enters Mission Mode\n- Ctrl+Shift+L switches from Mission Mode to Plan Mode\n\nSafety:\n- Mission plans require approval before /mission run.\n- full_auto never runs unless missions.allowFullAuto=true.\n- Destructive actions, push, deploy, database mutation, and secret edits require explicit approval.\n- Mission run uses executor, validator/final-validator, safety, sub-agent, and repair gates and records stop or block reasons.\n- Validation failures attempt safe repair/revalidation within configured retry limits, then block for approval if limits or safety gates are hit.`;
+  return `# Mission Mode Help\n\nMission Mode is a persistent milestone workflow for longer-running work. It runs alongside Plan Mode and does not replace /p.\n\nCommands:\n- /mission enters Mission Mode and waits for a goal\n- /mission help\n- /mission start <goal>\n- /mission <goal>\n- /mission clarify\n- /mission clarify answer 1A 2C\n- /mission clarify skip 1\n- /mission plan\n- /mission review\n- /mission approve\n- /mission run\n- /mission continue\n- /mission next\n- /mission pause\n- /mission resume\n- /mission retry\n- /mission repair\n- /mission revalidate\n- /mission set autonomy manual|approval_gated|supervised_auto|full_auto\n- /mission sync-settings\n- /mission status\n- /mission checkpoints\n- /mission stop\n- /mission list\n- /mission latest\n- /mission cleanup [limit]\n\nShortcuts:\n- ${workflowEntryShortcutLabel("mission").replace(/^Mission:/, "")} enters Mission Mode\n- ${workflowEntryShortcutLabel("plan").replace(/^Plan:/, "")} switches from Mission Mode to Plan Mode\n\nSafety:\n- Mission plans require approval before /mission run.\n- full_auto never runs unless missions.allowFullAuto=true.\n- Destructive actions, push, deploy, database mutation, and secret edits require explicit approval.\n- Mission run uses executor, validator/final-validator, safety, sub-agent, and repair gates and records stop or block reasons.\n- Validation failures attempt safe repair/revalidation within configured retry limits, then block for approval if limits or safety gates are hit.`;
 }
 
 function promptCandidateFiles(name: string): string[] {
@@ -9803,7 +9795,7 @@ export default function workflowModes(pi: ExtensionAPI): void {
     if (isStandardWorkflowMode(state)) {
       return `# Workflow Widgets\n\nStandard Top Widget: ${widgetVisibilityLabel(settings, "standardTop")}\nStandard To Do Widget: ${widgetVisibilityLabel(settings, "standardBottom")}\nStatus Line: ${widgetVisibilityStatus(state, settings) ?? "none"}\n${common}`;
     }
-    return `# Workflow Widgets\n\nNo active Plan/Mission/Standard widget is currently visible.\nStatus Line: ${widgetVisibilityStatus(state, settings) ?? "none"}\n\nEntry Shortcuts:\n- ${workflowEntryShortcutLabel("standard")}\n- ${workflowEntryShortcutLabel("plan")}\n- ${workflowEntryShortcutLabel("mission")}\n\nActive-mode editor hints use compact text such as: Widgets:Ctrl+Shift+T/B Preset:${activeWorkflowPresetLabel(settings)} Ctrl+Shift+U Standard:Ctrl+Shift+S Mission:Ctrl+Shift+M\nWidget toggles and preset cycling are visible only while Plan/Mission/Standard Mode is active.\n\n${common}`;
+    return `# Workflow Widgets\n\nNo active Plan/Mission/Standard widget is currently visible.\nStatus Line: ${widgetVisibilityStatus(state, settings) ?? "none"}\n\nEntry Shortcuts:\n- ${workflowEntryShortcutLabel("standard")}\n- ${workflowEntryShortcutLabel("plan")}\n- ${workflowEntryShortcutLabel("mission")}\n\nActive-mode editor hints use compact text such as: ${workflowWidgetShortcutLabel(true)} Preset:${activeWorkflowPresetLabel(settings)} ${workflowPresetCycleShortcutLabel()} ${workflowEntryShortcutLabel("standard")} ${workflowEntryShortcutLabel("mission")}\nWidget toggles and preset cycling are visible only while Plan/Mission/Standard Mode is active.\n\n${common}`;
   };
 
   const renderEditorHintsSettings = (ctx: ExtensionContext): string => {
@@ -15729,11 +15721,11 @@ ${renderMissionStatus(activeMission ?? paused)}`);
   }
 
   function presetUsage(): string {
-    return "# Workflow Presets\n\nQuick use:\n- /workflow presets opens the selector\n- Ctrl+Shift+U cycles saved presets from the footer only while Plan/Mission/Standard Mode is active\n- /workflow presets list\n- /workflow presets apply <name>\n- /workflow presets next\n- /workflow presets prev\n- /workflow presets save <name>\n- /workflow presets create <name> from simple|standard|deep|maximum\n- /workflow presets edit <name>\n- /workflow presets rename <old> to <new>\n- /workflow presets delete <name>";
+    return `# Workflow Presets\n\nQuick use:\n- /workflow presets opens the selector\n- ${workflowPresetCycleShortcutLabel()} cycles saved presets from the footer only while Plan/Mission/Standard Mode is active\n- /workflow presets list\n- /workflow presets apply <name>\n- /workflow presets next\n- /workflow presets prev\n- /workflow presets save <name>\n- /workflow presets create <name> from simple|standard|deep|maximum\n- /workflow presets edit <name>\n- /workflow presets rename <old> to <new>\n- /workflow presets delete <name>`;
   }
 
   function presetActionMessage(title: string, name: string, resultFile?: string, scope?: string): string {
-    return `# ${title}\n\nPreset: ${name}\n${scope ? `Scope: ${scope}\n` : ""}${resultFile ? `File: ${resultFile}\n` : ""}\nScope note: presets apply across Standard Mode, Plan Mode, Mission Mode, shared sub-agents, and selected UI settings.\nUse selector: /workflow presets\nCycle saved presets: Ctrl+Shift+U while Plan/Mission/Standard Mode is active\nFooter: idle displays Plan/Mission entry shortcuts only; active workflows display compact widget/preset hints and workflow switch hints by default.\n\nModel/provider choices and shared compaction settings are preserved.`;
+    return `# ${title}\n\nPreset: ${name}\n${scope ? `Scope: ${scope}\n` : ""}${resultFile ? `File: ${resultFile}\n` : ""}\nScope note: presets apply across Standard Mode, Plan Mode, Mission Mode, shared sub-agents, and selected UI settings.\nUse selector: /workflow presets\nCycle saved presets: ${workflowPresetCycleShortcutLabel()} while Plan/Mission/Standard Mode is active\nFooter: idle displays Plan/Mission entry shortcuts only; active workflows display compact widget/preset hints and workflow switch hints by default.\n\nModel/provider choices and shared compaction settings are preserved.`;
   }
 
   function parsePresetCreate(rest: string): { name: string; template?: string } {
@@ -15761,7 +15753,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     const { names, options } = presetDisplayOptions(settings);
     if (!ctx.hasUI) return show(pi, renderWorkflowPresets(settings));
     if (names.length === 0) return show(pi, "# Workflow Presets\n\nNo presets available.");
-    const choice = await ctx.ui.select(`Workflow Presets — active: ${activeWorkflowPresetLabel(settings)} — Ctrl+Shift+U cycles during Plan/Mission`, options);
+    const choice = await ctx.ui.select(`Workflow Presets — active: ${activeWorkflowPresetLabel(settings)} — ${workflowPresetCycleShortcutLabel()} cycles during Plan/Mission`, options);
     if (!choice) return;
     const selected = names[options.indexOf(choice)];
     if (!selected) return;
@@ -15890,7 +15882,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         const r = createWorkflowPreset(ctx.cwd, undefined, parsed.name, parsed.template);
         setWorkflowUi(ctx, state, activeSubagents);
         const safe = normalizeWorkflowPresetName(parsed.name);
-        return show(pi, `# Workflow Preset Created\n\nPreset: ${parsed.name}\nSaved As: ${safe}\n${parsed.template ? `Template: ${parsed.template}\n` : ""}Scope: ${r.scope}\nFile: ${r.file}\n\nThe preset was saved but not applied.\nScope note: presets apply across Standard Mode, Plan Mode, Mission Mode, shared sub-agents, and selected UI settings.\nApply now: /workflow presets apply ${safe}\nOpen selector: /workflow presets\nCycle saved presets: Ctrl+Shift+U while Plan/Mission/Standard Mode is active`);
+        return show(pi, `# Workflow Preset Created\n\nPreset: ${parsed.name}\nSaved As: ${safe}\n${parsed.template ? `Template: ${parsed.template}\n` : ""}Scope: ${r.scope}\nFile: ${r.file}\n\nThe preset was saved but not applied.\nScope note: presets apply across Standard Mode, Plan Mode, Mission Mode, shared sub-agents, and selected UI settings.\nApply now: /workflow presets apply ${safe}\nOpen selector: /workflow presets\nCycle saved presets: ${workflowPresetCycleShortcutLabel()} while Plan/Mission/Standard Mode is active`);
       }
       if (action === "configure" || action === "edit") {
         if (!rest) return show(pi, "# Workflow Presets\n\nUsage: /workflow presets edit <name>");
@@ -16791,48 +16783,55 @@ Pi Version: v${VERSION}
   pi.registerCommand("m retry", { description: "Retry validation repair flow for current mission.", handler: async (_args, ctx) => handleMissionCommand("retry", ctx) });
   pi.registerCommand("m revalidate", { description: "Revalidate current mission milestone.", handler: async (_args, ctx) => handleMissionCommand("revalidate", ctx) });
 
+  const workflowShortcutHandlers: Record<WorkflowShortcutActionId, (ctx: ExtensionContext) => Promise<void> | void> = {
+    "workflow.widget.top.toggle": async (ctx) => {
+      if (workflowWidgetUi(loadGlobalSettings()).enableWidgetShortcuts === false) { workflowEditorHintText = workflowEditorHintTextFor(state, loadWorkflowSettings(ctx.cwd), "Top:disabled"); return; }
+      const slot = activeTopWidgetSlot();
+      if (!slot) { workflowEditorHintText = workflowEditorHintTextFor(state, loadWorkflowSettings(ctx.cwd)); return; }
+      toggleWorkflowWidget(ctx, slot);
+      setWorkflowWidgetShortcutStatus(ctx, slot);
+    },
+    "workflow.widget.bottom.toggle": async (ctx) => {
+      if (workflowWidgetUi(loadGlobalSettings()).enableWidgetShortcuts === false) { workflowEditorHintText = workflowEditorHintTextFor(state, loadWorkflowSettings(ctx.cwd), "Bottom:disabled"); return; }
+      if (isPlanWorkflowUiMode(state) && planBottomRelevant(state)) {
+        toggleWorkflowWidget(ctx, "planBottom");
+        return setWorkflowWidgetShortcutStatus(ctx, "planBottom");
+      }
+      if (isMissionWorkflowMode(state) && missionBottomRelevant(state, activeMissionForUi(state))) {
+        toggleWorkflowWidget(ctx, "missionBottom");
+        return setWorkflowWidgetShortcutStatus(ctx, "missionBottom");
+      }
+      if (isStandardWorkflowMode(state)) {
+        toggleWorkflowWidget(ctx, "standardBottom");
+        return setWorkflowWidgetShortcutStatus(ctx, "standardBottom");
+      }
+      workflowEditorHintText = workflowEditorHintTextFor(state, loadWorkflowSettings(ctx.cwd)); return;
+    },
+    "workflow.presets.cycle": async (ctx) => {
+      if (workflowWidgetUi(loadGlobalSettings()).enableWidgetShortcuts === false) { workflowEditorHintText = workflowEditorHintTextFor(state, loadWorkflowSettings(ctx.cwd), "Preset:disabled"); return; }
+      if (!isPlanWorkflowUiMode(state) && !isMissionWorkflowMode(state) && !isStandardWorkflowMode(state)) { workflowEditorHintText = workflowEditorHintTextFor(state, loadWorkflowSettings(ctx.cwd)); return; }
+      await cycleWorkflowPreset(ctx, 1);
+    },
+    "workflow.standard.toggle": async (ctx) => {
+      if (isStandardWorkflowMode(state)) return exitStandardModeToIdle(ctx);
+      await enterStandardMode(ctx);
+    },
+    "workflow.plan.toggle": async (ctx) => {
+      if (isPlanWorkflowUiMode(state)) return exitPlanModeToIdle(ctx);
+      await enterPlanModeAwaitingInput(ctx);
+    },
+    "workflow.mission.toggle": async (ctx) => {
+      if (isMissionWorkflowMode(state)) return exitMissionModeToIdle(ctx);
+      await enterMissionModeAwaitingInput(ctx);
+    },
+  };
 
-
-  pi.registerShortcut("ctrl+shift+t", { description: "Toggle active Plan/Mission/Standard top workflow widget", handler: async (ctx) => {
-    if (workflowWidgetUi(loadGlobalSettings()).enableWidgetShortcuts === false) { workflowEditorHintText = workflowEditorHintTextFor(state, loadWorkflowSettings(ctx.cwd), "Top:disabled"); return; }
-    const slot = activeTopWidgetSlot();
-    if (!slot) { workflowEditorHintText = workflowEditorHintTextFor(state, loadWorkflowSettings(ctx.cwd)); return; }
-    toggleWorkflowWidget(ctx, slot);
-    setWorkflowWidgetShortcutStatus(ctx, slot);
-  }});
-  pi.registerShortcut("ctrl+shift+b", { description: "Toggle active Plan/Mission/Standard bottom workflow widget", handler: async (ctx) => {
-    if (workflowWidgetUi(loadGlobalSettings()).enableWidgetShortcuts === false) { workflowEditorHintText = workflowEditorHintTextFor(state, loadWorkflowSettings(ctx.cwd), "Bottom:disabled"); return; }
-    if (isPlanWorkflowUiMode(state) && planBottomRelevant(state)) {
-      toggleWorkflowWidget(ctx, "planBottom");
-      return setWorkflowWidgetShortcutStatus(ctx, "planBottom");
-    }
-    if (isMissionWorkflowMode(state) && missionBottomRelevant(state, activeMissionForUi(state))) {
-      toggleWorkflowWidget(ctx, "missionBottom");
-      return setWorkflowWidgetShortcutStatus(ctx, "missionBottom");
-    }
-    if (isStandardWorkflowMode(state)) {
-      toggleWorkflowWidget(ctx, "standardBottom");
-      return setWorkflowWidgetShortcutStatus(ctx, "standardBottom");
-    }
-    workflowEditorHintText = workflowEditorHintTextFor(state, loadWorkflowSettings(ctx.cwd)); return;
-  }});
-  pi.registerShortcut("ctrl+shift+u", { description: "Cycle workflow presets during Plan/Mission/Standard Mode", handler: async (ctx) => {
-    if (workflowWidgetUi(loadGlobalSettings()).enableWidgetShortcuts === false) { workflowEditorHintText = workflowEditorHintTextFor(state, loadWorkflowSettings(ctx.cwd), "Preset:disabled"); return; }
-    if (!isPlanWorkflowUiMode(state) && !isMissionWorkflowMode(state) && !isStandardWorkflowMode(state)) { workflowEditorHintText = workflowEditorHintTextFor(state, loadWorkflowSettings(ctx.cwd)); return; }
-    await cycleWorkflowPreset(ctx, 1);
-  }});
-  pi.registerShortcut("ctrl+shift+s", { description: "Toggle Standard Mode", handler: async (ctx) => {
-    if (isStandardWorkflowMode(state)) return exitStandardModeToIdle(ctx);
-    await enterStandardMode(ctx);
-  }});
-  pi.registerShortcut("ctrl+shift+l", { description: "Enter Plan Mode", handler: async (ctx) => {
-    if (isPlanWorkflowUiMode(state)) return exitPlanModeToIdle(ctx);
-    await enterPlanModeAwaitingInput(ctx);
-  }});
-  pi.registerShortcut("ctrl+shift+m", { description: "Toggle Mission Mode", handler: async (ctx) => {
-    if (isMissionWorkflowMode(state)) return exitMissionModeToIdle(ctx);
-    await enterMissionModeAwaitingInput(ctx);
-  }});
+  for (const shortcut of WORKFLOW_SHORTCUTS) {
+    pi.registerShortcut(workflowShortcutKey(shortcut.id), {
+      description: shortcut.description,
+      handler: workflowShortcutHandlers[shortcut.id],
+    });
+  }
 
   const handleWorkflowPlansCommand = async (args: string, _ctx: ExtensionContext): Promise<void> => {
     const parts = args.trim().split(/\s+/).filter(Boolean);

@@ -2,6 +2,17 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.20] - 2026-06-12
+
+### Improved
+
+- Added platform-aware Workflow Suite shortcuts so macOS keeps the existing `Ctrl+Shift` shortcuts while Windows and Linux use function-key shortcuts for Standard, Plan, Mission, widget, and preset controls.
+- Updated inline shortcut hints, widget documentation, and package README output so Windows and Linux users see shortcuts that match the active platform profile.
+
+### Hardened
+
+- Added regression coverage that keeps shortcut registration, inline hints, README examples, and fallback commands aligned with the centralized shortcut registry.
+
 ## [0.0.19] - 2026-06-10
 
 ### Improved

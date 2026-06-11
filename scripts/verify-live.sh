@@ -68,6 +68,7 @@ warn_unexpected_loadable_extensions() {
 extensions/subagent/index.ts
 extensions/workflow-model-router.ts
 extensions/workflow-modes.ts
+extensions/workflow-shortcuts.ts
 extensions/workflow-parsers.ts
 extensions/workflow-settings-capabilities.ts
 extensions/workflow-state.ts
@@ -96,6 +97,7 @@ require_file "extensions/workflow-state.ts"
 require_file "extensions/workflow-summary.ts"
 require_file "extensions/workflow-tool-guard.ts"
 require_file "extensions/workflow-model-router.ts"
+require_file "extensions/workflow-shortcuts.ts"
 require_file "extensions/subagent/index.ts"
 require_file "extensions/subagent/agents.ts"
 require_file "package.json"

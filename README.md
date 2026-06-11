@@ -11,7 +11,7 @@
   <a href="#settings-reference"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.3/docs/assets/readme-link-settings.svg" alt="Settings" /></a>
 </p>
 
-**Workflow Suite Version:** `v0.0.19`
+**Workflow Suite Version:** `v0.0.20`
 
 ## Overview
 
@@ -134,7 +134,7 @@ Pi Workflow Suite turns Pi into a guided workflow environment:
 | Token Budgets | Optional per-mode token and runtime caps (`maxTokens`, `maxRuntimeHours`) for Plan, Mission, and Standard Mode. Off by default (unlimited). When enabled, Workflow Suite tracks cumulative usage and blocks further agent turns when the budget is exceeded. |
 | Workflow Roles | Planner, Executor, Reviewer, Validator, Mission, and compaction responsibilities are separated by phase so each job has clear boundaries and can be matched to the right model. |
 | Model Selection | Configure which provider/model and thinking level powers each workflow role, with shared defaults plus Standard-specific and Mission-specific overrides for simpler or higher-rigor setups. |
-| Presets | Built-in and custom workflow profiles with selector commands and Ctrl+Shift+U cycling while active modes are running. |
+| Presets | Built-in and custom workflow profiles with selector commands and platform-aware cycling shortcuts while active modes are running: macOS `Ctrl+Shift+U`, Windows/Linux `F4`. |
 | Settings | Interactive grouped settings UI plus direct commands for Standard, Plan, Mission, model selection, sub-agents, widgets, compaction, themes, and safety. |
 | Sub-agents And Skills | Bundled workflow agents and skills for discovery, planning, safe execution, validation, git-safe summaries, and project-rule audits, with clear capability boundaries. |
 | Widgets And Status | Mode-aware top/bottom widgets, editor hints, shortcut controls, progress display, runtime summaries, and current-setting visibility. |
@@ -143,9 +143,9 @@ Pi Workflow Suite turns Pi into a guided workflow environment:
 ## Feature Overview
 
 - Idle Mode as the default management state when no Standard, Plan, or Mission workflow is active.
-- Standard Mode through `/standard` and `Ctrl+Shift+S` for direct active work with optional dynamic To Do tracking.
-- Plan Mode through `/p` and `/plan` for approval-gated planned execution.
-- Mission Mode through `/mission`, `/m`, and `Ctrl+Shift+M` for durable milestone workflows.
+- Standard Mode through `/standard` and the platform shortcut: macOS `Ctrl+Shift+S`, Windows/Linux `F6`.
+- Plan Mode through `/p`, `/plan`, and the platform shortcut: macOS `Ctrl+Shift+L`, Windows/Linux `F7`.
+- Mission Mode through `/mission`, `/m`, and the platform shortcut: macOS `Ctrl+Shift+M`, Windows/Linux `F8`.
 - Configurable clarification in Standard Mode, plus dynamic clarification in Plan Mode and Mission Mode.
 - Review, execution, validation, repair, retry, checkpoint, and final-validation controls where the selected mode supports them.
 - Plan history, mission checkpoint history, Standard runtime tracking, and Mission runtime tracking.
@@ -225,7 +225,7 @@ Configurable clarification:
 
 Core behavior:
 
-- `/standard` or `Ctrl+Shift+S` enters Standard Mode.
+- `/standard` enters Standard Mode. The platform shortcut is macOS `Ctrl+Shift+S`, Windows/Linux `F6`.
 - `/standard <task>` enters Standard Mode and starts that task.
 - `/standard status` shows active Standard settings, latest auto-check decisions, and To Do progress.
 - `/standard todo` shows dynamic To Do tracking.
@@ -609,7 +609,8 @@ Quick access:
 
 ```text
 /workflow presets              # open preset selector
-Ctrl+Shift+U                   # cycle presets while Standard/Plan/Mission Mode is active
+macOS: Ctrl+Shift+U            # cycle presets while Standard/Plan/Mission Mode is active
+Windows/Linux: F4              # cycle presets while Standard/Plan/Mission Mode is active
 /workflow presets list
 /workflow presets apply <name>
 /workflow presets next
@@ -621,7 +622,9 @@ Ctrl+Shift+U                   # cycle presets while Standard/Plan/Mission Mode 
 /workflow presets delete <name>
 ```
 
-The inline editor hints stay mode-specific and avoid idle clutter. By default, active workflows display compact, human-readable shortcuts and the other workflow mode:
+The inline editor hints stay mode-specific and avoid idle clutter. By default, active workflows display compact, human-readable shortcuts for the active platform.
+
+macOS examples:
 
 ```text
 Idle:     Standard:Ctrl+Shift+S Plan:Ctrl+Shift+L Mission:Ctrl+Shift+M
@@ -630,7 +633,16 @@ Standard: Widgets:Ctrl+Shift+T/B Preset:deep Ctrl+Shift+U Plan:Ctrl+Shift+L Miss
 Mission:  Widgets:Ctrl+Shift+T/B Preset:deep Ctrl+Shift+U Standard:Ctrl+Shift+S Plan:Ctrl+Shift+L
 ```
 
-Cross-switching is enabled by default (`Ctrl+Shift+S` toggles Standard Mode, `Ctrl+Shift+M` from Plan Mode enters Mission Mode, and `Ctrl+Shift+L` from Mission Mode enters Plan Mode).
+Windows and Linux examples:
+
+```text
+Idle:     Standard:F6 Plan:F7 Mission:F8
+Plan:     Widgets:F2/F3 Preset:deep F4 Standard:F6 Mission:F8
+Standard: Widgets:F2/F3 Preset:deep F4 Plan:F7 Mission:F8
+Mission:  Widgets:F2/F3 Preset:deep F4 Standard:F6 Plan:F7
+```
+
+Cross-switching is enabled by default. On macOS, `Ctrl+Shift+S` toggles Standard Mode, `Ctrl+Shift+M` from Plan Mode enters Mission Mode, and `Ctrl+Shift+L` from Mission Mode enters Plan Mode. On Windows and Linux, the matching shortcuts are `F6`, `F8`, and `F7`.
 
 Human-friendly names are normalized for command use. For example, creating `Joe simple preset` saves it as `joe-simple-preset`, then lists the exact command to apply it. Custom presets can include Standard Mode To Do/clarification settings as well as shared Plan, Mission, sub-agent, workflow, and UI settings.
 
@@ -661,13 +673,18 @@ Depending on the active mode and settings, widgets can show:
 - active preset and shortcut hints,
 - sub-agent activity when worker orchestration is active.
 
-Widget shortcuts:
+Workflow shortcuts are platform-aware. The macOS shortcuts preserve the original Workflow Suite behavior. Windows and Linux use function-key shortcuts because common terminal hosts may not reliably deliver `Ctrl+Shift+letter` chords to Pi.
 
-```text
-Ctrl+Shift+T  toggle the active workflow top widget
-Ctrl+Shift+B  toggle the active workflow bottom widget
-Ctrl+Shift+U  cycle workflow presets while Standard, Plan, or Mission Mode is active
-```
+| Action | macOS | Windows | Linux / WSL | Fallback command |
+|---|---:|---:|---:|---|
+| Toggle Standard Mode | `Ctrl+Shift+S` | `F6` | `F6` | `/standard` |
+| Enter Plan Mode | `Ctrl+Shift+L` | `F7` | `F7` | `/plan` |
+| Toggle Mission Mode | `Ctrl+Shift+M` | `F8` | `F8` | `/mission` |
+| Toggle active workflow top widget | `Ctrl+Shift+T` | `F2` | `F2` | `/workflow widgets toggle top` |
+| Toggle active workflow bottom widget | `Ctrl+Shift+B` | `F3` | `F3` | `/workflow widgets toggle bottom` |
+| Cycle workflow presets while Standard, Plan, or Mission Mode is active | `Ctrl+Shift+U` | `F4` | `F4` | `/workflow presets next` |
+
+The inline editor hints use the active platform profile. A Windows or Linux user should not see macOS-only `Ctrl+Shift+letter` hints for Workflow Suite actions.
 
 Widget commands:
 
@@ -1049,8 +1066,8 @@ pi install -l npm:@mediadatafusion/pi-workflow-suite
 ### Installing specific versions
 
 ```bash
-pi install npm:@mediadatafusion/pi-workflow-suite@0.0.19
-pi install -l npm:@mediadatafusion/pi-workflow-suite@0.0.19
+pi install npm:@mediadatafusion/pi-workflow-suite@0.0.20
+pi install -l npm:@mediadatafusion/pi-workflow-suite@0.0.20
 ```
 
 An unversioned install follows normal update behavior: `pi update` and `pi update --extensions` will pick up new package releases. A versioned install pins the package to that version. Pinned package specs are intentionally skipped by Pi's normal package update commands. To move a pinned install to a newer version, reinstall with the desired version. To switch back to latest tracking, use the unversioned install command without `@<version>`.
@@ -1256,10 +1273,10 @@ See `docs/TROUBLESHOOTING.md` for detailed diagnostics.
 
 ## Versioning
 
-The current preparation version is `v0.0.19`. Version information is intentionally aligned across:
+The current preparation version is `v0.0.20`. Version information is intentionally aligned across:
 
-- `VERSION` (`v0.0.19`),
-- `package.json` (`0.0.19`),
+- `VERSION` (`v0.0.20`),
+- `package.json` (`0.0.20`),
 - `package-lock.json`,
 - this README,
 - Workflow Suite settings/about output.

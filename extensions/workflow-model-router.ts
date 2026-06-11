@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { workflowPresetCycleShortcutLabel } from "./workflow-shortcuts.js";
 
 export type WorkflowRole = "planner" | "executor" | "validator" | "reviewer";
 export type MissionModelRole = WorkflowRole;
@@ -1224,7 +1225,7 @@ export function renderWorkflowPresets(settings: WorkflowSettings = loadGlobalSet
   const active = settings.presets?.activePreset ?? WORKFLOW_CUSTOM_PRESET_MARKER;
   const names = workflowPresetNames(settings);
   const cards = [renderWorkflowPresetCard(WORKFLOW_CUSTOM_PRESET_MARKER, undefined, active === WORKFLOW_CUSTOM_PRESET_MARKER), ...names.map((name) => renderWorkflowPresetCard(name, catalog[name], name === active))];
-  return `# Workflow Presets\n\nActive Preset: ${activeWorkflowPresetLabel(settings)}\nShortcut: Ctrl+Shift+U cycles saved presets while Plan/Mission/Standard Mode is active\nSelector: /workflow presets\n\n${cards.join("\n\n") || "No presets available."}\n\nQuick commands:\n- /workflow presets list\n- /workflow presets apply <name>\n- /workflow presets next\n- /workflow presets prev\n- /workflow presets save <name>\n- /workflow presets create <name> from simple|standard|deep|maximum\n- /workflow presets edit <name>\n- /workflow presets rename <old> to <new>\n- /workflow presets delete <name>\n\nBuilt-in presets are package-defined and sync with the extension. User-named custom presets are saved entries in workflow-settings.json and stay in hotkey cycling. The reserved custom marker only means no built-in or user-named preset is active. Extension updates preserve workflow-settings.json and do not overwrite custom presets. Presets adjust workflow behavior only and preserve model/provider choices, API keys, auth/session files, runtime workflow state, and shared compaction settings.`;
+  return `# Workflow Presets\n\nActive Preset: ${activeWorkflowPresetLabel(settings)}\nShortcut: ${workflowPresetCycleShortcutLabel()} cycles saved presets while Plan/Mission/Standard Mode is active\nSelector: /workflow presets\n\n${cards.join("\n\n") || "No presets available."}\n\nQuick commands:\n- /workflow presets list\n- /workflow presets apply <name>\n- /workflow presets next\n- /workflow presets prev\n- /workflow presets save <name>\n- /workflow presets create <name> from simple|standard|deep|maximum\n- /workflow presets edit <name>\n- /workflow presets rename <old> to <new>\n- /workflow presets delete <name>\n\nBuilt-in presets are package-defined and sync with the extension. User-named custom presets are saved entries in workflow-settings.json and stay in hotkey cycling. The reserved custom marker only means no built-in or user-named preset is active. Extension updates preserve workflow-settings.json and do not overwrite custom presets. Presets adjust workflow behavior only and preserve model/provider choices, API keys, auth/session files, runtime workflow state, and shared compaction settings.`;
 }
 
 export function applyWorkflowPreset(cwd: string, requestedScope: WorkflowSettingsScope | undefined, name: string): SettingsWriteResult {
