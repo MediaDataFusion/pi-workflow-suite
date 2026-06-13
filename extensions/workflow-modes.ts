@@ -17,7 +17,7 @@ import { WORKFLOW_SHORTCUTS, workflowEntryShortcutLabel as workflowRegistryEntry
 import { cleanupOrphanProcesses, clearSubagentResultCache, runWorkflowSubagents, workflowSubagentResultOutput, type WorkflowSubagentResult, type WorkflowSubagentTask } from "./subagent/runner.js";
 import { parseScope, parseBool, parsePlanningDepth, parseClarificationMode, parseStandardTodoTriggerMode, parseStandardClarificationMode, parseStandardModelRole, parseWorkflowAgentScope, parseClarificationTiming, parseSubagentPolicy, parseSubagentPlanningPolicy, parseEditConcurrencyMode, parsePlanningOrchestrationPolicy, parseCompactionMode, parseWorkflowCompactionCheckMode, parseMissionAutonomy, parseValidationRetryMode, parsePositiveInt, updatedMessage, parseClarifyingQuestions, parseShorthandAnswers, formatAnswersForPlanner, planValidationStatusForVerdict } from "./workflow-parsers.js";
 import { classifyValidationFailure, normalizeValidationVerdict, validationReportHasRepairableIssue } from "./workflow-validation-classifier.js";
-import { type SubagentPhase, type SubagentPolicyValue, subagentPhaseSettingKeys, phasePolicy, phaseAutoUseAllowed, phaseParallelAllowed, workerCount, workerTargetForPolicy, activeWorkerTargetLabel, planningSubagentsAllowed, executionSubagentsAllowed, reviewSubagentsAllowed, validationSubagentsAllowed, repairPolicySource, forcedSubagentUnavailableReason, forcedSubagentMessage, fileWriteModeLabel, hasRequiredSubagentPreflight, requiredSubagentPreflightSection, forcedSubagentPolicySatisfiedGuidance, subagentSuitableForForcedPhase, subagentToolProfileLabel, subagentToolsAllowMutation } from "./workflow-subagent-policy.js";
+import { type SubagentPhase, type SubagentPolicyValue, type SubagentPolicyDecision, subagentPhaseSettingKeys, phasePolicy, phaseAutoUseAllowed, phaseParallelAllowed, workerCount, workerTargetForPolicy, activeWorkerTargetLabel, planningSubagentsAllowed, executionSubagentsAllowed, reviewSubagentsAllowed, validationSubagentsAllowed, repairPolicySource, forcedSubagentUnavailableReason, forcedSubagentMessage, fileWriteModeLabel, hasRequiredSubagentPreflight, requiredSubagentPreflightSection, forcedSubagentPolicySatisfiedGuidance, subagentSuitableForForcedPhase, subagentToolProfileLabel, subagentToolsAllowMutation, subagentPolicyRequiresRequiredEvidence, subagentPolicyNeedsInternalDecision, formatSubagentPolicyDecision, forcedSubagentActionDecision, advisorySubagentPolicyDecision } from "./workflow-subagent-policy.js";
 import { renderWorkflowSettingsCapabilityMatrix, workflowSettingsCapabilitiesByStatus } from "./workflow-settings-capabilities.js";
 import { Box, Markdown, Spacer, Text, hyperlink, type Component } from "@earendil-works/pi-tui";
 
@@ -908,6 +908,17 @@ type WorkflowQueuedTurnOptions = {
   onFinalFailure?: (failure: WorkflowQueuedTurnFailure) => void;
 };
 
+class WorkflowToolSurfaceAbort extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WorkflowToolSurfaceAbort";
+  }
+}
+
+function workflowToolSurfaceAbort(error: unknown): boolean {
+  return error instanceof WorkflowToolSurfaceAbort;
+}
+
 const WORKFLOW_IDLE_RETRY_DELAYS_MS = [50, 100, 250, 500, 1000, 1500, 2000, 3000, 5000] as const;
 
 function queueGuardedAgentTurn(pi: ExtensionAPI, content: string, customType: string, attempt = 0, connectionAttempt = 0, idleAttempt = 0, options: WorkflowQueuedTurnOptions = {}): void {
@@ -929,6 +940,11 @@ function queueGuardedAgentTurn(pi: ExtensionAPI, content: string, customType: st
       pi.sendMessage({ customType, content, display: false }, { triggerTurn: true, deliverAs: "followUp" });
       workflowScheduledAgentTurns = Math.max(0, workflowScheduledAgentTurns - 1);
     } catch (error) {
+      if (workflowToolSurfaceAbort(error)) {
+        workflowScheduledAgentTurns = Math.max(0, workflowScheduledAgentTurns - 1);
+        recordWorkflowInternalEvent(undefined, `Workflow agent turn blocked by tool-surface verification: ${customType}: ${workflowTurnSendErrorMessage(error)}`);
+        return;
+      }
       if (workflowTurnSendErrorIsBusy(error) && attempt < WORKFLOW_AGENT_TURN_RETRY_DELAYS_MS.length - 1) {
         recordWorkflowInternalEvent(undefined, `Workflow agent turn delayed because Pi is still processing: ${customType}`);
         queueGuardedAgentTurn(pi, content, customType, attempt + 1, connectionAttempt, idleAttempt, options);
@@ -962,6 +978,10 @@ function sendAgentTurnNowOrQueue(pi: ExtensionAPI, content: string, customType: 
     workflowScheduledAgentTurns = Math.max(0, workflowScheduledAgentTurns - 1);
   } catch (error) {
     workflowScheduledAgentTurns = Math.max(0, workflowScheduledAgentTurns - 1);
+    if (workflowToolSurfaceAbort(error)) {
+      recordWorkflowInternalEvent(undefined, `Workflow agent turn immediate send blocked by tool-surface verification: ${customType}: ${workflowTurnSendErrorMessage(error)}`);
+      return;
+    }
     queueAgentTurn(pi, content, customType, options);
     recordWorkflowInternalEvent(undefined, `Workflow agent turn immediate send fell back to queued delivery: ${customType}: ${workflowTurnSendErrorMessage(error)}`);
   }
@@ -992,7 +1012,7 @@ function workflowDeferredPhaseTimeoutMs(ctx: ExtensionContext, phase?: WorkflowP
   try {
     const settings = loadWorkflowSettings(ctx.cwd);
     const policy = phasePolicy(settings, phase);
-    if (policy !== "forced") return 30_000;
+    if (!subagentPolicyRequiresRequiredEvidence(policy)) return 30_000;
     const limits = settings.subagents as typeof settings.subagents & { subagentTimeoutMinutes?: number };
     const timeoutMinutes = Math.max(1, Math.min(240, Number(limits.subagentTimeoutMinutes ?? 20)));
     return timeoutMinutes * 60_000 + 60_000;
@@ -1096,6 +1116,16 @@ function useSubagentsBeforeClarification(settings: ReturnType<typeof loadWorkflo
 
 function executionToolsFor(settings: ReturnType<typeof loadWorkflowSettings>): string[] {
   const tools = withRuntimeWebTools(EXECUTE_TOOLS);
+  return executionSubagentsAllowed(settings) ? Array.from(new Set([...tools, "subagent"])) : tools;
+}
+
+function missionExecutionToolsFor(settings: ReturnType<typeof loadWorkflowSettings>): string[] {
+  const tools = withRuntimeWebTools([...BASE_EXECUTE_TOOLS, MISSION_MILESTONE_RESULT_TOOL]);
+  return executionSubagentsAllowed(settings) ? Array.from(new Set([...tools, "subagent"])) : tools;
+}
+
+function missionRepairToolsFor(settings: ReturnType<typeof loadWorkflowSettings>): string[] {
+  const tools = withRuntimeWebTools([...BASE_EXECUTE_TOOLS, WORKFLOW_REPAIR_RESULT_TOOL]);
   return executionSubagentsAllowed(settings) ? Array.from(new Set([...tools, "subagent"])) : tools;
 }
 
@@ -1778,22 +1808,27 @@ function planPrompt(task: string, priorPlan?: string, feedback?: string, setting
   const subagentsBeforeClarification = useSubagentsBeforeClarification(settings, "plan");
   const planningOrchestrationPolicy = (subagents as typeof subagents & { planningOrchestrationPolicy?: string }).planningOrchestrationPolicy ?? "orchestrator_first";
   const preflightSatisfied = hasRequiredSubagentPreflight(options.preflightBlock);
+  const forcedPlanningEvidenceRequired = subagentPolicyRequiresRequiredEvidence(subagentPolicy) && !preflightSatisfied;
   const orchestratorGuidance = preflightSatisfied
     ? "Planning orchestration required by forced policy has already been handled by Workflow Suite preflight. Do not call workflow-orchestrator again unless there is genuinely new targeted orchestration work beyond the preflight findings."
+    : forcedPlanningEvidenceRequired && planningNeedsOrchestrator(settings, "plan")
+      ? planningOrchestrationPolicy === "forced_orchestrated"
+        ? "ORCHESTRATION REQUIRED: include workflow-orchestrator as one task inside the required forced Planning parallel subagent call. Do not call workflow-orchestrator separately before the worker batch."
+        : "Planning orchestration is available for this turn. If it is useful, include workflow-orchestrator as one task inside the required forced Planning parallel subagent call; do not call workflow-orchestrator separately before the worker batch."
     : planningNeedsOrchestrator(settings, "plan")
       ? "ORCHESTRATION REQUIRED: call workflow-orchestrator before launching parallel planning/research workers or producing the final plan. The orchestrator must scope worker tasks, identify capability gaps, and decide whether live docs/API access is available before workers run."
       : "Orchestrator is optional for this planning turn. Use workflow-orchestrator if the task is broad, multi-pass, or needs coordinated workers.";
   const subagentGuidance = !planningSubagentsAllowed(settings)
     ? "Sub-agent use is disabled by settings. Do not call subagent."
-    : preflightSatisfied && subagentPolicy === "forced"
+    : preflightSatisfied && subagentPolicyRequiresRequiredEvidence(subagentPolicy)
       ? forcedSubagentPolicySatisfiedGuidance("planning")
       : subagentPolicy === "forced"
         ? `FORCED SUB-AGENT POLICY: before producing the final plan, you MUST call the subagent tool with at least ${Math.max(1, subagents.minPlanningWorkersForMaximum ?? 2)} planning/research worker(s). Use read-only agents such as implementation-planning, codebase-research, quality-validation, workflow-orchestrator, or general-worker. If subagent execution fails, stop and report the exact blocker. Do not use or recommend parallel editing.`
         : subagentPolicy === "maximum"
-        ? `For non-trivial codebase work, use multiple read-only sub-agents before finalizing the plan. Strongly target at least ${subagents.minPlanningWorkersForMaximum ?? 2} workers, such as implementation-planning plus codebase-research or quality-validation. Skip only for truly trivial work or unavailable sub-agent execution, and explain the exact reason. Do not use or recommend parallel editing.`
+        ? `For non-trivial codebase work, use multiple read-only sub-agents before finalizing the plan. Strongly target at least ${subagents.minPlanningWorkersForMaximum ?? 2} workers, such as implementation-planning plus codebase-research or quality-validation. Internally decide delegate or skip; skip only for truly trivial work or unavailable sub-agent execution, and give only the concise skip reason in Sub-Agent Usage Summary. Do not print internal policy deliberation. Do not use or recommend parallel editing.`
         : subagentPolicy === "deep"
-          ? `For non-trivial codebase work, use at least ${subagents.minPlanningWorkersForDeep ?? 1} read-only planning sub-agent before finalizing the plan. Prefer implementation-planning or codebase-research for safe read-only plan refinement. Explain any skip. Do not use or recommend parallel editing.`
-          : "Sub-agents are strongly encouraged for speed and quality. Use them for file discovery, project-rule audit, ambiguity reduction, risk checks, or validation planning; skip only for trivial one-file/doc tasks and explain why.";
+          ? `For non-trivial codebase work, use at least ${subagents.minPlanningWorkersForDeep ?? 1} read-only planning sub-agent before finalizing the plan. Prefer implementation-planning or codebase-research for safe read-only plan refinement. Internally decide delegate or skip; give only the concise skip reason in Sub-Agent Usage Summary. Do not print internal policy deliberation. Do not use or recommend parallel editing.`
+          : "Sub-agents are strongly encouraged for speed and quality. Internally decide delegate or skip. Use them for file discovery, project-rule audit, ambiguity reduction, risk checks, or validation planning; skip only for trivial one-file/doc tasks or no useful parallel work, and give only the concise skip reason in Sub-Agent Usage Summary. Do not print internal policy deliberation.";
   const feedbackKind = options.feedbackKind ?? (feedback ? "revision" : undefined);
   const feedbackBlock = feedbackKind === "clarification" && feedback
     ? `Clarification answers from user:\n${feedback}\n\nCLARIFICATION HAS BEEN RESOLVED. Produce the final approval-ready plan now. Do not ask more clarification questions. Do not execute. Do not call tools, inspect files, generate diagrams, or create artifacts after this point. If more facts are needed, list files to inspect in the plan instead of exhaustively investigating them now.\n\n`
@@ -1941,7 +1976,7 @@ Sub-agent planning policy:
 - When useSubagentsBeforeClarification=true and planning depth/policy is deep, maximum, or forced, use read-only codebase-research, implementation-planning, quality-validation, or general-worker before asking clarification if that analysis would make the questions more specific.
 - In Sub-Agent Usage Summary, list each sub-agent used and what it checked; if none ran, give the exact trivial/unavailable reason.
 - If sub-agents are not used when subagents.planningPolicy is auto, deep, or maximum, explain why in Sub-Agent Usage Summary.
-- ${preflightSatisfied && subagentPolicy === "forced" ? "Forced planning policy was satisfied by Workflow Suite preflight; do not rerun required workers solely for policy compliance." : "If subagents.planningPolicy is forced, you must use the required sub-agents before the final plan or stop with: Sub-agent policy is forced, but sub-agent execution is unavailable because <reason>."}`;
+- ${preflightSatisfied && subagentPolicyRequiresRequiredEvidence(subagentPolicy) ? "Forced planning policy was satisfied by Workflow Suite preflight or an internal trivial-work exemption; do not rerun required workers solely for policy compliance." : "If subagents.planningPolicy is forced, you must use the required sub-agents before the final plan unless Workflow Suite supplied an internal trivial-work exemption, or stop with: Sub-agent policy is forced, but sub-agent execution is unavailable because <reason>."}`;
 }
 
 // SubagentPhase and SubagentPolicyValue imported from workflow-subagent-policy.ts
@@ -2019,22 +2054,39 @@ function repairArtifactDispositionOutput(): string {
 List movedFiles, preservedFiles, deletedFiles, rootArtifacts, possiblyUserOwnedFiles, and needsUserApproval. State "none" for empty categories. Set needsUserApproval only for a concrete disposition/action that should block automatic revalidation. Do not set it for advisory-only follow-up, credential rotation recommendations, preserved ambiguous files, manual QA still needed, or pre-existing debt. Deletion is acceptable only when explicitly approved or clearly current-task-generated, unrecoverable, and non-user-owned; otherwise preserve or request approval.`;
 }
 
+function forcedSubagentCallShape(phase: SubagentPhase, required: number): string {
+  const workflowPhase = phase.toLowerCase();
+  const preferred = phase === "Planning"
+    ? ["implementation-planning", "codebase-research", "general-worker", "quality-validation"]
+    : phase === "Execution"
+      ? ["general-worker", "implementation-planning", "codebase-research", "quality-validation"]
+      : phase === "Repair"
+        ? ["general-worker", "implementation-planning", "quality-validation", "codebase-research"]
+        : phase === "Review"
+          ? ["quality-validation", "implementation-planning", "general-worker", "codebase-research"]
+          : ["quality-validation", "general-worker", "codebase-research", "implementation-planning"];
+  const agents = preferred.slice(0, Math.max(1, required));
+  const tasks = agents.map((agent) => `{ agent: "${agent}", task: "<focused ${workflowPhase} support task>" }`).join(", ");
+  return `Use one visible parallel call with this shape: subagent({ workflowPhase: "${workflowPhase}", tasks: [${tasks}] }). Provide at least ${Math.max(1, required)} worker task entr${Math.max(1, required) === 1 ? "y" : "ies"} in that single parallel tasks array. Worker count means task entries, not unique agent names. The agents shown are examples only; choose phase-suitable workers by task fit. Duplicate suitable agent roles are valid when useful, and distinct role names are not required. Do not add irrelevant filler roles. Do not use subagent chain for forced multi-worker evidence; chain is sequential and will be blocked. Every task must be separate, focused, useful, and phase-suitable.`;
+}
+
 function phasePromptPolicyBlock(settings: ReturnType<typeof loadWorkflowSettings>, phase: SubagentPhase, label: string = phase, preflightBlock?: string): string {
   const policy = phasePolicy(settings, phase);
   const workers = workerCount(settings, phase);
+  const required = Math.max(1, workers.maximum);
   const phaseName = phase === "Repair" ? "repair-mode sub-agent workers" : `${phase.toLowerCase()} sub-agent workers`;
   const preflightSatisfied = hasRequiredSubagentPreflight(preflightBlock);
   const guidance = !phaseAutoUseAllowed(settings, phase) || policy === "off"
     ? `${label} sub-agent use is disabled by settings. Do not call subagent.`
-    : preflightSatisfied && policy === "forced"
+    : preflightSatisfied && subagentPolicyRequiresRequiredEvidence(policy)
       ? forcedSubagentPolicySatisfiedGuidance(label)
       : policy === "forced"
-        ? `FORCED SUB-AGENT POLICY: you MUST call the subagent tool with at least ${Math.max(1, workers.maximum)} ${phaseName}, or stop with: Sub-agent policy is forced, but sub-agent execution is unavailable because <reason>. Do not continue this phase or write files until the required workers have reported.`
+        ? `FORCED SUB-AGENT POLICY: you MUST call the subagent tool with at least ${required} ${phaseName}, or stop with: Sub-agent policy is forced, but sub-agent execution is unavailable because <reason>. ${forcedSubagentCallShape(phase, required)} Do not continue this phase or write files until the required workers have reported.`
         : policy === "maximum"
-        ? `Strongly target ${Math.max(1, workers.maximum)} ${phaseName}; skip only when the work is truly trivial or sub-agents are unavailable, and give the exact skip reason.`
+        ? `Strongly target ${Math.max(1, workers.maximum)} ${phaseName}; internally decide delegate or skip, skip only when the work is truly trivial or sub-agents are unavailable, and give only the concise skip reason. Do not print internal policy deliberation.`
         : policy === "deep"
-          ? `Use ${Math.max(1, workers.deep)} ${phaseName} for non-trivial work; give a concrete skip reason if no worker is useful or available.`
-          : `${label} sub-agent use is strongly encouraged; use workers for speed, file inspection, risk discovery, validation prep, or evidence-heavy work and give a concrete skip reason if none run.`;
+          ? `Use ${Math.max(1, workers.deep)} ${phaseName} for non-trivial work; internally decide delegate or skip and give a concrete skip reason if no worker is useful or available. Do not print internal policy deliberation.`
+          : `${label} sub-agent use is strongly encouraged; internally decide delegate or skip, strongly consider up to ${Math.max(1, workers.deep)} worker${Math.max(1, workers.deep) === 1 ? "" : "s"} for non-trivial work, use workers for speed, file inspection, risk discovery, validation prep, or evidence-heavy work, and give a concrete skip reason only when none run. Do not print internal policy deliberation.`;
   return `Sub-agent policy for ${label}:
 - policy: ${policy}
 - workers: ${activeWorkerTargetLabel(policy, workers)}
@@ -2121,15 +2173,15 @@ function executePrompt(state: WorkflowState, settings = loadWorkflowSettings(), 
   const preflightSatisfied = hasRequiredSubagentPreflight(preflightBlock);
   const subagentGuidance = !executionSubagentsAllowed(settings)
     ? "Execution sub-agents are disabled by settings. Do not call subagent."
-    : preflightSatisfied && policy === "forced"
+    : preflightSatisfied && subagentPolicyRequiresRequiredEvidence(policy)
       ? forcedSubagentPolicySatisfiedGuidance("execution")
       : policy === "forced"
-        ? `FORCED SUB-AGENT POLICY: first call workflow_progress({ step: N, status: "active" }) for the current approved Plan step. Then call the subagent tool with at least ${Math.max(1, workers.maximum)} execution/preparation worker(s) before any other executor work, file write, bash command, or final execution summary. Use them in parallel where safe for file inspection, implementation strategy, scoped implementation help, patch planning, regression search, and validation preparation. If subagent execution fails, stop and report the exact blocker. Do not apply simultaneous conflicting edits.`
+        ? `FORCED SUB-AGENT POLICY: first call workflow_progress({ step: N, status: "active" }) for the current approved Plan step. Then call the subagent tool with at least ${Math.max(1, workers.maximum)} execution/preparation worker(s) before any other executor work, file write, bash command, or final execution summary. ${forcedSubagentCallShape("Execution", Math.max(1, workers.maximum))} Use them in parallel where safe for file inspection, implementation strategy, scoped implementation help, patch planning, regression search, and validation preparation. If subagent execution fails, stop and report the exact blocker. Do not apply simultaneous conflicting edits.`
         : policy === "maximum"
-        ? `For non-trivial implementation, use execution sub-agents before editing for analysis, implementation preparation, scoped implementation help, patch planning, regression search, and validation preparation. Strongly target at least ${workers.maximum} execution workers; skip only for trivial work or unavailable sub-agent execution and explain why. Do not apply simultaneous conflicting edits.`
+        ? `For non-trivial implementation, use execution sub-agents before editing for analysis, implementation preparation, scoped implementation help, patch planning, regression search, and validation preparation. Strongly target at least ${workers.maximum} execution workers; internally decide delegate or skip, skip only for trivial work or unavailable sub-agent execution, and give only the concise skip reason. Do not print internal policy deliberation. Do not apply simultaneous conflicting edits.`
         : policy === "deep"
-          ? `For non-trivial implementation, use at least ${workers.deep} execution sub-agent before editing for analysis, implementation preparation, scoped implementation help, patch planning, or validation preparation. Explain any skip. Do not apply simultaneous conflicting edits.`
-          : "Execution sub-agents are strongly encouraged for speed and quality. Use them for file inspection, implementation prep, scoped implementation help, risk discovery, patch planning, or validation prep; skip only for trivial changes and explain why.";
+          ? `For non-trivial implementation, use at least ${workers.deep} execution sub-agent before editing for analysis, implementation preparation, scoped implementation help, patch planning, or validation preparation. Internally decide delegate or skip and give only the concise skip reason. Do not print internal policy deliberation. Do not apply simultaneous conflicting edits.`
+          : `Execution sub-agents are strongly encouraged for speed and quality. Internally decide delegate or skip. Strongly consider up to ${Math.max(1, workers.deep)} execution worker${Math.max(1, workers.deep) === 1 ? "" : "s"} for non-trivial work. Use them for file inspection, implementation prep, scoped implementation help, risk discovery, patch planning, or validation prep; skip only for trivial changes or no useful parallel work and give only the concise skip reason. Do not print internal policy deliberation.`;
   const automatableEvidenceGuidance = `Automatable evidence contract:
 - Before calling workflow_execution_result, you MUST gather all automatable validation evidence that the approved plan requires.
 - For web/app projects (React, Vite, Next.js, Vue, Svelte, etc.): run build and test commands; when the plan requires runtime/browser/localStorage behavior, start a bounded dev or preview server and verify the behavior with available commands (curl, node scripts, or the platform's built-in tools), then stop/cleanup the server.
@@ -2203,7 +2255,7 @@ ${requiredSubagentPreflightSection(preflightBlock)}
 - Execution agents may run in parallel for analysis, file inspection, implementation preparation, scoped implementation help, patch planning, regression search, and validation preparation.
 - Execution agents may perform work allowed by their configured tools and agent contract, but must stay inside the approved Plan scope and current per-step boundary when per-step gates are enabled.
 - Main executor owns final integration, validation-ready summary, and workflow_execution_result. Sub-agent file writes must follow editConcurrencyMode=${settings.subagents.editConcurrencyMode ?? "sequential"}; with sequential mode, serialize writes and avoid conflicting parallel edits.
-- ${preflightSatisfied && policy === "forced" ? "Forced execution policy was satisfied by Workflow Suite preflight; do not rerun required workers solely for policy compliance." : "If executionPolicy is forced, activate the current step with workflow_progress first, then required sub-agents must run before read/grep/find/ls/edit/write/bash or final summary, or stop with: Sub-agent policy is forced, but sub-agent execution is unavailable because <reason>."}
+- ${preflightSatisfied && subagentPolicyRequiresRequiredEvidence(policy) ? "Forced execution policy was satisfied by Workflow Suite preflight; do not rerun required workers solely for policy compliance." : "If executionPolicy is forced, activate the current step with workflow_progress first, then required sub-agents must run before edit/write/meaningful bash/final summary. Local read/grep/find/ls probes may run only to orient the parent or form the required sub-agent call; they do not satisfy the worker requirement. If sub-agent execution is unavailable, stop with: Sub-agent policy is forced, but sub-agent execution is unavailable because <reason>."}
 - Final execution summary must include Sub-Agent Usage Summary with agents used and findings applied, or a forced-policy blocker.
 
 ${subagentCapabilityTable()}
@@ -2227,15 +2279,15 @@ function validatePrompt(state: WorkflowState, settings = loadWorkflowSettings(),
   const preflightSatisfied = hasRequiredSubagentPreflight(preflightBlock);
   const subagentGuidance = !validationSubagentsAllowed(settings)
     ? "Validation sub-agents are disabled by settings. Do not call subagent."
-    : preflightSatisfied && policy === "forced"
+    : preflightSatisfied && subagentPolicyRequiresRequiredEvidence(policy)
       ? forcedSubagentPolicySatisfiedGuidance("validation")
       : policy === "forced"
-        ? `FORCED SUB-AGENT POLICY: you are the parent validator turn. Before final validation verdict, you MUST call the subagent tool with at least ${Math.max(1, workers.maximum)} validation worker(s), preferably quality-validation, general-worker, codebase-research, or implementation-planning. Do not call workflow-orchestrator for this forced Plan Validation requirement; the validator is already the parent controller. If subagent execution fails, stop and report the exact blocker.`
+        ? `FORCED SUB-AGENT POLICY: you are the parent validator turn. Before final validation verdict or any substantive validation work, you MUST call the subagent tool with at least ${Math.max(1, workers.maximum)} validation worker(s), preferably quality-validation, general-worker, codebase-research, or implementation-planning. ${forcedSubagentCallShape("Validation", Math.max(1, workers.maximum))} Do not call workflow-orchestrator for this forced Plan Validation requirement; the validator is already the parent controller. If subagent execution fails, stop and report the exact blocker.`
         : policy === "maximum"
-        ? `For non-trivial validation, use validation sub-agents for independent checks, regression review, and risk analysis. Strongly target at least ${workers.maximum} validation workers, preferably quality-validation plus focused reviewers; skip only for trivial validation or unavailable sub-agent execution and explain why.`
+        ? `For non-trivial validation, use validation sub-agents for independent checks, regression review, and risk analysis. Strongly target at least ${workers.maximum} validation workers, preferably quality-validation plus focused reviewers; internally decide delegate or skip, skip only for trivial validation or unavailable sub-agent execution, and give only the concise skip reason. Do not print internal policy deliberation.`
         : policy === "deep"
-          ? `For non-trivial validation, use at least ${workers.deep} validation sub-agent for independent checks, regression review, or risk analysis. Prefer quality-validation. Explain any skip.`
-          : "Validation sub-agents are strongly encouraged for independent review. Use them for plan compliance, diff review, regression risk, build/test review, or manual-QA classification; skip only for trivial validation and explain why.";
+          ? `For non-trivial validation, use at least ${workers.deep} validation sub-agent for independent checks, regression review, or risk analysis. Prefer quality-validation. Internally decide delegate or skip and give only the concise skip reason. Do not print internal policy deliberation.`
+          : `Validation sub-agents are strongly encouraged for independent review. Internally decide delegate or skip. Strongly consider up to ${Math.max(1, workers.deep)} validation worker${Math.max(1, workers.deep) === 1 ? "" : "s"} for non-trivial work. Use them for plan compliance, diff review, regression risk, build/test review, or manual-QA classification; skip only for trivial validation or no useful parallel work and give only the concise skip reason. Do not print internal policy deliberation.`;
   const automatableEvidenceVerifierGuidance = `Automatable evidence verification:
 - Before marking Manual Verification Required: yes, verify that the missing evidence is genuinely non-automatable.
 - If the plan required dev server, browser, localStorage, runtime, or endpoint checks that were not attempted by the executor, and those checks can be performed with safe read-only bash or parent runtime tools such as workflow_browser_check, mark Concrete Repairable Issue: yes and Evidence Gap: yes, then return FAIL rather than PARTIAL PASS.
@@ -2293,7 +2345,7 @@ ${requiredSubagentPreflightSection(preflightBlock)}
 ${subagentCapabilityTable()}
 
 - When validationPolicy is auto, deep, or maximum, validation sub-agents are expected for non-trivial work; prefer quality-validation for independent diff/risk/build-test review.
-- ${preflightSatisfied && policy === "forced" ? "Forced validation policy was satisfied by Workflow Suite preflight; do not rerun required workers solely for policy compliance." : "If validationPolicy is forced, required sub-agents must run before verdict, or stop with: Sub-agent policy is forced, but sub-agent execution is unavailable because <reason>."}
+- ${preflightSatisfied && subagentPolicyRequiresRequiredEvidence(policy) ? "Forced validation policy was satisfied by Workflow Suite preflight; do not rerun required workers solely for policy compliance." : "If validationPolicy is forced, required sub-agents must run before verdict, or stop with: Sub-agent policy is forced, but sub-agent execution is unavailable because <reason>."}
 - PASS only when the approved plan is fully satisfied with no blocking unresolved risk.
 - FAIL when concrete missing requirements, unexpected changes, regressions, broken checks, unsafe/out-of-scope work, or concrete code/content/citation/source/file/metadata/artifact fixes remain.
 - FAIL when automatable runtime evidence (build, test, dev server, browser, localStorage, API response) was not gathered and the checks are performable with available tools. Missing automatable evidence is a concrete repairable issue, not a manual-only caveat.
@@ -2357,15 +2409,15 @@ function workflowRepairPrompt(state: WorkflowState, settings = loadWorkflowSetti
   const preflightSatisfied = hasRequiredSubagentPreflight(preflightBlock);
   const subagentGuidance = !phaseAutoUseAllowed(settings, "Repair") || policy === "off"
     ? "Repair sub-agents are disabled by settings. Do not call subagent."
-    : preflightSatisfied && policy === "forced"
+    : preflightSatisfied && subagentPolicyRequiresRequiredEvidence(policy)
       ? forcedSubagentPolicySatisfiedGuidance("repair")
       : policy === "forced"
-        ? `FORCED SUB-AGENT POLICY: before any repair edit or final Workflow Repair Summary, you MUST call the subagent tool with at least ${Math.max(1, workers.maximum)} repair/execution worker(s). Use them for read-only repair verification, missing-file inspection, patch planning, and validation preparation. If subagent execution fails, stop and report the exact blocker.`
+        ? `FORCED SUB-AGENT POLICY: before any repair edit or final Workflow Repair Summary, you MUST call the subagent tool with at least ${Math.max(1, workers.maximum)} repair/execution worker(s). ${forcedSubagentCallShape("Repair", Math.max(1, workers.maximum))} Use them for read-only repair verification, missing-file inspection, patch planning, and validation preparation. If subagent execution fails, stop and report the exact blocker.`
         : policy === "maximum"
-        ? `For non-trivial repair, strongly target ${Math.max(1, workers.maximum)} repair/execution worker(s) before edits; continue if skipped only with an explanation.`
+        ? `For non-trivial repair, strongly target ${Math.max(1, workers.maximum)} repair/execution worker(s) before edits; internally decide delegate or skip, and continue if skipped only with a concise reason. Do not print internal policy deliberation.`
         : policy === "deep"
-          ? `For non-trivial repair, use ${Math.max(1, workers.deep)} repair/execution worker(s) before edits when useful and explain any skip.`
-          : "Repair sub-agents are strongly encouraged. Use them for failure triage, missing-file inspection, patch planning, and validation prep; skip only with a concrete reason.";
+          ? `For non-trivial repair, use ${Math.max(1, workers.deep)} repair/execution worker(s) before edits when useful. Internally decide delegate or skip and give only the concise skip reason. Do not print internal policy deliberation.`
+          : `Repair sub-agents are strongly encouraged. Internally decide delegate or skip. Strongly consider up to ${Math.max(1, workers.deep)} repair worker${Math.max(1, workers.deep) === 1 ? "" : "s"} for non-trivial work. Use them for failure triage, missing-file inspection, patch planning, and validation prep; skip only with a concrete reason. Do not print internal policy deliberation.`;
   return `${repairPrompt}
 
 You are in PI WORKFLOW REPAIR MODE.
@@ -2395,7 +2447,7 @@ Sub-agent repair policy:
 ${requiredSubagentPreflightSection(preflightBlock)}
 - Repair-mode sub-agent workers may inspect, triage, and plan safely. File writes must remain serialized through the Executor in repair mode unless scoped conflict protection is explicitly enabled.
 - You, the main repair executor, own all file writes, edits, and bash commands. Even when forced sub-agent policy is active and sub-agents report they cannot write files, you must proceed with your own file writes, edits, and bash commands after sub-agent inspection completes. Sub-agents are read-only by design; their inability to write does not mean you cannot write.
-- ${preflightSatisfied && policy === "forced" ? "Forced repair policy was satisfied by Workflow Suite preflight; do not rerun required workers solely for policy compliance." : "If repairPolicy is forced, required sub-agents must run before any repair edit or final repair summary, or stop with: Sub-agent policy is forced, but sub-agent execution is unavailable because <reason>."}
+- ${preflightSatisfied && subagentPolicyRequiresRequiredEvidence(policy) ? "Forced repair policy was satisfied by Workflow Suite preflight; do not rerun required workers solely for policy compliance." : "If repairPolicy is forced, required sub-agents must run before any repair edit or final repair summary, or stop with: Sub-agent policy is forced, but sub-agent execution is unavailable because <reason>."}
 - Do not re-grade validation. Do not claim PASS/FAIL for repaired work; recommend revalidation.
 - If no concrete repairable issue exists, perform no-op repair summary and recommend manual verification or /plan revalidate.
 
@@ -2431,15 +2483,15 @@ function reviewerPrompt(state: WorkflowState, settings = loadWorkflowSettings(),
   const preflightSatisfied = hasRequiredSubagentPreflight(preflightBlock);
   const subagentGuidance = !reviewSubagentsAllowed(settings)
     ? "Reviewer sub-agents are disabled by settings. Do not call subagent."
-    : preflightSatisfied && policy === "forced"
+    : preflightSatisfied && subagentPolicyRequiresRequiredEvidence(policy)
       ? forcedSubagentPolicySatisfiedGuidance("review")
       : policy === "forced"
-        ? `FORCED SUB-AGENT POLICY: before final reviewer report, you MUST call the subagent tool with at least ${Math.max(1, workers.maximum)} review worker(s) for independent read-only challenge review. If subagent execution fails, stop and report the exact blocker.`
+        ? `FORCED SUB-AGENT POLICY: before final reviewer report or your own review analysis, you MUST call the subagent tool with at least ${Math.max(1, workers.maximum)} review worker(s) for independent read-only challenge review. ${forcedSubagentCallShape("Review", Math.max(1, workers.maximum))} If subagent execution fails, stop and report the exact blocker.`
         : policy === "maximum"
-        ? `For non-trivial review, use multiple reviewer sub-agents for independent risk review, regression review, implementation-scope review, and validation-plan review. Strongly target at least ${workers.maximum} review workers; skip only for trivial review or unavailable sub-agent execution and explain why.`
+        ? `For non-trivial review, use multiple reviewer sub-agents for independent risk review, regression review, implementation-scope review, and validation-plan review. Strongly target at least ${workers.maximum} review workers; internally decide delegate or skip, skip only for trivial review or unavailable sub-agent execution, and give only the concise skip reason. Do not print internal policy deliberation.`
         : policy === "deep"
-          ? `For non-trivial review, use at least ${workers.deep} reviewer sub-agent for independent risk review, regression review, implementation-scope review, or validation-plan review. Explain any skip.`
-          : "Reviewer sub-agents are strongly encouraged. Use them to challenge scope, files, risk, and validation plan; skip only for trivial review and explain why.";
+          ? `For non-trivial review, use at least ${workers.deep} reviewer sub-agent for independent risk review, regression review, implementation-scope review, or validation-plan review. Internally decide delegate or skip and give only the concise skip reason. Do not print internal policy deliberation.`
+          : `Reviewer sub-agents are strongly encouraged. Internally decide delegate or skip. Strongly consider up to ${Math.max(1, workers.deep)} review worker${Math.max(1, workers.deep) === 1 ? "" : "s"} for non-trivial work. Use them to challenge scope, files, risk, and validation plan; skip only for trivial review or no useful parallel work and give only the concise skip reason. Do not print internal policy deliberation.`;
   return `You are in PI WORKFLOW REVIEWER MODE.
 
 CRITICAL: If forced review sub-agents are required by policy, call the subagent tool FIRST — before your own review analysis. Sub-agent findings must inform your review, not validate it after the fact. Once sub-agents complete (or if no sub-agents are required), perform your read-only review and call workflow_review_result with your verdict, issues, summary, and safety flags. After workflow_review_result returns its control-verdict tool result, STOP IMMEDIATELY. Do not call any more tools, do not call subagent again, do not create diagrams, and do not continue prose analysis. Workflow Suite owns the next handoff to execution or review retry. Do not do your own review analysis before dispatching required sub-agents.
@@ -2466,7 +2518,7 @@ ${subagentCapabilityTable()}
 
 - When reviewPolicy is auto, deep, or maximum, reviewer sub-agents are expected for non-trivial plans to challenge scope, files, risk, and validation plan.
 - Reviewer sub-agents must not perform direct file edits.
-- ${preflightSatisfied && policy === "forced" ? "Forced review policy was satisfied by Workflow Suite preflight; do not rerun required workers solely for policy compliance." : "If reviewPolicy is forced, required sub-agents must run before the report, or stop with: Sub-agent policy is forced, but sub-agent execution is unavailable because <reason>."}
+- ${preflightSatisfied && subagentPolicyRequiresRequiredEvidence(policy) ? "Forced review policy was satisfied by Workflow Suite preflight; do not rerun required workers solely for policy compliance." : "If reviewPolicy is forced, required sub-agents must run before the report, or stop with: Sub-agent policy is forced, but sub-agent execution is unavailable because <reason>."}
 - The reviewer must not rubber-stamp execution; surface missing requirements before the executor starts.
 - Plan Review is notes-first for control flow. Use NOTES for nearly all actionable advice, including severe executor-correctable findings. Use NEEDS REPAIR only when the Plan text is structurally unusable for execution, such as having no executable implementation steps.
 - Validation command additions, rollback wording fixes, selector/test-hook refinements, off-limits/out-of-scope lists, instruction text updates, implementation parameter suggestions, game-rule details, impossible browser/test move sequences, missing draw/test data sequences, dev-server readiness, AI/settings/accessibility details, localStorage keys, icon choices, and executor cautions are executor notes, not repair blockers.
@@ -3901,6 +3953,20 @@ function planProgressHasOpenSteps(progress: PlanProgressState | undefined): bool
   return Boolean(progress?.steps.some((step) => step.status === "pending" || step.status === "active" || step.status === "failed" || step.status === "blocked"));
 }
 
+function planValidationBoundaryReached(state: WorkflowState, settings: ReturnType<typeof loadWorkflowSettings>): boolean {
+  if (settings.workflow.validateAfterEachStep === true && typeof state.planStepValidationIndex === "number") return true;
+  if (!state.approvedPlan?.trim() || !workflowPlanProgressEnabled(settings)) return true;
+  const steps = state.planProgress?.steps ?? [];
+  if (!steps.length) return true;
+  return planProgressAllStepsCompleted(state);
+}
+
+function planExecutionIncomplete(state: WorkflowState, settings: ReturnType<typeof loadWorkflowSettings>): boolean {
+  if (!state.approvedPlan?.trim() || !workflowPlanProgressEnabled(settings)) return false;
+  const steps = state.planProgress?.steps ?? [];
+  return steps.length > 0 && planProgressHasOpenSteps(state.planProgress) && !planValidationBoundaryReached(state, settings);
+}
+
 function planRuntimeLabel(state: WorkflowState): string {
   return `Runtime: ${formatDurationMs(planActiveRuntimeMs(state))} active`;
 }
@@ -4449,8 +4515,13 @@ function classifyStandardWork(task: string | undefined, answerSummary?: string):
   return { phase: "Planning", kind: "read_only" };
 }
 
+function trivialSubagentSkipReason(phase: SubagentPhase, task: string | undefined, kind?: WorkflowState["standardWorkKind"]): string | undefined {
+  const decision = forcedSubagentActionDecision({ phase, policy: "forced", task, kind });
+  return decision.outcome === "exempt_trivial" ? decision.reason : undefined;
+}
+
 function standardForcedSubagentSafeBash(command: string): boolean {
-  return standardSafeReadOnlyBash(command);
+  return forcedSubagentActionDecision({ phase: "Execution", policy: "forced", toolName: "bash", command }).allowBeforeEvidence;
 }
 
 function standardTodoUsageText(): string {
@@ -4851,6 +4922,9 @@ function standardPrompt(state: WorkflowState, settings: ReturnType<typeof loadWo
   const standardSubagentPolicyBlock = standardSubagentsAllowed(settings)
     ? `Standard sub-agent policy:\n- active phase: ${state.standardActivePhase ?? "Planning"}${state.standardWorkKind ? ` (${state.standardWorkKind})` : ""}\n- agentScope: ${settings.standard.subagentScope ?? "user"}\n- planning/research: ${activeWorkerTargetLabel(standardPhasePolicy(settings, "Planning"), standardWorkerCount(settings, "Planning"))}\n- execution: ${activeWorkerTargetLabel(standardPhasePolicy(settings, "Execution"), standardWorkerCount(settings, "Execution"))}\n- repair: ${activeWorkerTargetLabel(standardPhasePolicy(settings, "Repair"), standardWorkerCount(settings, "Repair"))}\n- review: ${activeWorkerTargetLabel(standardPhasePolicy(settings, "Review"), standardWorkerCount(settings, "Review"))}\n- validation: ${activeWorkerTargetLabel(standardPhasePolicy(settings, "Validation"), standardWorkerCount(settings, "Validation"))}\nUse any configured package, user, or project agent that fits the task. When calling subagent in Standard Mode, pass agentScope=${settings.standard.subagentScope ?? "user"} and workflowPhase=planning, execution, repair, review, or validation. Do not launch execution sub-agents merely for read-only summaries, status updates, action-item reports, or docs/repo inspection; use execution sub-agents only before actual mutation or execution-class bash. If the active Standard phase is execution or repair and that phase policy is forced, satisfy the required sub-agent usage before edit/write/unsafe bash.`
     : "Standard Mode sub-agent delegation is disabled by settings.";
+  const standardSubagentDecisionInstruction = standardSubagentsAllowed(settings)
+    ? "For Standard auto/deep/maximum sub-agent policies, internally decide delegate or skip. Delegate for non-trivial parallelizable research, validation, repair, or implementation prep. Skip for trivial read-only/status work or when no useful parallel worker exists. Do not print internal sub-agent policy deliberation; if no worker runs, give only a concise user-facing skip reason when a Sub-Agent Usage Summary is naturally relevant."
+    : "";
   const autoCheckInstruction = standardAutoChecksRequired(state, settings)
     ? `Your first visible lines for every user-submitted Standard Mode response must be exactly this parser-safe Standard Auto Checks contract before any other text:\nStandard Auto Checks:\nCLARIFICATION_DECISION: ask|skip|disabled\nCLARIFICATION_REASON: <brief user-facing reason>\nTODO_DECISION: create|skip|on request|required|disabled|active\nTODO_REASON: <brief user-facing reason>\nUse CLARIFICATION_DECISION=ask only when you will ask clarification. Use skip when clarification is not needed. Use TODO_DECISION=create when you will initialize optional task-specific To Do tracking with standard_todo, required when To Do tracking is required by settings, active when a To Do list is already active, skip when visible tracking is not useful, on request when To Do tracking starts only on explicit request, and disabled when settings disable it. Keep reasons concise; do not reveal chain-of-thought.`
     : "Standard auto To Do and clarification checks are disabled; no Standard Auto Checks block is required.";
@@ -4888,6 +4962,7 @@ Rules:
 - ${clarificationLine}
 - ${autoCheckInstruction}
 - ${standardSubagentPolicyBlock}
+${standardSubagentDecisionInstruction ? `- ${standardSubagentDecisionInstruction}` : ""}
 
 ${standardSubagentsAllowed(settings) ? subagentCapabilityTable() : ""}
 
@@ -7459,12 +7534,34 @@ function repairFailureApprovalReason(text: string, options: { retryMode?: string
   return undefined;
 }
 
-function validationFailureRequiresApproval(text: string, settings: ReturnType<typeof loadWorkflowSettings>): string | undefined {
+function concreteRepairFailureHasExplicitApprovalRisk(text: string, options: { retryMode?: string; requireApprovalForDestructiveRepair: boolean; requireApprovalForOutOfScopeRepair: boolean }): boolean {
+  const actionable = actionableSafetyText(text).replace(/\bworkflow_\w+\b/gi, "[tool]");
+  const lines = actionable.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const highRiskAction = lines.some((line) =>
+    /\b(delete|drop|destroy|reset|clean|force|overwrite|destructive|rm\s+-rf|migration|migrate|database|db\b|schema|sql|ddl|deploy|push|secret|token|credential|password|api key|auth|session|\.env|\.factory|\.cursor)\b/i.test(line)
+    && /\b(repair|fix|change|modify|touch|read|print|expose|update|write|requires?|needs?|must|should|perform|run|execute|apply|approval|permission)\b/i.test(line)
+  );
+  if (options.requireApprovalForDestructiveRepair && highRiskAction) return true;
+  if (options.requireApprovalForOutOfScopeRepair && lines.some((line) =>
+    /\b(out[- ]of[- ]scope|outside scope|scope expansion|new requirement|unapproved)\b/i.test(line)
+    && /\b(repair|fix|change|modify|update|write|requires?|needs?|must|should|perform|run|execute|apply)\b/i.test(line)
+  )) return true;
+  return (options.retryMode ?? "safe_only") === "safe_only" && lines.some((line) =>
+    /\b(manual approval|needs approval|ask user|unsafe|permission)\b/i.test(line)
+    && /\b(repair|fix|change|modify|update|write|requires?|needs?|must|should|perform|run|execute|apply)\b/i.test(line)
+  );
+}
+
+function validationFailureRequiresApproval(text: string, settings: ReturnType<typeof loadWorkflowSettings>, options: { concreteRepairableIssue?: boolean; evidenceGap?: boolean } = {}): string | undefined {
   if (settings.missions.validationRetryMode === "off") return "validationRetryMode=off.";
-  return repairFailureApprovalReason(text, {
+  const gateOptions = {
     retryMode: settings.missions.validationRetryMode,
     requireApprovalForDestructiveRepair: settings.missions.requireApprovalForDestructiveRepair !== false,
     requireApprovalForOutOfScopeRepair: settings.missions.requireApprovalForOutOfScopeRepair !== false,
+  };
+  if (options.concreteRepairableIssue === true && options.evidenceGap !== true && !concreteRepairFailureHasExplicitApprovalRisk(text, gateOptions)) return undefined;
+  return repairFailureApprovalReason(text, {
+    ...gateOptions,
     outOfScopeReason: "repair appears outside the approved milestone scope.",
     safeOnlyReason: "safe_only repair mode requires approval for this validation failure.",
   });
@@ -7936,7 +8033,7 @@ function fallbackMissionMilestones(goal: string): MissionMilestone[] {
   ];
 }
 
-function missionPlanPrompt(mission: MissionState, settings: ReturnType<typeof loadWorkflowSettings>, options: { forceClarification?: boolean; forceReason?: string; answerSummary?: string; qualityGateFeedback?: string; reviewFeedback?: string; preflightBlock?: string } = {}): string {
+function missionPlanPrompt(mission: MissionState, settings: ReturnType<typeof loadWorkflowSettings>, options: { forceClarification?: boolean; forceAdditionalClarification?: boolean; forceReason?: string; answerSummary?: string; qualityGateFeedback?: string; reviewFeedback?: string; preflightBlock?: string } = {}): string {
   const base = readPromptFile("mission-plan.md", "You are PI MISSION MODE PLANNER. Output MISSION_DECISION: plan and milestone headings. Do not execute.");
   const baseWithSubagentGuidance = `${base}\n\n${subagentCapabilityTable()}`;
   const sub = settings.subagents;
@@ -7949,12 +8046,24 @@ function missionPlanPrompt(mission: MissionState, settings: ReturnType<typeof lo
   const subagentsBeforeClarification = useSubagentsBeforeClarification(settings, "mission");
   const planningOrchestrationPolicy = (sub as typeof sub & { planningOrchestrationPolicy?: string }).planningOrchestrationPolicy ?? "orchestrator_first";
   const preflightSatisfied = hasRequiredSubagentPreflight(options.preflightBlock);
+  const forcedPlanningEvidenceRequired = subagentPolicyRequiresRequiredEvidence(policy) && !preflightSatisfied;
   const orchestratorGuidance = preflightSatisfied
     ? "Mission planning orchestration required by forced policy has already been handled by Workflow Suite preflight. Do not call workflow-orchestrator again unless there is genuinely new targeted orchestration work beyond the preflight findings."
+    : forcedPlanningEvidenceRequired && planningNeedsOrchestrator(settings, "mission")
+      ? planningOrchestrationPolicy === "forced_orchestrated"
+        ? "ORCHESTRATION REQUIRED: include workflow-orchestrator as one task inside the required forced Mission Planning parallel subagent call. Do not call workflow-orchestrator separately before the worker batch."
+        : "Mission planning orchestration is available for this turn. If it is useful, include workflow-orchestrator as one task inside the required forced Mission Planning parallel subagent call; do not call workflow-orchestrator separately before the worker batch."
     : planningNeedsOrchestrator(settings, "mission")
       ? "ORCHESTRATION REQUIRED: call workflow-orchestrator before launching parallel mission planning/research workers or producing the milestone plan. The orchestrator must scope worker tasks, identify capability gaps, and decide whether live docs/API access is available before workers run."
       : "Orchestrator is optional for this mission planning turn. Use workflow-orchestrator if the mission is broad, multi-pass, or needs coordinated workers.";
-  return `${baseWithSubagentGuidance}\n\n${professionalOutputGuidance("Mission planning")}\n\nMission ID: ${mission.id}\nGoal: ${mission.goal}\nAutonomy: ${mission.autonomy}\nApproval Required: ${mission.approvalRequired}\nClarification recommended: ${missionNeedsClarification(mission.goal) ? "yes" : "no"}\nInitial analysis requirement: ${analysisInstruction}\n${options.answerSummary ? `\nMission clarification answers already supplied:\n${options.answerSummary}\nUse these answers as planning constraints. Do not ask the same clarification again. Produce MISSION_DECISION: plan with parser-safe milestones unless a genuinely new blocker exists; carry remaining uncertainty as assumptions/open questions inside the mission plan.\n` : ""}${options.reviewFeedback ? `\nMISSION REVIEW REPAIR REQUIRED BEFORE APPROVAL.\nReviewer feedback:\n${options.reviewFeedback}\nRevise the mission milestone plan only. Do not execute. Return MISSION_DECISION: plan with parser-safe milestones that address the reviewer feedback.\n` : ""}${options.forceClarification ? `\nMISSION CLARIFICATION IS REQUIRED BEFORE FINAL MILESTONE PLANNING. Reason: ${options.forceReason ?? "mission clarification policy requires it"}\nYour first line must be exactly MISSION_DECISION: clarify. Your job in this turn is to perform lightweight mission analysis, then generate only high-value mission-goal-specific A/B/C/D clarification questions. Do not produce the mission plan yet. ${subagentsBeforeClarification ? "If mission planning depth/policy calls for it and sub-agent use is available, use read-only planning/research sub-agents before asking clarification so the questions are context-aware." : "Do not call sub-agents in this clarification-generation turn unless forced by sub-agent policy."}\n` : ""}${options.qualityGateFeedback ? `\nThe previous mission clarification output failed the clarification quality gate: ${options.qualityGateFeedback}\nRegenerate better mission-specific clarification questions${options.forceClarification ? ". Do not produce a mission plan in this retry." : ", or use MISSION_DECISION: plan if no high-value question exists."}\n` : ""}\nMANDATORY STRUCTURED HANDOFF: call mission_plan_result with decision=clarify, plan, or blocked before final response. The typed tool payload is the primary handoff control plane. If the tool is unavailable for any reason, fall back to the parser-safe legacy format below:\n## Clarifying Questions\n\n## Q1. <mission-specific short question>\nA. <option specific to this mission>\nB. <option specific to this mission>\nC. <option specific to this mission>\nD. Other: type your own answer\nSkip this question\n\nRules for questions:\n- Generate questions from the actual mission goal after initial analysis.\n- Clarification is not a survey. Ask only when the answer genuinely changes the milestone plan.\n- Prefer one focused question when possible. Maximum ${missionMaxClarificationQuestions(settings)} questions.\n- Each question must resolve at least one real ambiguity, risk, scope decision, validation decision, target-environment choice, permission boundary, sub-agent need, diagnostic-vs-implementation choice, acceptance criterion, or forbidden-file concern.\n- Each question must be specific and actionable.\n- Each option must be a concrete choice, not "yes/no".\n- Always include D. Other as last option.\n- Do not ask product-roadmap or strategy questions unless the user explicitly requested product strategy planning.\n\nWorkflow settings:\n- mission.planningDepth: ${missionPlanningDepth(settings)}\n- mission.clarificationMode: ${missionClarificationMode(settings)}\n- mission.maxClarificationQuestions: ${missionMaxClarificationQuestions(settings)}\n- mission.interactiveClarificationEnabled: ${settings.missions.interactiveClarificationEnabled !== false}\n- mission.clarificationTiming: ${settings.missions.clarificationTiming ?? "after_initial_analysis"}\n- mission.clarificationQualityGate: ${settings.missions.clarificationQualityGate !== false}\n- mission.allowClarificationWithoutAnalysis: ${settings.missions.allowClarificationWithoutAnalysis === true}\n- mission.useSubagentsBeforeClarification: ${settings.missions.useSubagentsBeforeClarification !== false}\n- subagents.enabled: ${sub.enabled}\n- mission.subagentPolicy: ${policy}\n- Mission Planning Workers: ${activeWorkerTargetLabel(policy, { deep: deepWorkers, maximum: maxWorkers })}\n- subagents.requireApprovalBeforeRun: ${sub.requireApprovalBeforeRun === true}\n- planningOrchestrationPolicy: ${planningOrchestrationPolicy}\n- allowParallelReadOnly: ${sub.allowParallelReadOnly !== false}\n- allowParallelPlanning: ${sub.allowParallelPlanning !== false}\n- allowParallelEdits: ${sub.allowParallelEdits === true}${requiredSubagentPreflightSection(options.preflightBlock)}\n\nMission sub-agent policy:\n- off: do not use sub-agents.\n- auto: sub-agents are strongly encouraged; skip only with a concrete trivial/unavailable reason.\n- deep: use at least ${deepWorkers} worker(s) for non-trivial mission planning.\n- maximum: strongly target at least ${maxWorkers} worker(s); skip only for trivial or unavailable cases with exact reason.\n- forced: ${preflightSatisfied ? "already satisfied by Workflow Suite preflight; do not call the visible subagent tool solely for policy compliance." : `you MUST use at least ${Math.max(1, maxWorkers)} worker(s), or stop with: Sub-agent policy is forced, but sub-agent execution is unavailable because <reason>.`}\n\n${orchestratorGuidance}\n\nUse safe read-only/planning sub-agents when enabled. Do not execute or edit. Include mission Sub-Agent Usage Summary with workers used and findings, or the exact skip/blocker reason.
+  const forceClarification = options.forceClarification === true || options.forceAdditionalClarification === true;
+  const answerGuidance = options.forceAdditionalClarification === true
+    ? "Use these prior answers as planning constraints. Do not ask duplicate or already-answered clarification questions. This turn is an explicit request for additional Mission clarification, so produce MISSION_DECISION: clarify with only new mission-specific questions that materially change the plan."
+    : "Use these answers as planning constraints. Do not ask the same clarification again. Produce MISSION_DECISION: plan with parser-safe milestones unless a genuinely new blocker exists; carry remaining uncertainty as assumptions/open questions inside the mission plan.";
+  const forceClarificationGuidance = options.forceAdditionalClarification === true
+    ? "Your first line must be exactly MISSION_DECISION: clarify. Your job in this turn is to perform lightweight contextual mission analysis, including relevant codebase/project-rule inspection when available, then generate only new high-value mission-goal-specific A/B/C/D clarification questions. Do not reuse stale question indexes or duplicate prior answered questions. Do not produce the mission plan yet."
+    : "Your first line must be exactly MISSION_DECISION: clarify. Your job in this turn is to perform lightweight mission analysis, then generate only high-value mission-goal-specific A/B/C/D clarification questions. Do not produce the mission plan yet.";
+  return `${baseWithSubagentGuidance}\n\n${professionalOutputGuidance("Mission planning")}\n\nMission ID: ${mission.id}\nGoal: ${mission.goal}\nAutonomy: ${mission.autonomy}\nApproval Required: ${mission.approvalRequired}\nClarification recommended: ${missionNeedsClarification(mission.goal) ? "yes" : "no"}\nInitial analysis requirement: ${analysisInstruction}\n${options.answerSummary ? `\nMission clarification answers already supplied:\n${options.answerSummary}\n${answerGuidance}\n` : ""}${options.reviewFeedback ? `\nMISSION REVIEW REPAIR REQUIRED BEFORE APPROVAL.\nReviewer feedback:\n${options.reviewFeedback}\nRevise the mission milestone plan only. Do not execute. Return MISSION_DECISION: plan with parser-safe milestones that address the reviewer feedback.\n` : ""}${forceClarification ? `\nMISSION CLARIFICATION IS REQUIRED BEFORE FINAL MILESTONE PLANNING. Reason: ${options.forceReason ?? "mission clarification policy requires it"}\n${forceClarificationGuidance} ${subagentsBeforeClarification ? "If mission planning depth/policy calls for it and sub-agent use is available, use read-only planning/research sub-agents before asking clarification so the questions are context-aware." : "Do not call sub-agents in this clarification-generation turn unless forced by sub-agent policy."}\n` : ""}${options.qualityGateFeedback ? `\nThe previous mission clarification output failed the clarification quality gate: ${options.qualityGateFeedback}\nRegenerate better mission-specific clarification questions${forceClarification ? ". Do not produce a mission plan in this retry." : ", or use MISSION_DECISION: plan if no high-value question exists."}\n` : ""}\nMANDATORY STRUCTURED HANDOFF: call mission_plan_result with decision=clarify, plan, or blocked before final response. The typed tool payload is the primary handoff control plane. If the tool is unavailable for any reason, fall back to the parser-safe legacy format below:\n## Clarifying Questions\n\n## Q1. <mission-specific short question>\nA. <option specific to this mission>\nB. <option specific to this mission>\nC. <option specific to this mission>\nD. Other: type your own answer\nSkip this question\n\nRules for questions:\n- Generate questions from the actual mission goal after initial analysis.\n- Additional clarification turns must use fresh dynamic mission analysis and must not display or reuse stored prior questions.\n- Additional clarification turns must ask only new, non-duplicate, mission-specific questions; prior answers are constraints, not question templates.\n- Do not reuse stale question indexes from a prior clarification turn.\n- Clarification is not a survey. Ask only when the answer genuinely changes the milestone plan.\n- Prefer one focused question when possible. Maximum ${missionMaxClarificationQuestions(settings)} questions.\n- Each question must resolve at least one real ambiguity, risk, scope decision, validation decision, target-environment choice, permission boundary, sub-agent need, diagnostic-vs-implementation choice, acceptance criterion, or forbidden-file concern.\n- Each question must be specific and actionable.\n- Each option must be a concrete choice, not "yes/no".\n- Always include D. Other as last option.\n- Do not ask product-roadmap or strategy questions unless the user explicitly requested product strategy planning.\n\nWorkflow settings:\n- mission.planningDepth: ${missionPlanningDepth(settings)}\n- mission.clarificationMode: ${missionClarificationMode(settings)}\n- mission.maxClarificationQuestions: ${missionMaxClarificationQuestions(settings)}\n- mission.interactiveClarificationEnabled: ${settings.missions.interactiveClarificationEnabled !== false}\n- mission.clarificationTiming: ${settings.missions.clarificationTiming ?? "after_initial_analysis"}\n- mission.clarificationQualityGate: ${settings.missions.clarificationQualityGate !== false}\n- mission.allowClarificationWithoutAnalysis: ${settings.missions.allowClarificationWithoutAnalysis === true}\n- mission.useSubagentsBeforeClarification: ${settings.missions.useSubagentsBeforeClarification !== false}\n- subagents.enabled: ${sub.enabled}\n- mission.subagentPolicy: ${policy}\n- Mission Planning Workers: ${activeWorkerTargetLabel(policy, { deep: deepWorkers, maximum: maxWorkers })}\n- subagents.requireApprovalBeforeRun: ${sub.requireApprovalBeforeRun === true}\n- planningOrchestrationPolicy: ${planningOrchestrationPolicy}\n- allowParallelReadOnly: ${sub.allowParallelReadOnly !== false}\n- allowParallelPlanning: ${sub.allowParallelPlanning !== false}\n- allowParallelEdits: ${sub.allowParallelEdits === true}${requiredSubagentPreflightSection(options.preflightBlock)}\n\nMission sub-agent policy:\n- off: do not use sub-agents.\n- auto: sub-agents are strongly encouraged; skip only with a concrete trivial/unavailable reason.\n- deep: use at least ${deepWorkers} worker(s) for non-trivial mission planning.\n- maximum: strongly target at least ${maxWorkers} worker(s); skip only for trivial or unavailable cases with exact reason.\n- forced: ${preflightSatisfied ? "already satisfied by Workflow Suite preflight; do not call the visible subagent tool solely for policy compliance." : `you MUST use at least ${Math.max(1, maxWorkers)} worker(s), or stop with: Sub-agent policy is forced, but sub-agent execution is unavailable because <reason>.`}\n\n${orchestratorGuidance}\n\nUse safe read-only/planning sub-agents when enabled. Do not execute or edit. Include mission Sub-Agent Usage Summary with workers used and findings, or the exact skip/blocker reason.
 
 Diagram guidance:
 ${workflowMermaidGuidance()}
@@ -7973,15 +8082,15 @@ function missionReviewPrompt(mission: MissionState, settings = loadWorkflowSetti
   const preflightSatisfied = hasRequiredSubagentPreflight(preflightBlock);
   const subagentGuidance = !reviewSubagentsAllowed(settings)
     ? "Reviewer sub-agents are disabled by settings. Do not call subagent."
-    : preflightSatisfied && policy === "forced"
+    : preflightSatisfied && subagentPolicyRequiresRequiredEvidence(policy)
       ? forcedSubagentPolicySatisfiedGuidance("review")
       : policy === "forced"
         ? `FORCED SUB-AGENT POLICY: before final reviewer report, you MUST call the subagent tool with at least ${Math.max(1, workers.maximum)} review worker(s) for independent read-only challenge review. If subagent execution fails, stop and report the exact blocker.`
         : policy === "maximum"
-        ? `For non-trivial review, use multiple reviewer sub-agents for independent risk review, regression review, implementation-scope review, and validation-plan review. Strongly target at least ${workers.maximum} review workers; skip only for trivial or unavailable cases with exact reason.`
+        ? `For non-trivial review, use multiple reviewer sub-agents for independent risk review, regression review, implementation-scope review, and validation-plan review. Strongly target at least ${workers.maximum} review workers; internally decide delegate or skip, skip only for trivial/no-useful-parallel/unavailable cases, and give only the concise skip reason. Do not print internal policy deliberation.`
         : policy === "deep"
-          ? `For non-trivial review, use at least ${workers.deep} reviewer sub-agent for independent risk review, implementation-scope review, or validation-plan review. Explain any skip.`
-          : "Reviewer sub-agents are strongly encouraged. Use them to challenge scope, milestones, risks, and validation plan; skip only for trivial review and explain why.";
+          ? `For non-trivial review, use at least ${workers.deep} reviewer sub-agent for independent risk review, implementation-scope review, or validation-plan review. Internally decide delegate or skip and give only the concise skip reason. Do not print internal policy deliberation.`
+          : "Reviewer sub-agents are strongly encouraged. Internally decide delegate or skip. Use them to challenge scope, milestones, risks, and validation plan; skip only for trivial review or no useful parallel work and give only the concise skip reason. Do not print internal policy deliberation.";
   const milestoneLines = mission.milestones.map((milestone, index) => `- ${milestone.id || `M${index + 1}`}: ${milestone.title || "Untitled"}\n  Objective: ${milestone.objective || "none recorded"}\n  Steps: ${(milestone.steps ?? []).join("; ") || "none recorded"}\n  Acceptance Criteria: ${(milestone.validation ?? []).join("; ") || "none recorded"}\n  Risks: ${(milestone.risks ?? []).join("; ") || "none recorded"}`).join("\n") || "- none recorded";
   return `You are in PI MISSION MODE REVIEWER MODE.
 
@@ -8022,7 +8131,7 @@ ${subagentCapabilityTable()}
 
 - When reviewPolicy is auto, deep, or maximum, reviewer sub-agents are expected for non-trivial mission plans to challenge scope, milestones, risks, and validation plan.
 - Reviewer sub-agents must not perform direct file edits.
-- ${preflightSatisfied && policy === "forced" ? "Forced review policy was satisfied by Workflow Suite preflight; do not rerun required workers solely for policy compliance." : "If reviewPolicy is forced, required sub-agents must run before the report, or stop with: Sub-agent policy is forced, but sub-agent execution is unavailable because <reason>."}
+- ${preflightSatisfied && subagentPolicyRequiresRequiredEvidence(policy) ? "Forced review policy was satisfied by Workflow Suite preflight; do not rerun required workers solely for policy compliance." : "If reviewPolicy is forced, required sub-agents must run before the report, or stop with: Sub-agent policy is forced, but sub-agent execution is unavailable because <reason>."}
 - The reviewer must not rubber-stamp execution; surface missing requirements before the mission is approved.
 - Mission Review is notes-first for control flow. Use NOTES for nearly all actionable advice, including severe executor-correctable milestone findings. Use NEEDS REPAIR only when the Mission plan is structurally unusable, such as having no parser-safe milestones.
 - Rule clarifications, game-rule pinning, AI contracts, settings-step details, accessibility criteria, implementation details, validation improvements, rollback wording, files-to-avoid lists, UI instruction notes, README scope decisions, icon choices, localStorage key naming, impossible-but-correctable milestone details, and executor cautions are NOTES.
@@ -8402,6 +8511,8 @@ export default function workflowModes(pi: ExtensionAPI): void {
     if (phase === "Planning") return planToolsFor(settings);
     if (phase === "Review") return reviewToolsFor(settings);
     if (phase === "Validation") return validationToolsFor(settings);
+    if (phase === "Repair" && state.mode === "mission_repairing") return missionRepairToolsFor(settings);
+    if (phase === "Execution" && state.mode === "mission_running") return missionExecutionToolsFor(settings);
     return executionToolsFor(settings);
   };
   const armWorkflowToolsForPhase = (ctx: ExtensionContext, phase: WorkflowPendingToolPhase, reason: string): void => {
@@ -8444,6 +8555,124 @@ export default function workflowModes(pi: ExtensionAPI): void {
     if (pendingWorkflowToolPhase === phase) pendingWorkflowToolPhase = undefined;
     syncWorkflowRuntimeForActivity(ctx, `pending phase clear: ${phase}`);
     traceWorkflowTracking(ctx, "pending-phase-clear", { phase, reason });
+  };
+  const requiredToolsForWorkflowPhase = (settings: ReturnType<typeof loadWorkflowSettings>, phase: WorkflowPendingToolPhase, mode: WorkflowState["mode"] = state.mode): string[] => {
+    let tools: string[];
+    if (mode === "standard") {
+      tools = [...BASE_EXECUTE_TOOLS, "standard_todo", STANDARD_HANDOFF_RESULT_TOOL];
+      if (standardSubagentsAllowed(settings)) tools.push("subagent");
+      return Array.from(new Set(tools));
+    }
+    if (phase === "Planning") {
+      tools = [...PLAN_TOOLS, WORKFLOW_PLAN_RESULT_TOOL];
+      if (planningSubagentsAllowed(settings)) tools.push("subagent");
+      return Array.from(new Set(tools));
+    }
+    if (phase === "Review") {
+      tools = ["read", "grep", "find", "ls", WORKFLOW_DIAGRAM_TOOL, WORKFLOW_REVIEW_RESULT_TOOL];
+      if (reviewSubagentsAllowed(settings)) tools.push("subagent");
+      return Array.from(new Set(tools));
+    }
+    if (phase === "Validation") {
+      tools = ["read", "grep", "find", "ls", "bash", WORKFLOW_DIAGRAM_TOOL, WORKFLOW_VALIDATION_RESULT_TOOL];
+      if (validationSubagentsAllowed(settings)) tools.push("subagent");
+      return Array.from(new Set(tools));
+    }
+    if (phase === "Repair" && mode === "mission_repairing") {
+      tools = [...PLAN_TOOLS, "edit", "write", "bash", WORKFLOW_DIAGRAM_TOOL, WORKFLOW_REPAIR_RESULT_TOOL];
+      if (executionSubagentsAllowed(settings)) tools.push("subagent");
+      return Array.from(new Set(tools));
+    }
+    if (phase === "Execution" && mode === "mission_running") {
+      tools = [...PLAN_TOOLS, "edit", "write", "bash", WORKFLOW_DIAGRAM_TOOL, MISSION_MILESTONE_RESULT_TOOL];
+      if (executionSubagentsAllowed(settings)) tools.push("subagent");
+      return Array.from(new Set(tools));
+    }
+    if (phase === "Repair") {
+      tools = [...PLAN_TOOLS, "edit", "write", "bash", WORKFLOW_PROGRESS_TOOL, WORKFLOW_REPAIR_RESULT_TOOL];
+      if (executionSubagentsAllowed(settings)) tools.push("subagent");
+      return Array.from(new Set(tools));
+    }
+    return requiredPlanExecutionTools(settings);
+  };
+  const missingToolsForWorkflowPhase = (activeTools: string[], settings: ReturnType<typeof loadWorkflowSettings>, phase: WorkflowPendingToolPhase, mode: WorkflowState["mode"] = state.mode): string[] => {
+    const active = new Set(activeTools);
+    return requiredToolsForWorkflowPhase(settings, phase, mode).filter((tool) => !active.has(tool));
+  };
+  const toolSurfaceBlockReason = (phase: WorkflowPendingToolPhase, missing: string[], source: string): string =>
+    `Required ${phase} tools are unavailable after tool rearm at ${source}: ${missing.join(", ")}. Phase prompt was not delivered.`;
+  const blockWorkflowToolSurface = (ctx: ExtensionContext, phase: WorkflowPendingToolPhase, missing: string[], source: string): string => {
+    const settings = loadWorkflowSettings(ctx.cwd);
+    const reason = toolSurfaceBlockReason(phase, missing, source);
+    clearPendingWorkflowToolPhase(ctx, phase, `tool-surface block: ${source}`);
+    recordWorkflowInternalEvent(ctx, `Workflow ${phase} tool surface blocked at ${source}: ${missing.join(", ")}.`);
+    traceWorkflowTracking(ctx, "tool-surface-blocked", { phase, source, missingTools: missing });
+    if (state.mode === "standard") {
+      setStandardRuntimeActive(ctx, false);
+      pi.setActiveTools(standardToolsFor(settings));
+      show(pi, `# Standard Workflow Blocked\n\n${reason}\n\nRetry the request after the Standard tool surface is repaired, or run /standard status.`);
+      return reason;
+    }
+    if (isMissionWorkflowMode(state)) {
+      const mission = (state.activeMissionId ? loadMissionState(state.activeMissionId) : undefined) ?? activeMission ?? loadMissionState("latest");
+      if (mission) {
+        const nextAction = phase === "Validation"
+          ? "Repair the validation tool surface, then run /mission revalidate or /mission resume."
+          : phase === "Repair"
+            ? "Repair the Mission repair tool surface, then run /mission repair or /mission resume."
+            : phase === "Review"
+              ? "Repair the Mission review tool surface, then run /mission review or /mission approve."
+              : "Repair the Mission execution tool surface, then run /mission continue or /mission resume.";
+        const paused = saveActiveMission({
+          ...mission,
+          status: "paused",
+          lastStopReason: reason,
+          lastBlockReason: reason,
+          nextAction,
+          lastSummary: `Mission ${phase.toLowerCase()} did not start because required tools were unavailable.`,
+        });
+        activeMission = paused;
+        updateState({ mode: "mission_paused", activeMissionId: paused.id, task: paused.goal, originalTask: paused.goal, approvedPlan: paused.planText }, ctx);
+      } else {
+        updateState({ mode: "awaiting_mission_input", activeMissionId: undefined }, ctx);
+      }
+      pi.setActiveTools(planToolsFor(settings));
+      show(pi, `# Mission Workflow Blocked\n\n${reason}\n\nRun /mission status before continuing.`);
+      return reason;
+    }
+    const planText = state.approvedPlan ?? state.draftPlan;
+    const targetMode: WorkflowState["mode"] = phase === "Validation"
+      ? "executed"
+      : phase === "Repair"
+        ? "validated"
+        : phase === "Review"
+          ? "plan_approved"
+          : state.reviewerReport ? "reviewed" : "plan_approved";
+    updateState({
+      mode: targetMode,
+      lastReviewFailure: phase === "Review" ? reason : state.lastReviewFailure,
+      lastValidationFailure: phase === "Validation" ? reason : state.lastValidationFailure,
+      lastRepairStatus: state.lastRepairStatus === "running" ? "failed" : state.lastRepairStatus,
+      lastRepairAttempt: phase === "Repair" ? reason : state.lastRepairAttempt,
+      planProgress: workflowPlanProgressEnabled(settings) && planText?.trim()
+        ? mergePlanProgress({ ...state, mode: targetMode }, settings, { lifecycleStatus: "blocked", nextAction: `repair ${phase.toLowerCase()} tool surface, then /plan continue` }, planText)
+        : state.planProgress,
+      lastPlanStopSummary: undefined,
+    }, ctx);
+    pi.setActiveTools(webSafePlanTools(PLAN_TOOLS));
+    show(pi, `# Plan Workflow Blocked\n\n${reason}\n\nRun /plan continue after the tool surface is repaired.`);
+    return reason;
+  };
+  const verifyWorkflowToolSurface = (ctx: ExtensionContext, phase: WorkflowPendingToolPhase, source: string, mode: WorkflowState["mode"] = state.mode): string | undefined => {
+    const settings = loadWorkflowSettings(ctx.cwd);
+    const missing = missingToolsForWorkflowPhase(pi.getActiveTools(), settings, phase, mode);
+    traceWorkflowTracking(ctx, "verify-tool-surface", { phase, source, mode, activeTools: pi.getActiveTools(), missingTools: missing });
+    return missing.length ? blockWorkflowToolSurface(ctx, phase, missing, source) : undefined;
+  };
+  const armAndVerifyWorkflowToolsForPhase = (ctx: ExtensionContext, phase: WorkflowPendingToolPhase, reason: string): void => {
+    armWorkflowToolsForPhase(ctx, phase, reason);
+    const blockReason = verifyWorkflowToolSurface(ctx, phase, reason);
+    if (blockReason) throw new WorkflowToolSurfaceAbort(blockReason);
   };
   let workflowSubagentActivityTimer: ReturnType<typeof setInterval> | undefined;
   let workflowSubagentActivityRenderCtx: ExtensionContext | undefined;
@@ -8634,6 +8863,17 @@ export default function workflowModes(pi: ExtensionAPI): void {
 
   const initialPlanParentSuppressed = (): boolean => state.mode === "plan_draft" && state.reviewHandoffSuppression?.kind === "plan_typed_initial_to_approval" && state.lastWorkflowHandoff?.type === WORKFLOW_PLAN_RESULT_TOOL;
   const planReviewParentSuppressed = (): boolean => state.mode === "executing" && state.reviewHandoffSuppression?.kind === "plan_typed_review_to_execution";
+  const missionReviewParentSuppressed = (): boolean => {
+    if (state.reviewHandoffSuppression?.kind !== "mission_typed_review_to_approval") return false;
+    if (state.mode !== "mission_plan_ready" && state.mode !== "mission_approved" && state.mode !== "mission_running") return false;
+    const suppressedMissionId = state.reviewHandoffSuppression.activeMissionId;
+    if (suppressedMissionId && state.activeMissionId && suppressedMissionId !== state.activeMissionId) return false;
+    const mission = (state.activeMissionId ? loadMissionState(state.activeMissionId) : undefined)
+      ?? (suppressedMissionId ? loadMissionState(suppressedMissionId) : undefined)
+      ?? activeMission
+      ?? loadMissionState("latest");
+    return mission?.currentStep !== "reviewer" && (mission?.reviewerVerdict === "PASS" || mission?.reviewerVerdict === "NOTES");
+  };
 
   const markPlanValidationHandoffDidNotStart = (ctx: ExtensionContext, settings: ReturnType<typeof loadWorkflowSettings>, reason: string): void => {
     updateState({
@@ -8821,7 +9061,10 @@ export default function workflowModes(pi: ExtensionAPI): void {
     const executedStepIndex = typeof state.planExecutionStepIndex === "number" ? state.planExecutionStepIndex : state.planProgress?.currentStepIndex;
     const progressEnabled = workflowPlanProgressEnabled(settings);
     const progressedPlanProgress = progressEnabled ? planProgressWithCompletedSteps(state, settings, completedSteps) : state.planProgress;
-    const progressedState = progressedPlanProgress ? { ...state, planProgress: progressedPlanProgress } : state;
+    const nextPlanStepValidationIndex = settings.workflow.validateAfterEachStep === true ? executedStepIndex : state.planStepValidationIndex;
+    const progressedState = progressedPlanProgress
+      ? { ...state, planProgress: progressedPlanProgress, planStepValidationIndex: nextPlanStepValidationIndex }
+      : { ...state, planStepValidationIndex: nextPlanStepValidationIndex };
     // Fix C4: lifecycle matching mode for blocked/completion paths
     const blockedLifecycle = state.reviewerReport ? "reviewed" : "blocked";
     if (status !== "completed") {
@@ -8830,16 +9073,32 @@ export default function workflowModes(pi: ExtensionAPI): void {
       showBlockedPlanRecoveryMenu(ctx);
       return { ...typedToolAck(), details: { accepted: true, status, validationStarted: false } };
     }
-    const hasOpenSteps = progressEnabled && progressedPlanProgress?.steps.length && settings.workflow.validateAfterEachStep !== true && planProgressHasOpenSteps(progressedPlanProgress);
-    if (hasOpenSteps && !completedSteps.length) {
-      updateState({ mode: state.reviewerReport ? "reviewed" : "plan_approved", executionSummary: summary, planExecutionStepIndex: undefined, planProgress: progressEnabled ? mergePlanProgress(progressedState, settings, { lifecycleStatus: blockedLifecycle, validationStatus: "pending", nextAction: "continue execution" }) : state.planProgress }, ctx);
-      queuePlanTerminalSummary(ctx, "blocked", "Plan execution incomplete", { reason: "Executor reported completion, but step tracking shows incomplete steps with no completedSteps metadata. Resume execution to complete remaining steps." });
+    const hasOpenSteps = progressEnabled && progressedPlanProgress?.steps.length && planProgressHasOpenSteps(progressedPlanProgress);
+    const executionIncomplete = planExecutionIncomplete(progressedState, settings);
+    const missingCompletedSteps = executionIncomplete && !completedSteps.length;
+    if (executionIncomplete) {
+      const reason = missingCompletedSteps
+        ? "Executor reported completion, but step tracking shows incomplete steps with no completedSteps metadata. Resume execution to complete remaining steps before validation."
+        : "Executor reported completion, but approved Plan progress still has incomplete steps. Resume execution to complete remaining steps before validation.";
+      updateState({
+        mode: "reviewed",
+        executionSummary: summary,
+        planExecutionStepIndex: undefined,
+        planStepValidationIndex: undefined,
+        validationReport: undefined,
+        validationVerdict: undefined,
+        lastValidationFailure: undefined,
+        lastRepairStatus: "none",
+        lastRepairAttempt: undefined,
+        planProgress: progressEnabled ? mergePlanProgress({ ...progressedState, mode: "reviewed" }, settings, { lifecycleStatus: "reviewed", validationStatus: "pending", repairStatus: "none", nextAction: "continue execution" }) : state.planProgress,
+      }, ctx);
+      queuePlanTerminalSummary(ctx, "blocked", "Plan execution incomplete", { reason });
       showBlockedPlanRecoveryMenu(ctx);
       return { ...typedToolAck(), details: { accepted: true, status: "blocked", validationStarted: false } };
     }
-    const progressWarning = hasOpenSteps ? "Execution completed with incomplete Plan step metadata; validator must verify approved Plan coverage." : undefined;
+    const progressWarning = hasOpenSteps && !planValidationBoundaryReached(progressedState, settings) ? "Execution completed with incomplete Plan step metadata; validator must verify approved Plan coverage." : undefined;
     const executionSummary = progressWarning ? `${summary}\n\nPlan Progress Warning: ${progressWarning}` : summary;
-    updateState({ mode: "executed", executionSummary, planStepValidationIndex: settings.workflow.validateAfterEachStep === true ? executedStepIndex : state.planStepValidationIndex, planExecutionStepIndex: undefined, planProgress: progressEnabled ? mergePlanProgress({ ...progressedState, mode: "executed" }, settings, { lifecycleStatus: "executing", validationStatus: progressWarning ? "unknown" : progressedState.planProgress?.validationStatus, nextAction: validationAvailable && validateAfterExecution ? "validator" : "finish workflow" }) : progressedPlanProgress }, ctx);
+    updateState({ mode: "executed", executionSummary, planStepValidationIndex: nextPlanStepValidationIndex, planExecutionStepIndex: undefined, planProgress: progressEnabled ? mergePlanProgress({ ...progressedState, mode: "executed" }, settings, { lifecycleStatus: "executing", validationStatus: progressWarning ? "unknown" : progressedState.planProgress?.validationStatus, nextAction: validationAvailable && validateAfterExecution ? "validator" : "finish workflow" }) : progressedPlanProgress }, ctx);
     if (validationAvailable && validateAfterExecution) {
       setPendingWorkflowToolPhase(ctx, "Validation", "typed execution accepted");
     }
@@ -8905,6 +9164,21 @@ export default function workflowModes(pi: ExtensionAPI): void {
       return { ...typedToolAck(false), details: { accepted: false, verdict, reason: `workflow_validation_result is only accepted during validation phases; current mode is ${state.mode}.` }, isError: true };
     }
     if (planValidationMode) {
+      const settings = loadWorkflowSettings(ctx.cwd);
+      if (!planValidationBoundaryReached(state, settings)) {
+        const reason = "Approved Plan execution is incomplete. Validation results are not accepted until the configured validation boundary is reached.";
+        updateState({
+          mode: "reviewed",
+          validationReport: undefined,
+          validationVerdict: undefined,
+          lastValidationFailure: undefined,
+          lastRepairStatus: "none",
+          lastRepairAttempt: undefined,
+          planStepValidationIndex: undefined,
+          planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "reviewed" }, settings, { lifecycleStatus: "reviewed", validationStatus: "pending", repairStatus: "none", nextAction: "continue execution" }, state.approvedPlan) : state.planProgress,
+        }, ctx);
+        return { ...typedToolAck(false), details: { accepted: false, verdict, reason }, isError: true };
+      }
       planForcedSubagentPreflightReconcile(ctx, "Validation");
       const forcedValidationBlock = forcedSubagentUsageSatisfied(ctx, "Validation");
       if (forcedValidationBlock) {
@@ -8933,6 +9207,22 @@ export default function workflowModes(pi: ExtensionAPI): void {
       updateState({ mode: "validated", lastRepairStatus: "blocked", lastRepairAttempt: compact(summary, 1200), planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "validated" }, settings, { lifecycleStatus: "blocked", repairStatus: "blocked", nextAction: "review typed repair result" }) : state.planProgress }, ctx);
       showBlockedPlanRecoveryMenu(ctx);
       return { ...typedToolAck(), details: { accepted: true, status } };
+    }
+    if (!planValidationBoundaryReached(state, settings)) {
+      updateState({
+        mode: "reviewed",
+        executionSummary: `${state.executionSummary ?? ""}\n\nRepair summary received before validation boundary (not revalidated):\n${summary}`.trim(),
+        lastWorkflowHandoff: undefined,
+        lastRepairStatus: "none",
+        lastRepairAttempt: undefined,
+        validationReport: undefined,
+        validationVerdict: undefined,
+        lastValidationFailure: undefined,
+        planStepValidationIndex: undefined,
+        planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "reviewed" }, settings, { lifecycleStatus: "reviewed", validationStatus: "pending", repairStatus: "none", nextAction: "continue execution" }, state.approvedPlan) : state.planProgress,
+      }, ctx);
+      show(pi, "# Plan Repair Ignored\n\nApproved Plan execution is incomplete. Repair/revalidation is not available until the configured validation boundary is reached.\n\nUse /plan continue.");
+      return { ...typedToolAck(), details: { accepted: true, status, ignored: true } };
     }
     updateState({ mode: "revalidating", executionSummary: `${state.executionSummary ?? ""}\n\nRepair summary:\n${summary}`.trim(), lastRepairStatus: "completed", lastRepairAttempt: compact(summary, 1200), planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "revalidating", lastRepairStatus: "completed" }, settings, { lifecycleStatus: "revalidating", validationStatus: "running", repairStatus: "completed", nextAction: "validation result" }) : state.planProgress }, ctx);
     setPendingWorkflowToolPhase(ctx, "Validation", "typed repair completed");
@@ -9012,6 +9302,7 @@ export default function workflowModes(pi: ExtensionAPI): void {
       if (!passed) {
         await handleMissionReviewFailure(ctx, reviewed, missionReview.verdict, missionReview.report);
       } else {
+        setReviewHandoffSuppression(ctx, "mission_typed_review_to_approval");
         deferWorkflowAction(pi, "resume mission approval after reviewer pass", async () => {
           const latest = loadMissionState(reviewed.id) ?? activeMission ?? reviewed;
           const block = missionReviewContinuationBlock(latest);
@@ -10347,6 +10638,29 @@ ${reportExcerpt(validation, 2400)}
           : kind === "run" ? "Run /mission resume or /mission continue."
             : kind === "planning" ? "Run /mission resume or rerun /mission plan."
               : "Run /mission review, /mission approve, or /mission resume.";
+    if (kind === "run") {
+      const activeIndex = mission.currentMilestoneIndex ?? 0;
+      const runningMilestones = mission.milestones.map((milestone, index) => index === activeIndex ? { ...milestone, status: "active" as const } : milestone);
+      const runNextAction = "Wait for mission_milestone_result from the active executor, or run /mission continue to re-arm execution if no result arrives.";
+      const running = saveActiveMission({
+        ...mission,
+        status: "running",
+        milestones: runningMilestones,
+        currentValidationRetry: retry,
+        missionValidationRetryCount: missionRetry,
+        lastRepairStatus: repairStatus,
+        lastStopReason: retryableInterruptionText(reason),
+        lastBlockReason: "",
+        nextAction: runNextAction,
+        lastSummary: "Mission run handoff interrupted by a transient failure; execution boundary preserved for typed milestone handoff.",
+      });
+      checkpointMission(running, `Mission ${kind} interrupted by transient handoff failure; execution boundary preserved. ${compact(reason, 500)}`, runNextAction, running.milestones[activeIndex]?.id, { validationResult: running.lastValidationResult });
+      updateState({ mode: "mission_running", activeMissionId: running.id, task: running.goal, originalTask: running.goal, approvedPlan: running.planText }, ctx);
+      activeMission = running;
+      armWorkflowToolsForPhase(ctx, "Execution", "recover mission run transient handoff failure");
+      show(pi, `# Mission Workflow Interrupted\n\nA transient connection or model handoff failure interrupted Mission execution handoff. This is not a semantic mission block; the active milestone execution boundary was preserved so a valid mission_milestone_result can still be accepted.\n\nPhase: ${workflowDisplayText(kind)}\nReason: ${workflowDisplayText(reason)}\n\nNext: ${workflowDisplayText(runNextAction)}.`);
+      return;
+    }
     const paused = saveActiveMission({
       ...mission,
       status: "paused",
@@ -10377,7 +10691,7 @@ ${reportExcerpt(validation, 2400)}
     initialDelayMs: 2000,
     requireIdle: true,
     isIdle: () => ctx.isIdle(),
-    onBeforeSend: (customType) => armWorkflowToolsForPhase(ctx, phase, `queued turn before send: ${customType}`),
+    onBeforeSend: (customType) => armAndVerifyWorkflowToolsForPhase(ctx, phase, `queued turn before send: ${customType}`),
   });
 
   const buildQueuedPlanningRecovery = (ctx: ExtensionContext, recover: (reason: string) => void): WorkflowQueuedTurnOptions =>
@@ -10562,7 +10876,15 @@ ${renderMissionProgress(mission, settings)}
     return true;
   }
 
-  function resolveActiveMissionForResume(): { mission?: MissionState; candidates: MissionState[]; reason?: string } {
+  function missionMatchesCurrentProject(ctx: ExtensionContext, mission?: MissionState): boolean {
+    return Boolean(mission?.cwd && mission.cwd === ctx.cwd);
+  }
+
+  function sortMissionResumeCandidates(a: MissionState, b: MissionState): number {
+    return missionResumePriority(a.status) - missionResumePriority(b.status) || b.updatedAt.localeCompare(a.updatedAt);
+  }
+
+  function resolveActiveMissionForResume(ctx: ExtensionContext): { mission?: MissionState; candidates: MissionState[]; reason?: string; fallbackProject?: boolean } {
     const byState = state.activeMissionId ? loadMissionState(state.activeMissionId) : undefined;
     const loadedActive = activeMission && (!state.activeMissionId || activeMission.id === state.activeMissionId) ? activeMission : undefined;
     const latest = loadMissionState();
@@ -10576,18 +10898,24 @@ ${renderMissionProgress(mission, settings)}
       add(byState);
       [loadedActive, latest, ...all]
         .filter((mission): mission is MissionState => missionIsResumeCandidate(mission) && mission.id !== byState.id)
-        .sort((a, b) => missionResumePriority(a.status) - missionResumePriority(b.status) || b.updatedAt.localeCompare(a.updatedAt))
+        .sort((a, b) => Number(missionMatchesCurrentProject(ctx, b)) - Number(missionMatchesCurrentProject(ctx, a)) || sortMissionResumeCandidates(a, b))
         .forEach(add);
       const inactiveReason = missionIsResumeCandidate(byState) ? undefined : `Current mission is ${(byState as MissionState).status}.`;
       return { mission: byState, candidates: ordered, reason: inactiveReason };
     }
 
-    [loadedActive, latest, ...all]
-      .filter(missionIsResumeCandidate)
-      .sort((a, b) => missionResumePriority(a.status) - missionResumePriority(b.status) || b.updatedAt.localeCompare(a.updatedAt))
-      .forEach(add);
+    const currentProject = [loadedActive, latest, ...all]
+      .filter((mission): mission is MissionState => missionIsResumeCandidate(mission) && missionMatchesCurrentProject(ctx, mission))
+      .sort(sortMissionResumeCandidates);
+    const otherProject = [loadedActive, latest, ...all]
+      .filter((mission): mission is MissionState => missionIsResumeCandidate(mission) && !missionMatchesCurrentProject(ctx, mission))
+      .sort(sortMissionResumeCandidates);
 
-    if (ordered.length > 0) return { mission: ordered[0], candidates: ordered };
+    currentProject.forEach(add);
+    otherProject.forEach(add);
+
+    if (currentProject.length > 0) return { mission: currentProject[0], candidates: ordered };
+    if (otherProject.length > 0) return { mission: otherProject[0], candidates: ordered, fallbackProject: true, reason: `No resumable mission found for current project ${basename(ctx.cwd)}; showing saved missions from other projects.` };
 
     add(loadedActive);
     add(latest);
@@ -10600,7 +10928,7 @@ ${renderMissionProgress(mission, settings)}
     const done = mission.milestones.filter((m) => m.status === "completed" || m.status === "skipped").length;
     const percent = total ? Math.round((done / total) * 100) : 0;
     const milestone = total ? `M${Math.min(mission.currentMilestoneIndex + 1, total)}/${total}` : "M0/0";
-    return `${mission.id} | ${mission.status} | ${milestone} | ${percent}% | ${compact(mission.goal, 80).replace(/\n/g, " ")}`;
+    return `${mission.id} | ${mission.projectLabel ?? mission.cwd ?? "unknown project"} | ${mission.status} | ${milestone} | ${percent}% | ${compact(mission.goal, 80).replace(/\n/g, " ")}`;
   }
 
   async function chooseMissionFromHistory(ctx: ExtensionContext, missions: MissionState[], title = "Choose a mission"): Promise<MissionState | undefined> {
@@ -10614,12 +10942,15 @@ ${renderMissionProgress(mission, settings)}
     return missions.find((mission) => mission.id === id);
   }
 
-  async function chooseResumeMission(ctx: ExtensionContext, resolved: { mission?: MissionState; candidates: MissionState[]; reason?: string }, action: "resume" | "continue" | "next" | "retry" | "repair" | "revalidate" = "resume"): Promise<MissionState | undefined> {
-    if (resolved.candidates.length <= 1 || !ctx.hasUI) return resolved.mission;
+  async function chooseResumeMission(ctx: ExtensionContext, resolved: { mission?: MissionState; candidates: MissionState[]; reason?: string; fallbackProject?: boolean }, action: "resume" | "continue" | "next" | "retry" | "repair" | "revalidate" = "resume"): Promise<MissionState | undefined> {
+    if (resolved.fallbackProject && !ctx.hasUI) return undefined;
+    if (!resolved.fallbackProject && (resolved.candidates.length <= 1 || !ctx.hasUI)) return resolved.mission;
     const title = action === "resume" ? "Mission Resume" : `Mission ${action[0].toUpperCase()}${action.slice(1)}`;
     const verb = action === "resume" ? "use" : action;
     const choices = resolved.candidates.map(missionResumeChoiceLabel);
-    const intro = action === "resume"
+    const intro = resolved.fallbackProject
+      ? (resolved.reason ?? "Only saved missions from other projects were found. Choose explicitly before continuing.")
+      : action === "resume"
       ? "Choose which mission to use."
       : `I found more than one mission that can ${action}. Choose which one to use.`;
     show(pi, `# ${title}\n\n${intro}\n\n${choices.map((choice, i) => `${i + 1}. ${choice}`).join("\n")}`);
@@ -10670,6 +11001,8 @@ ${renderMissionProgress(mission, settings)}
       if (!route) return { systemPrompt: `${systemPrompt}\n\nPI WORKFLOW MISSION VALIDATION BLOCKED: validator model is disabled, unavailable, or not configured. Do not execute Mission work. Report that Mission validation must be re-entered after validator routing is fixed.` };
       pi.setActiveTools(validationToolsFor(settings));
       updateState({ mode, activeMissionId: mission.id, modelsUsed: { ...(state.modelsUsed ?? {}), validator: modelLabel(route) } }, ctx);
+      const surfaceBlock = verifyWorkflowToolSurface(ctx, "Validation", "mission active validation gate", mode);
+      if (surfaceBlock) return { systemPrompt: `${systemPrompt}\n\nPI WORKFLOW MISSION VALIDATION BLOCKED: ${surfaceBlock}\n\nDo not validate the mission. Run /mission revalidate after the tool surface is repaired.` };
       return { systemPrompt: `${systemPrompt}\n\n${missionValidationPrompt(mission, settings, state.executionSummary, phasePreflightBlocks.Validation)}` };
     }
     if (mode === "mission_final_validating") {
@@ -10677,13 +11010,17 @@ ${renderMissionProgress(mission, settings)}
       if (!route) return { systemPrompt: `${systemPrompt}\n\nPI WORKFLOW MISSION FINAL VALIDATION BLOCKED: validator model is disabled, unavailable, or not configured. Do not execute Mission work. Report that final validation must be re-entered after validator routing is fixed.` };
       pi.setActiveTools(validationToolsFor(settings));
       updateState({ mode, activeMissionId: mission.id, modelsUsed: { ...(state.modelsUsed ?? {}), validator: modelLabel(route) } }, ctx);
+      const surfaceBlock = verifyWorkflowToolSurface(ctx, "Validation", "mission active final validation gate", mode);
+      if (surfaceBlock) return { systemPrompt: `${systemPrompt}\n\nPI WORKFLOW MISSION FINAL VALIDATION BLOCKED: ${surfaceBlock}\n\nDo not validate the mission. Run /mission revalidate after the tool surface is repaired.` };
       return { systemPrompt: `${systemPrompt}\n\n${missionFinalValidationPrompt(mission, settings, state.executionSummary, phasePreflightBlocks.Validation)}` };
     }
     if (mode === "mission_repairing") {
       const route = await applyMissionModelForRole(pi, ctx, "executor", { cwd: ctx.cwd });
       if (!route) return { systemPrompt: `${systemPrompt}\n\nPI WORKFLOW MISSION REPAIR BLOCKED: executor model is disabled, unavailable, or not configured. Do not validate or continue Mission execution. Report that Mission repair must be re-entered after executor routing is fixed.` };
-      pi.setActiveTools(executionToolsFor(settings));
+      pi.setActiveTools(missionRepairToolsFor(settings));
       updateState({ mode, activeMissionId: mission.id, modelsUsed: { ...(state.modelsUsed ?? {}), executor: modelLabel(route) } }, ctx);
+      const surfaceBlock = verifyWorkflowToolSurface(ctx, "Repair", "mission active repair gate", mode);
+      if (surfaceBlock) return { systemPrompt: `${systemPrompt}\n\nPI WORKFLOW MISSION REPAIR BLOCKED: ${surfaceBlock}\n\nDo not repair the mission. Run /mission repair or /mission resume after the tool surface is repaired.` };
       return { systemPrompt: `${systemPrompt}\n\n${missionRepairPrompt(mission, settings, phasePreflightBlocks.Repair)}` };
     }
     return undefined;
@@ -10865,9 +11202,9 @@ ${renderMissionProgress(mission, settings)}
   }
 
   async function handleMissionResume(ctx: ExtensionContext) {
-    const resolved = resolveActiveMissionForResume();
+    const resolved = resolveActiveMissionForResume(ctx);
     let selected = resolved.mission;
-    const allMissions = listMissionStates();
+    const allMissions = listMissionStates().sort((a, b) => Number(missionMatchesCurrentProject(ctx, b)) - Number(missionMatchesCurrentProject(ctx, a)) || b.updatedAt.localeCompare(a.updatedAt));
     if (!selected && allMissions.length > 0) selected = allMissions[0];
     if (!selected) return show(pi, `# Mission Resume
 
@@ -10897,6 +11234,7 @@ ${renderMissionStatus(mission)}`);
         return show(pi, `# ${selectedFromHistory ? "Selected Mission" : "Mission Resume"}
 
 Mission: ${mission.id}
+Project: ${mission.projectLabel ?? mission.cwd ?? "unknown project"}
 Status: ${missionPhaseFromStatus(mission.status)}
 Current Milestone: ${mission.milestones.length ? `M${Math.min(mission.currentMilestoneIndex + 1, mission.milestones.length)}/${mission.milestones.length}` : "M0/0"}
 Resume Available: ${resume.available ? "yes" : "no"}
@@ -10986,7 +11324,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     await beginMissionPlanning(ctx, activeMission);
   }
 
-  async function beginMissionPlanning(ctx: ExtensionContext, mission: MissionState, options: { forceClarification?: boolean; forceReason?: string; planningPreflightSatisfied?: boolean; reviewFeedback?: string } = {}) {
+  async function beginMissionPlanning(ctx: ExtensionContext, mission: MissionState, options: { forceClarification?: boolean; forceAdditionalClarification?: boolean; forceReason?: string; planningPreflightSatisfied?: boolean; reviewFeedback?: string } = {}) {
     stopStartupVisual(ctx);
     const settings = loadWorkflowSettings(ctx.cwd);
     clearTypedHandoff(ctx, "Mission planning");
@@ -11001,7 +11339,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       approvedPlan: undefined,
       lastCompletedMissionSummary: undefined,
     }, ctx);
-    const planningOverride = { policy: missionSubagentPolicy(settings), workers: missionPlanningWorkerCount(settings), label: "Mission Planning" };
+    const planningOverride = { policy: missionSubagentPolicy(settings), workers: missionPlanningWorkerCount(settings), label: "Mission Planning", task: mission.goal };
     if (!options.planningPreflightSatisfied && !beginForcedSubagentPhase(ctx, "Planning", settings, planningOverride)) {
       const blocked = saveActiveMission({ ...mission, status: "blocked", lastBlockReason: "Mission planning blocked by forced sub-agent policy availability gate.", nextAction: "Fix mission planning sub-agent policy blocker, then run /mission resume or /mission plan.", lastSummary: "Mission planning blocked before planner handoff." });
       checkpointMission(blocked, "Mission planning blocked before planner handoff.", "Fix mission planning sub-agent policy blocker, then run /mission resume or /mission plan.");
@@ -11021,7 +11359,9 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     const pending = saveActiveMission({ ...mission, status: "planning", modelsUsed: { ...(mission.modelsUsed ?? {}), planner: modelLabel(route) }, lastSummary: "Mission planning requested from planner model.", nextAction: "Mission planner is active; wait for the milestone plan or stop the turn." });
     const hasAnswers = Boolean(pending.clarificationAnswers?.length);
     const answerSummary = hasAnswers ? formatAnswersForPlanner(pending.clarificationQuestions ?? [], pending.clarificationAnswers ?? []) : undefined;
-    const forceClarification = !hasAnswers && options.forceClarification === true;
+    const forceClarification = options.forceAdditionalClarification === true
+      ? options.forceClarification === true
+      : !hasAnswers && options.forceClarification === true;
     updateState({
       mode: "mission_planning",
       activeMissionId: pending.id,
@@ -11035,7 +11375,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     }, ctx);
     queueWorkflowPrompt(
       pi,
-      missionPlanPrompt(pending, settings, { forceClarification, forceReason: forceClarification ? options.forceReason : undefined, answerSummary, reviewFeedback: options.reviewFeedback }),
+      missionPlanPrompt(pending, settings, { forceClarification, forceAdditionalClarification: options.forceAdditionalClarification, forceReason: forceClarification ? options.forceReason : undefined, answerSummary, reviewFeedback: options.reviewFeedback }),
       buildQueuedFailureRecovery(ctx, (reason) => recoverMissionTransientHandoffFailure(ctx, "planning", reason)),
     );
   }
@@ -11355,7 +11695,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       lastSummary: `Running approved milestone ${milestone.id}.`,
     });
     checkpointMission(running, `Starting approved milestone ${milestone.id}: ${milestone.title}.`, "Execute current mission milestone, then run mission validation.", milestone.id);
-    pi.setActiveTools(executionToolsFor(settings));
+    pi.setActiveTools(missionExecutionToolsFor(settings));
     updateState({ mode: "mission_running", activeMissionId: running.id, task: running.goal, originalTask: running.goal, approvedPlan: missionRunPlan(running), draftPlan: undefined, executionSummary: undefined, validationReport: undefined, validationVerdict: undefined, reviewerReport: undefined, modelsUsed: { ...(state.modelsUsed ?? {}), planner: running.modelsUsed?.planner }, missionTokensUsed: 0 }, ctx);
     if (!auto) show(pi, `# MISSION MODE ACTIVE\n\n# Mission Run Started\n\nMission ID: ${running.id}\nStatus: executing\nMilestone: ${milestone.id} — ${milestone.title}\nAutonomy: ${workflowDisplayValue(running.autonomy)}\n\n${renderMissionProgress(running, settings)}`);
     if (!beginForcedSubagentPhase(ctx, "Execution", settings)) {
@@ -11485,8 +11825,9 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
 
   const syncSubagentPhaseUsage = (phase: SubagentPhase): void => {
     const evidence = successfulSubagentEvidenceByPhase[phase];
+    const distinctNames = new Set(Array.from(evidence.values()));
     subagentUsageByPhase[phase] = evidence.size;
-    subagentNamesByPhase[phase] = new Set(Array.from(evidence.values()));
+    subagentNamesByPhase[phase] = distinctNames;
   };
 
   const recordSuccessfulSubagentEvidence = (phase: SubagentPhase, observations: SubagentNameObservation[]): void => {
@@ -11513,6 +11854,17 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     return undefined;
   };
 
+  const forcedSubagentGuardLabel = (phase: SubagentPhase): string => {
+    if (state.mode === "standard") return `Standard ${phase}`;
+    if (state.mode === "mission_planning" && phase === "Planning") return "Mission Planning";
+    if (state.mode === "mission_running" && phase === "Execution") return "Mission Execution";
+    if (state.mode === "mission_repairing" && phase === "Repair") return "Mission Repair";
+    if (state.mode === "mission_plan_ready" && phase === "Review") return "Mission Review";
+    if ((state.mode === "mission_validating" || state.mode === "mission_revalidating") && phase === "Validation") return "Mission Validation";
+    if (state.mode === "mission_final_validating" && phase === "Validation") return "Mission Final Validation";
+    return phase;
+  };
+
   const resetSubagentPhaseUsage = (phase: SubagentPhase) => {
     successfulSubagentEvidenceByPhase[phase].clear();
     syncSubagentPhaseUsage(phase);
@@ -11533,34 +11885,128 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     syncSubagentPhaseUsage(phase);
   };
 
-  const priorSubagentUsageSatisfiesForced = (phase: SubagentPhase, snapshot: { count: number; names: Set<string> }, settings: ReturnType<typeof loadWorkflowSettings>, override?: { policy?: SubagentPolicyValue; workers?: { deep: number; maximum: number } }): boolean => {
+  type SubagentPhasePolicyOverride = { policy?: SubagentPolicyValue; workers?: { deep: number; maximum: number }; label?: string; task?: string; kind?: WorkflowState["standardWorkKind"] };
+
+  const recordSubagentPolicyDecision = (ctx: ExtensionContext, decision: Omit<SubagentPolicyDecision, "createdAt">): SubagentPolicyDecision => {
+    const fullDecision: SubagentPolicyDecision = { ...decision, createdAt: new Date().toISOString() };
+    updateState({
+      subagentPolicyDecisions: {
+        ...(state.subagentPolicyDecisions ?? {}),
+        [decision.phase]: fullDecision,
+      },
+    }, ctx);
+    return fullDecision;
+  };
+
+  const phasePolicyForCurrentMode = (settings: ReturnType<typeof loadWorkflowSettings>, phase: SubagentPhase): SubagentPolicyValue => {
+    return state.mode === "standard" ? standardPhasePolicy(settings, phase) : phasePolicy(settings, phase);
+  };
+
+  const workersForCurrentMode = (settings: ReturnType<typeof loadWorkflowSettings>, phase: SubagentPhase): { deep: number; maximum: number } => {
+    return state.mode === "standard" ? standardWorkerCount(settings, phase) : workerCount(settings, phase);
+  };
+
+  const forcedTrivialExemptionDecision = (ctx: ExtensionContext, phase: SubagentPhase, policy: SubagentPolicyValue, workers: { deep: number; maximum: number }, task?: string, kind?: WorkflowState["standardWorkKind"]): SubagentPolicyDecision | undefined => {
+    if (!subagentPolicyRequiresRequiredEvidence(policy)) return undefined;
+    const reason = trivialSubagentSkipReason(phase, task, kind);
+    if (!reason) return undefined;
+    return recordSubagentPolicyDecision(ctx, {
+      phase,
+      policy,
+      outcome: "exempt_trivial",
+      reason,
+      task,
+      required: workerTargetForPolicy(policy, workers),
+      observed: 0,
+      background: false,
+    });
+  };
+
+  const rememberAdvisorySubagentDecision = (ctx: ExtensionContext, phase: SubagentPhase, policy: SubagentPolicyValue, outcome: "auto_delegate" | "auto_skip_trivial" | "auto_skip_no_useful_parallel_work" | "unavailable", reason: string, task?: string, workers = workerCount(loadWorkflowSettings(ctx.cwd), phase)): void => {
+    if (!subagentPolicyNeedsInternalDecision(policy)) return;
+    recordSubagentPolicyDecision(ctx, {
+      phase,
+      policy,
+      outcome,
+      reason,
+      task,
+      required: workerTargetForPolicy(policy, workers),
+      observed: subagentUsageByPhase[phase] ?? 0,
+      background: false,
+    });
+  };
+
+  const advisoryWorkerTargetForPolicy = (policy: SubagentPolicyValue, workers: { deep: number; maximum: number }): number => {
+    if (policy === "auto") return Math.max(1, workers.deep);
+    return Math.max(1, workerTargetForPolicy(policy, workers));
+  };
+
+  const advisorySubagentUnavailableReason = (ctx: ExtensionContext, phase: SubagentPhase, policy: SubagentPolicyValue, workers: { deep: number; maximum: number }, label: string): string | undefined => {
+    if (!subagentPolicyNeedsInternalDecision(policy)) return undefined;
+    const target = advisoryWorkerTargetForPolicy(policy, workers);
+    if (target <= 0) return undefined;
+    const settings = loadWorkflowSettings(ctx.cwd);
+    if (settings.subagents.enabled === false) return "subagents.enabled=false";
+    if (!phaseAutoUseAllowed(settings, phase)) return `subagents.autoUseDuring${phase}=false`;
+    if (!phaseParallelAllowed(settings, phase)) return `subagents.allowParallel${phase}=false`;
+    const candidates = chooseForcedSubagents(phase, Math.min(target, 8), label, listEffectiveAgents(ctx.cwd));
+    if (candidates.length === 0) return `no suitable ${phase.toLowerCase()} sub-agent workers are available`;
+    return undefined;
+  };
+
+  const priorSubagentUsageSatisfiesForced = (phase: SubagentPhase, snapshot: { count: number; names: Set<string> }, settings: ReturnType<typeof loadWorkflowSettings>, override?: SubagentPhasePolicyOverride): boolean => {
     const policy = override?.policy ?? phasePolicy(settings, phase);
-    if (policy !== "forced") return false;
-    const required = workerTargetForPolicy("forced", override?.workers ?? workerCount(settings, phase));
+    if (!subagentPolicyRequiresRequiredEvidence(policy)) return false;
+    const required = workerTargetForPolicy(policy, override?.workers ?? workerCount(settings, phase));
     return snapshot.count >= required;
   };
 
-  const beginForcedSubagentPhase = (ctx: ExtensionContext, phase: SubagentPhase, settings: ReturnType<typeof loadWorkflowSettings>, override?: { policy?: SubagentPolicyValue; workers?: { deep: number; maximum: number }; label?: string }): boolean => {
+  const beginForcedSubagentPhase = (ctx: ExtensionContext, phase: SubagentPhase, settings: ReturnType<typeof loadWorkflowSettings>, override?: SubagentPhasePolicyOverride): boolean => {
     resetSubagentPhaseUsage(phase);
     phasePreflightBlocks[phase] = undefined;
-    const reason = forcedSubagentUnavailableReason(settings, phase, ctx.cwd, override?.policy ?? phasePolicy(settings, phase), override?.workers ?? workerCount(settings, phase));
+    const policy = override?.policy ?? phasePolicy(settings, phase);
+    const workers = override?.workers ?? workerCount(settings, phase);
+    const task = override?.task ?? state.task ?? state.originalTask;
+    if (subagentPolicyNeedsInternalDecision(policy)) {
+      const advisory = advisorySubagentPolicyDecision(phase, policy, task, override?.kind);
+      rememberAdvisorySubagentDecision(ctx, phase, policy, advisory.outcome, advisory.reason, task, workers);
+    }
+    const exemption = forcedTrivialExemptionDecision(ctx, phase, policy, workers, task, override?.kind);
+    if (exemption) {
+      phasePreflightBlocks[phase] = formatSubagentPolicyDecision(exemption);
+      return true;
+    }
+    const reason = forcedSubagentUnavailableReason(settings, phase, ctx.cwd, policy, workers);
     if (!reason) return true;
+    if (subagentPolicyRequiresRequiredEvidence(policy)) {
+      recordSubagentPolicyDecision(ctx, {
+        phase,
+        policy,
+        outcome: "unavailable",
+        reason,
+        task,
+        required: workerTargetForPolicy(policy, workers),
+        observed: subagentUsageByPhase[phase] ?? 0,
+        background: false,
+      });
+    }
     showInternal(pi, `# Sub-Agent Policy Blocked\n\n${forcedSubagentMessage(phase, reason, override?.label)}`);
     return false;
   };
 
-  const forcedSubagentUsageSatisfied = (ctx: ExtensionContext, phase: SubagentPhase, override?: { policy?: SubagentPolicyValue; workers?: { deep: number; maximum: number }; label?: string }): string | undefined => {
+  const forcedSubagentUsageSatisfied = (ctx: ExtensionContext, phase: SubagentPhase, override?: SubagentPhasePolicyOverride): string | undefined => {
     const settings = loadWorkflowSettings(ctx.cwd);
     const policy = override?.policy ?? phasePolicy(settings, phase);
-    if (policy !== "forced") return undefined;
-    const required = workerTargetForPolicy("forced", override?.workers ?? workerCount(settings, phase));
+    if (!subagentPolicyRequiresRequiredEvidence(policy)) return undefined;
+    if (forcedTrivialExemptionDecision(ctx, phase, policy, override?.workers ?? workerCount(settings, phase), override?.task ?? state.task ?? state.originalTask, override?.kind)) return undefined;
+    const required = workerTargetForPolicy(policy, override?.workers ?? workerCount(settings, phase));
     const observed = subagentUsageByPhase[phase] ?? 0;
     if (observed >= required) return undefined;
     const label = override?.label ?? phase;
     return `${label} stopped because ${label} Policy is forced. Required ${label.toLowerCase()} sub-agent workers: ${required}. Observed: ${observed}. Validation or the next workflow phase will not start until the forced worker requirement is satisfied. Change this in Workflow Sub-agents / Workers, or rerun with the required workers.`;
   };
 
-  const blockIfForcedSubagentsMissing = (ctx: ExtensionContext, phase: SubagentPhase, override?: { policy?: SubagentPolicyValue; workers?: { deep: number; maximum: number }; label?: string }): boolean => {
+  const blockIfForcedSubagentsMissing = (ctx: ExtensionContext, phase: SubagentPhase, override?: SubagentPhasePolicyOverride): boolean => {
     const reason = forcedSubagentUsageSatisfied(ctx, phase, override);
     if (!reason) return false;
     showInternal(pi, `# Sub-Agent Policy Blocked\n\n${forcedSubagentMessage(phase, reason, override?.label)}`);
@@ -11638,19 +12084,36 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     return [`Phase: ${label}`, `Observed workers: ${succeeded.length}`, ...lines, ...(failed.length ? ["Failed workers:", ...failed.map((result) => `- ${result.agent} (${result.agentSource}): ${compact(workflowSubagentResultOutput(result), 500)}`)] : [])].join("\n");
   };
 
-  const runForcedSubagentPreflight = async (ctx: ExtensionContext, phase: SubagentPhase, settings: ReturnType<typeof loadWorkflowSettings>, context: ForcedSubagentPreflightContext = {}, override?: { policy?: SubagentPolicyValue; workers?: { deep: number; maximum: number }; label?: string }): Promise<{ ok: boolean; block?: string }> => {
+  const runForcedSubagentPreflight = async (ctx: ExtensionContext, phase: SubagentPhase, settings: ReturnType<typeof loadWorkflowSettings>, context: ForcedSubagentPreflightContext = {}, override?: SubagentPhasePolicyOverride): Promise<{ ok: boolean; block?: string }> => {
     resetSubagentPhaseUsage(phase);
     phasePreflightBlocks[phase] = undefined;
     const policy = override?.policy ?? phasePolicy(settings, phase);
     const workers = override?.workers ?? workerCount(settings, phase);
     const label = override?.label ?? context.label ?? phase;
-    if (policy !== "forced") return { ok: true };
+    const task = override?.task ?? context.task ?? state.task ?? state.originalTask;
+    if (!subagentPolicyRequiresRequiredEvidence(policy)) return { ok: true };
+    const exemption = forcedTrivialExemptionDecision(ctx, phase, policy, workers, task, override?.kind);
+    if (exemption) {
+      const block = formatSubagentPolicyDecision(exemption);
+      phasePreflightBlocks[phase] = block;
+      return { ok: true, block };
+    }
     const reason = forcedSubagentUnavailableReason(settings, phase, ctx.cwd, policy, workers);
     if (reason) {
+      recordSubagentPolicyDecision(ctx, {
+        phase,
+        policy,
+        outcome: "unavailable",
+        reason,
+        task,
+        required: workerTargetForPolicy(policy, workers),
+        observed: subagentUsageByPhase[phase] ?? 0,
+        background: false,
+      });
       showInternal(pi, `# Sub-Agent Policy Blocked\n\n${forcedSubagentMessage(phase, reason, label)}`);
       return { ok: false };
     }
-    const required = workerTargetForPolicy("forced", workers);
+    const required = workerTargetForPolicy(policy, workers);
     const effectiveAgents = listEffectiveAgents(ctx.cwd);
     const agents = chooseForcedSubagents(phase, required, label, effectiveAgents);
     const names = agents.map((agent) => agent.name);
@@ -11670,7 +12133,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
         return { ok: false };
       }
     }
-    const useBackground = settings.subagents.allowBackgroundSubagents === true && phase !== "Validation";
+    const useBackground = settings.subagents.allowBackgroundSubagents === true && (phase === "Planning" || phase === "Review");
     const tasks: WorkflowSubagentTask[] = names.map((agent, index) => ({ agent, task: forcedSubagentTaskText(phase, agent, index, required, context), cwd: ctx.cwd, background: useBackground, workflowPhase: phase }));
     stopStartupVisual(ctx);
     const startedAt = new Date().toISOString();
@@ -11727,6 +12190,16 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     }
     if (isBackground) {
       // Background execution: agents run independently, phase proceeds immediately
+      recordSubagentPolicyDecision(ctx, {
+        phase,
+        policy,
+        outcome: "required",
+        reason: "required workers launched as advisory background preflight",
+        task,
+        required,
+        observed: 0,
+        background: true,
+      });
       return { ok: true };
     }
     const succeeded = run.results.filter((result) => result.exitCode === 0);
@@ -11742,6 +12215,16 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       showInternal(pi, `# Sub-Agent Policy Blocked\n\n${label} forced preflight did not satisfy required workers. Required: ${required}; succeeded: ${succeeded.length}.\n\n${block}`);
       return { ok: false, block };
     }
+    recordSubagentPolicyDecision(ctx, {
+      phase,
+      policy,
+      outcome: "required",
+      reason: "required workers completed before phase continued",
+      task,
+      required,
+      observed: succeeded.length,
+      background: false,
+    });
     return { ok: true, block };
   };
 
@@ -11749,12 +12232,15 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     policy: standardPhasePolicy(settings, phase),
     workers: standardWorkerCount(settings, phase),
     label: `Standard ${phase}`,
+    task: state.task ?? state.originalTask ?? "Standard Mode task",
+    kind: state.standardWorkKind,
   });
 
   const standardForcedSubagentSatisfied = (phase: SubagentPhase, settings: ReturnType<typeof loadWorkflowSettings>, task: string): boolean => {
     const override = standardForcedSubagentOverride(settings, phase);
-    if (override.policy !== "forced") return true;
-    const required = workerTargetForPolicy("forced", override.workers);
+    if (!subagentPolicyRequiresRequiredEvidence(override.policy)) return true;
+    if (trivialSubagentSkipReason(phase, task, override.kind)) return true;
+    const required = workerTargetForPolicy(override.policy, override.workers);
     const record = state.standardSubagentPreflight?.[phase];
     if (record?.task === task && record.observed >= required) {
       restoreSuccessfulSubagentEvidence(phase, record.observed, new Set(record.agents), `standard:${phase}:${task}`);
@@ -11763,12 +12249,48 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     return false;
   };
 
+  const forcedSubagentVisibleCallBlock = (ctx: ExtensionContext, phase: SubagentPhase, required: number, observed: number, input: unknown, label: string = phase): string | undefined => {
+    const remaining = Math.max(0, required - observed);
+    if (remaining <= 0) return undefined;
+    const callShape = `Use one parallel tasks call shaped like subagent({ workflowPhase: "${phase.toLowerCase()}", tasks: [...] }). Worker count means task entries, not unique agent names; duplicate suitable roles are valid when useful, and distinct role names are not required. Choose phase-suitable workers by task fit. Do not add filler roles. Do not use subagent chain for forced multi-worker evidence.`;
+    const countText = (requested: number, suffix = "") => {
+      const shortBy = Math.max(0, remaining - requested);
+      const shortage = shortBy > 0 ? `; this call is short by ${shortBy}` : "";
+      return `subagent blocked — forced ${label} requires ${required} total worker task${required === 1 ? "" : "s"} before substantive ${phase.toLowerCase()} work; observed ${observed}, requested ${requested}${shortage}.${suffix}`;
+    };
+    if (!isRecord(input)) return countText(0, " The subagent request could not be inspected.");
+    const requestedPhase = parseSubagentWorkflowPhase(input.workflowPhase);
+    if (requestedPhase && requestedPhase !== phase) {
+      return `subagent blocked — forced ${label} requires ${phase.toLowerCase()} workers, but the call requested workflowPhase=${String(input.workflowPhase)}.`;
+    }
+    const observations = extractSubagentObservations(input);
+    const requested = observations.length;
+    const distinctNames = Array.from(new Set(observations.map((observation) => observation.name).filter(Boolean)));
+    if (remaining > 1 && !Array.isArray(input.tasks)) {
+      const shape = Array.isArray(input.chain) && requested >= remaining
+        ? `subagent blocked — forced ${label} requires ${required} total worker task${required === 1 ? "" : "s"} before substantive ${phase.toLowerCase()} work; observed ${observed}, requested ${requested} via chain. The requested count is enough, but chain is sequential and does not satisfy forced multi-worker evidence. ${callShape}`
+        : `${countText(requested)} ${callShape}`;
+      return shape;
+    }
+    if (requested < remaining) {
+      return countText(requested, "");
+    }
+    const availableAgents = listEffectiveAgents(ctx.cwd);
+    const suitableNames = new Set(availableAgents.filter((agent) => subagentSuitableForForcedPhase(forcedAgentProfile(agent), phase, label)).map((agent) => agent.name));
+    const unsuitable = distinctNames.filter((name) => !suitableNames.has(name));
+    if (unsuitable.length > 0) {
+      return `subagent blocked — forced ${label} requested unsuitable or unavailable worker${unsuitable.length === 1 ? "" : "s"} for ${phase.toLowerCase()}: ${unsuitable.join(", ")}.`;
+    }
+    return undefined;
+  };
+
   const planForcedSubagentPreflightReconcile = (ctx: ExtensionContext, phase: SubagentPhase): void => {
     const block = phasePreflightBlocks[phase];
     if (!block) return;
     const settings = loadWorkflowSettings(ctx.cwd);
     const policy = phasePolicy(settings, phase);
-    if (policy !== "forced") return;
+    if (!subagentPolicyRequiresRequiredEvidence(policy)) return;
+    if (/^Policy decision:\s*exempt_trivial\b/im.test(block)) return;
     const observedMatch = block.match(/Observed workers: (\d+)/);
     if (!observedMatch) return;
     const observed = parseInt(observedMatch[1], 10);
@@ -11780,9 +12302,11 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
   };
 
   const planForcedSubagentPreflightSatisfied = (ctx: ExtensionContext, phase: SubagentPhase, settings: ReturnType<typeof loadWorkflowSettings>): boolean => {
-    if (phasePolicy(settings, phase) !== "forced") return false;
+    const policy = phasePolicy(settings, phase);
+    if (!subagentPolicyRequiresRequiredEvidence(policy)) return false;
+    if (forcedTrivialExemptionDecision(ctx, phase, policy, workerCount(settings, phase), state.task ?? state.originalTask, state.standardWorkKind)) return true;
     planForcedSubagentPreflightReconcile(ctx, phase);
-    const required = workerTargetForPolicy("forced", workerCount(settings, phase));
+    const required = workerTargetForPolicy(policy, workerCount(settings, phase));
     return (subagentUsageByPhase[phase] ?? 0) >= required;
   };
 
@@ -12047,6 +12571,12 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     standardPhaseByToolCall.delete(toolCallId);
     const phaseOverride = parseSubagentWorkflowPhase(args.workflowPhase);
     if (phaseOverride) standardPhaseByToolCall.set(toolCallId, phaseOverride);
+    const phase = phaseOverride ?? phaseForWorkflowMode(state.mode);
+    if (phase) {
+      const settings = loadWorkflowSettings(ctx.cwd);
+      const policy = phasePolicyForCurrentMode(settings, phase);
+      rememberAdvisorySubagentDecision(ctx, phase, policy, "auto_delegate", "visible parent subagent call started", state.task ?? state.originalTask, workersForCurrentMode(settings, phase));
+    }
     const observations = extractSubagentObservations(args, `top:${toolCallId}`);
     registerSubagentObservations(toolCallId, observations, ctx, observations.length === 0);
     if (observations.length === 0) renderWorkflowSubagentActivity(ctx);
@@ -12273,7 +12803,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       repairRetryState: reviewerRepair ? state.repairRetryState : undefined,
       planProgress: initialPlanProgress,
     }, ctx);
-    if (!options.planningPreflightSatisfied && !beginForcedSubagentPhase(ctx, "Planning", settings)) {
+    if (!options.planningPreflightSatisfied && !beginForcedSubagentPhase(ctx, "Planning", settings, { task })) {
       pi.setActiveTools(planToolsFor(settings));
       updateState({ mode: "plan_draft", activePlanId, draftPlan: "Planning blocked before the planner could run: forced planning sub-agent requirements are unavailable.", approvedPlan: undefined, lastReviewFailure: "Forced planning sub-agent requirements are unavailable.", executionSummary: undefined, validationReport: undefined, validationVerdict: undefined, reviewerReport: undefined, reviewerVerdict: undefined, currentReviewRetry: 0, workflowReviewRetryCount: 0, maxReviewRetriesPerPlan: undefined, maxReviewRetriesPerWorkflow: undefined, lastReviewAttempt: undefined, lastReviewRepairStatus: "none", reviewHistory: undefined, reviewRepairInProgress: undefined, repairRetryState: undefined, currentValidationRetry: 0, workflowValidationRetryCount: 0, lastRepairStatus: "none", planStepValidationIndex: undefined, planExecutionStepIndex: undefined, planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "validated", draftPlan: undefined, approvedPlan: undefined }, settings, { lifecycleStatus: "blocked", nextAction: "fix planning sub-agent policy or revise planning", steps: [] }, undefined) : undefined, lastCompletedPlanSummary: undefined }, ctx);
       return;
@@ -12382,19 +12912,8 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     }
     updateState({ modelsUsed: { ...(state.modelsUsed ?? {}), executor: modelLabel(route) } }, ctx);
     armWorkflowToolsForPhase(ctx, "Execution", "beginExecution prompt queued");
-    let missingExecutionTools = missingRequiredPlanExecutionTools(pi.getActiveTools(), settings);
-    if (missingExecutionTools.length) {
-      pi.setActiveTools(executionToolsFor(settings));
-      missingExecutionTools = missingRequiredPlanExecutionTools(pi.getActiveTools(), settings);
-      traceWorkflowTracking(ctx, "defensive-tool-arm", { reason: "required execution tools missing before executor queue", missingExecutionTools });
-    }
-    if (missingExecutionTools.length) {
-      const reason = `Required execution tools are unavailable after execution tool rearm: ${missingExecutionTools.join(", ")}. Execution was not queued.`;
-      const revertMode = previousMode === "reviewed" ? "reviewed" as const : "plan_approved" as const;
-      updateState({ mode: revertMode, planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: revertMode }, settings, { lifecycleStatus: revertMode === "reviewed" ? "reviewed" : "approved", nextAction: "repair execution tool surface" }, state.approvedPlan) : state.planProgress, lastReviewFailure: reason }, ctx);
-      pi.setActiveTools(webSafePlanTools(PLAN_TOOLS));
-      recordWorkflowInternalEvent(ctx, `Plan execution blocked because required execution tools were unavailable after rearm: ${missingExecutionTools.join(", ")}.`);
-      show(pi, `# Execution Blocked\n\n${reason}\n\nRun /plan continue after the execution tool surface is repaired.`);
+    const executionSurfaceBlock = verifyWorkflowToolSurface(ctx, "Execution", "beginExecution prompt queued");
+    if (executionSurfaceBlock) {
       return false;
     }
     queueAgentTurn(pi, executePrompt(executionState, settings, phasePreflightBlocks.Execution), auto ? "workflow-execute-trigger" : "workflow-execute-manual-trigger", buildQueuedPhaseRecovery(ctx, "Execution", (reason) => recoverPlanTransientHandoffFailure(ctx, "execution", reason, { phase: "Execution" })));
@@ -12476,6 +12995,21 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       return true;
     }
     const settings = loadWorkflowSettings(ctx.cwd);
+    if (!planValidationBoundaryReached(state, settings)) {
+      const reason = "Approved Plan execution is incomplete. Continue execution and complete the remaining Plan steps before validation.";
+      updateState({
+        mode: "reviewed",
+        validationReport: undefined,
+        validationVerdict: undefined,
+        lastValidationFailure: undefined,
+        lastRepairStatus: "none",
+        lastRepairAttempt: undefined,
+        planStepValidationIndex: undefined,
+        planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "reviewed" }, settings, { lifecycleStatus: "reviewed", validationStatus: "pending", repairStatus: "none", nextAction: "continue execution" }, state.approvedPlan) : state.planProgress,
+      }, ctx);
+      show(pi, `# Plan Validation Refused\n\n${reason}\n\nUse /plan continue.`);
+      return false;
+    }
     const route = await applyModelForRole(pi, ctx, "validator", { requireEnabled: false, cwd: ctx.cwd });
     if (!route) {
       const reason = "Plan validator model is disabled, unavailable, or not configured.";
@@ -12656,6 +13190,20 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
   async function startWorkflowRepair(ctx: ExtensionContext, source: "auto" | "user" = "auto") {
     if (!state.approvedPlan) return show(pi, "# Plan Repair Refused\n\nNo approved plan exists.");
     const settings = loadWorkflowSettings(ctx.cwd);
+    if (!planValidationBoundaryReached(state, settings)) {
+      const reason = "Approved Plan execution is incomplete. Repair is only available after a valid validation failure.";
+      updateState({
+        mode: "reviewed",
+        validationReport: undefined,
+        validationVerdict: undefined,
+        lastValidationFailure: undefined,
+        lastRepairStatus: "none",
+        lastRepairAttempt: undefined,
+        planStepValidationIndex: undefined,
+        planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "reviewed" }, settings, { lifecycleStatus: "reviewed", validationStatus: "pending", repairStatus: "none", nextAction: "continue execution" }, state.approvedPlan) : state.planProgress,
+      }, ctx);
+      return show(pi, `# Plan Repair Refused\n\n${reason}\n\nUse /plan continue.`);
+    }
     if (state.concreteRepairableIssue === false) {
       const reason = "No concrete repairable issue — manual verification only.";
       updateState({ mode: "validated", lastRepairStatus: "blocked", lastRepairAttempt: reason, lastValidationFailure: state.lastValidationFailure || state.validationReport, planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "validated", lastRepairStatus: "blocked" }, settings, { lifecycleStatus: "blocked", repairStatus: "blocked", nextAction: "manual verification or revalidate" }) : state.planProgress }, ctx);
@@ -12749,14 +13297,43 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
   }
 
   async function handleWorkflowRetryCommand(ctx: ExtensionContext, action: "retry" | "repair" | "revalidate") {
+    const settings = loadWorkflowSettings(ctx.cwd);
     if (action === "revalidate") {
       if (!state.approvedPlan && (state.mode === "idle" || state.mode === "cancelled" || state.mode === "awaiting_plan_input")) {
         const latest = latestRecoverablePlan();
         if (latest) recoverPlanFromHistory(ctx, latest);
       }
+      if (state.approvedPlan && !planValidationBoundaryReached(state, settings)) {
+        const reason = "Approved Plan execution is incomplete. Continue execution and complete the remaining Plan steps before validation.";
+        updateState({
+          mode: "reviewed",
+          validationReport: undefined,
+          validationVerdict: undefined,
+          lastValidationFailure: undefined,
+          lastRepairStatus: "none",
+          lastRepairAttempt: undefined,
+          planStepValidationIndex: undefined,
+          planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "reviewed" }, settings, { lifecycleStatus: "reviewed", validationStatus: "pending", repairStatus: "none", nextAction: "continue execution" }, state.approvedPlan) : state.planProgress,
+        }, ctx);
+        return show(pi, `# Plan Revalidate Refused\n\n${reason}\n\nUse /plan continue.`);
+      }
       return beginValidation(ctx, true, true);
     }
     if (await handlePlanReviewRepairRecovery(ctx, action)) return;
+    if (state.approvedPlan && !planValidationBoundaryReached(state, settings)) {
+      const reason = "Approved Plan execution is incomplete. Repair is only available after a valid validation failure.";
+      updateState({
+        mode: "reviewed",
+        validationReport: undefined,
+        validationVerdict: undefined,
+        lastValidationFailure: undefined,
+        lastRepairStatus: "none",
+        lastRepairAttempt: undefined,
+        planStepValidationIndex: undefined,
+        planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "reviewed" }, settings, { lifecycleStatus: "reviewed", validationStatus: "pending", repairStatus: "none", nextAction: "continue execution" }, state.approvedPlan) : state.planProgress,
+      }, ctx);
+      return show(pi, `# Plan ${action}\n\n${reason}\n\nUse /plan continue.`);
+    }
     if (state.mode === "executing" || state.mode === "validating" || state.mode === "repairing" || state.mode === "revalidating") return show(pi, `# Plan ${action}\n\nCannot ${action}: workflow is currently ${state.mode}. Wait for the active gate first.`);
     const hasValidationFailure = Boolean(state.lastValidationFailure || state.validationReport || state.validationVerdict === "FAIL" || state.validationVerdict === "PARTIAL PASS");
     if (!hasValidationFailure) return show(pi, `# Plan ${action}\n\nCannot ${action}: no validation failure is recorded.`);
@@ -12970,6 +13547,21 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
   async function resumeInterruptedPlanValidation(ctx: ExtensionContext, title: string): Promise<boolean> {
     const settings = loadWorkflowSettings(ctx.cwd);
     const revalidate = state.mode === "revalidating";
+    if (!planValidationBoundaryReached(state, settings)) {
+      show(pi, `# ${title}\n\nRecovered interrupted Plan validation runtime, but approved Plan execution is incomplete. Re-arming executor for the current incomplete step.`);
+      updateState({
+        mode: "reviewed",
+        validationReport: undefined,
+        validationVerdict: undefined,
+        lastValidationFailure: undefined,
+        lastRepairStatus: "none",
+        lastRepairAttempt: undefined,
+        planStepValidationIndex: undefined,
+        planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "reviewed" }, settings, { lifecycleStatus: "reviewed", validationStatus: "pending", repairStatus: "none", nextAction: "executor" }, state.approvedPlan) : state.planProgress,
+      }, ctx);
+      await beginExecution(ctx, true);
+      return true;
+    }
     if (!planValidationGateActive(settings)) {
       show(pi, `# ${title}\n\nRecovered interrupted Plan validation runtime. Validation is disabled or unavailable for this workflow.`);
       await completePlanWithoutValidation(ctx, "Validation skipped: validation gate is disabled for this workflow.");
@@ -13027,6 +13619,21 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     restorePlanRuntimeSnapshot(ctx, snapshot);
     const settings = loadWorkflowSettings(ctx.cwd);
     const validationAvailable = planValidationGateActive(settings);
+    if ((state.mode === "executed" || state.mode === "validated" || state.mode === "validating" || state.mode === "revalidating") && planExecutionIncomplete(state, settings)) {
+      show(pi, `# ${title}\n\nRecovered Plan runtime from session history, but approved Plan execution is incomplete. Continuing execution from the current incomplete step.`);
+      updateState({
+        mode: "reviewed",
+        validationReport: undefined,
+        validationVerdict: undefined,
+        lastValidationFailure: undefined,
+        lastRepairStatus: "none",
+        lastRepairAttempt: undefined,
+        planStepValidationIndex: undefined,
+        planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "reviewed" }, settings, { lifecycleStatus: "reviewed", validationStatus: "pending", repairStatus: "none", nextAction: "executor" }, state.approvedPlan) : state.planProgress,
+      }, ctx);
+      await beginExecution(ctx, true);
+      return true;
+    }
     if (state.mode === "executed" && validationAvailable) {
       show(pi, `# ${title}\n\nRecovered executed Plan runtime from session history. Continuing to validation.`);
       await beginValidation(ctx, true, false, "immediate");
@@ -13105,7 +13712,10 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     }, ctx);
   }
 
-  function planRecoveryGuidance(current: WorkflowState, validationAvailable: boolean, activeRuntimeStale = false): string {
+  function planRecoveryGuidance(current: WorkflowState, validationAvailable: boolean, activeRuntimeStale = false, settings = loadWorkflowSettings()): string {
+    if ((current.mode === "executed" || current.mode === "validated" || current.mode === "validating" || current.mode === "revalidating") && planExecutionIncomplete(current, settings)) {
+      return "Approved Plan execution is incomplete. Next action: /plan continue to complete the remaining steps before validation or repair.";
+    }
     if (current.mode === "idle" || current.mode === "cancelled" || current.mode === "awaiting_plan_input") {
       const latest = latestRecoverablePlan();
       if (latest) return `No active Plan Mode workflow is loaded. Recoverable approved plan found.\n\n${recoverablePlanDetails(latest)}\n\nNext action: /plan resume to restore it, /plan continue to run it, or /p <task> to start a new plan.`;
@@ -13128,7 +13738,11 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     return `No safe automatic continuation is available for state: ${current.mode}.`;
   }
 
-  function resolveActivePlanForResume(): { plan?: SavedWorkflowPlan; candidates: SavedWorkflowPlan[]; source: "active" | "history" | "none"; reason?: string } {
+  function planMatchesCurrentProject(ctx: ExtensionContext, plan?: SavedWorkflowPlan): boolean {
+    return Boolean(plan?.projectPath && plan.projectPath === ctx.cwd);
+  }
+
+  function resolveActivePlanForResume(ctx: ExtensionContext): { plan?: SavedWorkflowPlan; candidates: SavedWorkflowPlan[]; source: "active" | "history" | "fallback" | "none"; reason?: string } {
     const candidates = listWorkflowPlans()
       .filter((plan) => plan.finalPlan?.trim() && (plan.approvalStatus === "approved" || plan.approvalStatus === "revised"))
       .sort((a, b) => (b.timestamp ?? "").localeCompare(a.timestamp ?? ""));
@@ -13137,10 +13751,17 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     const add = (plan?: SavedWorkflowPlan) => {
       if (plan?.finalPlan?.trim() && (plan.approvalStatus === "approved" || plan.approvalStatus === "revised") && !ordered.some((p) => p.id === plan.id)) ordered.push(plan);
     };
-    add(latest);
-    candidates.forEach(add);
+    const currentProject = [latest, ...candidates]
+      .filter((plan): plan is SavedWorkflowPlan => Boolean(plan?.finalPlan?.trim()) && (plan.approvalStatus === "approved" || plan.approvalStatus === "revised") && planMatchesCurrentProject(ctx, plan))
+      .sort((a, b) => (b.timestamp ?? "").localeCompare(a.timestamp ?? ""));
+    const otherProject = [latest, ...candidates]
+      .filter((plan): plan is SavedWorkflowPlan => Boolean(plan?.finalPlan?.trim()) && (plan.approvalStatus === "approved" || plan.approvalStatus === "revised") && !planMatchesCurrentProject(ctx, plan))
+      .sort((a, b) => (b.timestamp ?? "").localeCompare(a.timestamp ?? ""));
+    currentProject.forEach(add);
+    otherProject.forEach(add);
     if (state.approvedPlan?.trim() && !isMissionWorkflowMode(state)) return { candidates: ordered, source: "active", reason: "Active approved plan is already loaded." };
-    if (ordered.length > 0) return { plan: ordered[0], candidates: ordered, source: "history" };
+    if (currentProject.length > 0) return { plan: currentProject[0], candidates: ordered, source: "history" };
+    if (otherProject.length > 0) return { plan: otherProject[0], candidates: ordered, source: "fallback", reason: `No recoverable Plan Mode workflow found for current project ${basename(ctx.cwd)}; showing saved plans from other projects.` };
     return { candidates: [], source: "none", reason: "No active or recoverable approved Plan Mode workflow found." };
   }
 
@@ -13194,7 +13815,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
   }
 
   function planResumeChoiceLabel(plan: SavedWorkflowPlan): string {
-    return `${plan.id} | ${plan.approvalStatus} | ${plan.planningMode} | ${compact(plan.originalTask || "Saved plan", 80).replace(/\n/g, " ")}`;
+    return `${plan.id} | ${plan.projectLabel ?? plan.projectPath ?? "unknown project"} | ${plan.approvalStatus} | ${plan.planningMode} | ${compact(plan.originalTask || "Saved plan", 80).replace(/\n/g, " ")}`;
   }
 
   function planResumeCanContinueCurrent(current: WorkflowState): boolean {
@@ -13222,12 +13843,15 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     return selectable.find((plan) => plan.id === id);
   }
 
-  async function choosePlanForContinueWhenNoCurrentPlan(ctx: ExtensionContext, resolved: { plan?: SavedWorkflowPlan; candidates: SavedWorkflowPlan[]; source: "active" | "history" | "none"; reason?: string }, action: "resume" | "continue" = "resume"): Promise<SavedWorkflowPlan | undefined> {
+  async function choosePlanForContinueWhenNoCurrentPlan(ctx: ExtensionContext, resolved: { plan?: SavedWorkflowPlan; candidates: SavedWorkflowPlan[]; source: "active" | "history" | "fallback" | "none"; reason?: string }, action: "resume" | "continue" = "resume"): Promise<SavedWorkflowPlan | undefined> {
     if (resolved.source === "active") return undefined;
-    if (resolved.candidates.length <= 1 || !ctx.hasUI) return resolved.plan;
+    if (resolved.source === "fallback" && !ctx.hasUI) return undefined;
+    if (resolved.source !== "fallback" && (resolved.candidates.length <= 1 || !ctx.hasUI)) return resolved.plan;
     const title = action === "resume" ? "Plan Resume" : "Plan Continue";
     const choices = resolved.candidates.map(planResumeChoiceLabel);
-    const intro = action === "resume"
+    const intro = resolved.source === "fallback"
+      ? (resolved.reason ?? "Only saved plans from other projects were found. Choose explicitly before continuing.")
+      : action === "resume"
       ? "Choose which plan to use."
       : "I found more than one saved plan. Choose which one to continue.";
     show(pi, `# ${title}\n\n${intro}\n\n${choices.map((choice, i) => `${i + 1}. ${choice}`).join("\n")}`);
@@ -13242,10 +13866,10 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     const validationAvailable = planValidationGateActive(settings);
     const currentAdvancedSnapshot = findAdvancedPlanRuntimeSnapshotForCurrentState(ctx);
     if (currentAdvancedSnapshot) restorePlanRuntimeSnapshotForResume(ctx, currentAdvancedSnapshot);
-    const resolved = resolveActivePlanForResume();
-    const allPlans = listWorkflowPlans().filter((plan) => plan.finalPlan?.trim());
+    const resolved = resolveActivePlanForResume(ctx);
+    const allPlans = listWorkflowPlans().filter((plan) => plan.finalPlan?.trim()).sort((a, b) => Number(planMatchesCurrentProject(ctx, b)) - Number(planMatchesCurrentProject(ctx, a)) || (b.timestamp ?? "").localeCompare(a.timestamp ?? ""));
     const activeRuntimeStale = planActiveRuntimeIsRecoverablyStale(ctx);
-    if (resolved.source === "none" && allPlans.length === 0) return show(pi, `# Plan Resume\n\n${resolved.reason ?? planRecoveryGuidance(state, validationAvailable, activeRuntimeStale)}\n\nUse /workflow plans list to see saved plans.\n\n${renderWorkflowStatus(state, pi.getActiveTools(), ctx.cwd)}`);
+    if (resolved.source === "none" && allPlans.length === 0) return show(pi, `# Plan Resume\n\n${resolved.reason ?? planRecoveryGuidance(state, validationAvailable, activeRuntimeStale, settings)}\n\nUse /workflow plans list to see saved plans.\n\n${renderWorkflowStatus(state, pi.getActiveTools(), ctx.cwd)}`);
     let selected = resolved.plan;
     if (resolved.source === "history" && selected) {
       const advancedSnapshot = findAdvancedPlanRuntimeSnapshot(ctx, selected);
@@ -13265,10 +13889,16 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     // Secondary surface for a saved plan chosen through "Choose Another Plan".
     const showSelectedSavedPlanResumeMenu = async (plan: SavedWorkflowPlan): Promise<void> => {
       const canContinue = plan.approvalStatus === "approved" || plan.approvalStatus === "revised";
+      const canRevalidatePlan = canContinue && planValidationBoundaryReached({
+        ...state,
+        approvedPlan: plan.finalPlan,
+        planProgress: plan.planProgress,
+        planStepValidationIndex: plan.planStepValidationIndex,
+      }, settings);
       const summary = `# Selected Plan\n\n${recoverablePlanDetails(plan)}\n\nStatus: ${plan.approvalStatus}`;
       show(pi, `${summary}\n\nChoose what to do.`);
       if (!ctx.hasUI) return;
-      const choices = [...(canContinue ? ["Continue Plan", "Revalidate Plan"] : []), "Reuse Plan", "Amend Plan", "List Plan Status", "List Plans", "Cancel"];
+      const choices = [...(canContinue ? ["Continue Plan"] : []), ...(canRevalidatePlan ? ["Revalidate Plan"] : []), "Reuse Plan", "Amend Plan", "List Plan Status", "List Plans", "Cancel"];
       const choice = await ctx.ui.select("Selected Plan", choices);
       if (choice === "Continue Plan") {
         const advancedSnapshot = findAdvancedPlanRuntimeSnapshot(ctx, plan);
@@ -13291,17 +13921,18 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     // Primary /plan resume surface: restore state, then let the user choose.
     const showActivePlanResumeActionMenu = async (currentPlan?: SavedWorkflowPlan): Promise<void> => {
       const details = currentPlan ? `\n\n${recoverablePlanDetails(currentPlan)}` : "";
-      const summary = `# Plan Resume\n\n${currentPlan ? "Plan loaded from saved history." : state.approvedPlan ? "Current plan is loaded." : "No current plan is loaded."}${details}\n\n${planRecoveryGuidance(state, validationAvailable, planActiveRuntimeIsRecoverablyStale(ctx))}\n\n${renderWorkflowStatus(state, pi.getActiveTools(), ctx.cwd)}`;
+      const summary = `# Plan Resume\n\n${currentPlan ? state.approvedPlan ? "Plan loaded from saved history." : "Saved plan is available." : state.approvedPlan ? "Current plan is loaded." : "No current plan is loaded."}${details}\n\n${resolved.source === "fallback" ? `${resolved.reason}\n\n` : ""}${planRecoveryGuidance(state, validationAvailable, planActiveRuntimeIsRecoverablyStale(ctx), settings)}\n\n${renderWorkflowStatus(state, pi.getActiveTools(), ctx.cwd)}`;
       show(pi, `${summary}\n\nChoose what to do.`);
       if (!ctx.hasUI) return;
       const hasAlternatives = allPlans.some((plan) => plan.id !== currentPlan?.id);
       const canContinueCurrent = planResumeCanContinueCurrent(state);
       const reviewRepairAvailable = planReviewRepairRecoveryAvailable(state);
-      const validationRepairAvailable = Boolean(state.lastValidationFailure || state.validationReport || state.validationVerdict === "FAIL" || state.validationVerdict === "PARTIAL PASS");
+      const validationBoundaryReached = planValidationBoundaryReached(state, settings);
+      const validationRepairAvailable = validationBoundaryReached && Boolean(state.lastValidationFailure || state.validationReport || state.validationVerdict === "FAIL" || state.validationVerdict === "PARTIAL PASS");
       const choice = await ctx.ui.select("Plan Resume", [
         ...(reviewRepairAvailable ? ["Review Repair / Recover Notes"] : []),
         ...(state.approvedPlan && validationRepairAvailable ? ["Repair / Retry"] : []),
-        ...(state.approvedPlan ? ["Revalidate"] : []),
+        ...(state.approvedPlan && validationBoundaryReached ? ["Revalidate"] : []),
         ...(canContinueCurrent ? ["Continue Current Plan"] : []),
         ...(hasAlternatives ? ["Choose Another Plan"] : []),
         "List Plan Status", "List Plans", "Cancel",
@@ -13360,7 +13991,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     const status = renderWorkflowStatus(state, pi.getActiveTools(), ctx.cwd);
 
     if (!state.approvedPlan && (state.mode === "idle" || state.mode === "cancelled" || state.mode === "awaiting_plan_input")) {
-      const resolved = resolveActivePlanForResume();
+      const resolved = resolveActivePlanForResume(ctx);
       const selected = await choosePlanForContinueWhenNoCurrentPlan(ctx, resolved, "continue");
       if (!selected) return show(pi, `# ${title}\n\n${resolved.reason ?? "No plan selected. Continue cancelled."}\n\nUse /workflow plans list to see saved plans.\n\n${status}`);
       const advancedSnapshot = findAdvancedPlanRuntimeSnapshot(ctx, selected);
@@ -13428,6 +14059,21 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       const recoveredReviewVerdict = recoverPlanAcceptedReviewVerdictFromReport(ctx, settings);
       if (recoveredReviewVerdict) show(pi, `# ${title}\n\nRecovered the previous reviewer verdict (${recoveredReviewVerdict}) from the saved report. Continuing to execution.`);
       else show(pi, `# ${title}\n\nReviewer is complete. Continuing to execution.`);
+      await beginExecution(ctx, true);
+      return;
+    }
+    if ((state.mode === "executed" || state.mode === "validated") && planExecutionIncomplete(state, settings)) {
+      show(pi, `# ${title}\n\nApproved Plan execution is incomplete. Continuing execution from the current incomplete step.`);
+      updateState({
+        mode: "reviewed",
+        validationReport: undefined,
+        validationVerdict: undefined,
+        lastValidationFailure: undefined,
+        lastRepairStatus: "none",
+        lastRepairAttempt: undefined,
+        planStepValidationIndex: undefined,
+        planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "reviewed" }, settings, { lifecycleStatus: "reviewed", validationStatus: "pending", repairStatus: "none", nextAction: "executor" }, state.approvedPlan) : state.planProgress,
+      }, ctx);
       await beginExecution(ctx, true);
       return;
     }
@@ -13607,7 +14253,10 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     const settings = loadWorkflowSettings(ctx.cwd);
     clearTypedHandoff(ctx, "Mission final repair");
     const failure = mission.lastFinalValidationFailure || mission.lastValidationFailure || mission.lastBlockReason || "No final validation failure details recorded.";
-    const unsafe = validationFailureRequiresApproval(failure, settings);
+    const unsafe = validationFailureRequiresApproval(failure, settings, {
+      concreteRepairableIssue: mission.concreteRepairableIssue,
+      evidenceGap: mission.evidenceGap,
+    });
     if (unsafe) {
       const blocked = saveActiveMission({ ...mission, status: "blocked", lastRepairStatus: "blocked", lastBlockReason: `Final repair requires approval: ${unsafe}`, nextAction: "Inspect final validation failure or approve broader repair before retrying.", lastSummary: `Mission final repair blocked: ${unsafe}` });
       checkpointMission(blocked, `Mission final repair blocked before attempt. Reason: ${unsafe}`, "Inspect final validation failure or approve broader repair before retrying.", undefined, { validationResult: blocked.lastFinalValidationResult ?? blocked.lastValidationResult });
@@ -13646,7 +14295,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       repairHistory: appendRepairHistory(mission, { timestamp: new Date().toISOString(), retry, status: "running", validationFailure: compact(failure, 800), nextAction: "Repair final validation failure, then revalidate." }),
     });
     checkpointMission(repairing, `Final validation repair started. Retry ${retry}/${maxRetries}. Failure: ${compact(failure, 500)}`, "Repair final validation failure, then revalidate.", undefined, { validationResult: repairing.lastFinalValidationResult ?? repairing.lastValidationResult });
-    pi.setActiveTools(executionToolsFor(settings));
+    pi.setActiveTools(missionRepairToolsFor(settings));
     updateState({ mode: "mission_repairing", activeMissionId: repairing.id, modelsUsed: { ...(state.modelsUsed ?? {}), executor: modelLabel(route) } }, ctx);
     saveActiveMission({ ...repairing, modelsUsed: { ...(repairing.modelsUsed ?? {}), executor: modelLabel(route) } });
     if (source !== "auto") show(pi, `# Mission Final Repair Started\n\nRetry: ${retry} of ${maxRetries}\n\n${renderMissionProgress(repairing, settings)}`);
@@ -13671,7 +14320,10 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       return show(pi, `# Mission Runtime Budget Reached\n\n${runtimeBlocked}\n\n${renderMissionStatus(activeMission ?? paused)}`);
     }
     const failure = mission.lastValidationFailure || mission.lastBlockReason || "No validation failure details recorded.";
-    const unsafe = validationFailureRequiresApproval(failure, settings);
+    const unsafe = validationFailureRequiresApproval(failure, settings, {
+      concreteRepairableIssue: mission.concreteRepairableIssue,
+      evidenceGap: mission.evidenceGap,
+    });
     if (unsafe) {
       const milestone = mission.milestones[mission.currentMilestoneIndex];
       const blocked = saveActiveMission({ ...mission, status: "blocked", lastRepairStatus: "blocked", lastBlockReason: `Repair requires approval: ${unsafe}`, nextAction: "Inspect validation failure or approve broader repair before retrying.", lastSummary: `Mission repair blocked: ${unsafe}` });
@@ -13736,7 +14388,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       repairHistory: appendRepairHistory(mission, { timestamp: new Date().toISOString(), milestoneId: milestone?.id, retry, status: "running", validationFailure: compact(failure, 800), nextAction: "Repair current validation failure, then revalidate." }),
     });
     checkpointMission(repairing, `${manualRetryOverride ? "Manual repair retry override" : "Repair started"} for ${milestone?.id ?? "current milestone"}. Retry ${retry}/${maxRetries} per milestone; mission retry ${missionRetry}/${maxMissionRetries} total. Failure: ${compact(failure, 500)}`, "Repair current validation failure, then revalidate.", milestone?.id, { validationResult: repairing.lastValidationResult });
-    pi.setActiveTools(executionToolsFor(settings));
+    pi.setActiveTools(missionRepairToolsFor(settings));
     updateState({ mode: "mission_repairing", activeMissionId: repairing.id, modelsUsed: { ...(state.modelsUsed ?? {}), executor: modelLabel(route) } }, ctx);
     saveActiveMission({ ...repairing, modelsUsed: { ...(repairing.modelsUsed ?? {}), executor: modelLabel(route) } });
     if (source !== "auto") show(pi, `# Mission Repair Started\n\nRetry: ${retry} of ${maxRetries} per milestone\nMission Retry: ${missionRetry} of ${maxMissionRetries} total\nMilestone: ${milestone?.id ?? "current"} — ${milestone?.title ?? "unknown"}\n\n${renderMissionProgress(repairing, settings)}`);
@@ -13834,7 +14486,10 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     const retry = missionFinalValidationRetryCount(mission);
     const maxRetries = missionMaxFinalValidationRetries(mission, settings);
     const failure = `Final mission validation ${verdict}. ${compact(validationText, 1200)}`;
-    const unsafe = validationFailureRequiresApproval(failure, settings);
+    const unsafe = validationFailureRequiresApproval(failure, settings, {
+      concreteRepairableIssue: mission.concreteRepairableIssue,
+      evidenceGap: mission.evidenceGap,
+    });
     const nextRetry = retry + 1;
     const failed = saveActiveMission({ ...mission, status: "validating", finalValidationRetryCount: nextRetry, maxFinalValidationRetries: maxRetries, lastFinalValidationResult: verdict ?? "UNKNOWN", lastFinalValidationFailure: failure, lastValidationFailure: failure, lastBlockReason: "", nextAction: "Final mission validation failed; evaluating safe repair retry.", lastSummary: `Final mission validation ${verdict}.` });
     checkpointMission(failed, `Final mission validation failed. Retry ${retry}/${maxRetries}. ${compact(validationText, 500)}`, "Evaluate safe final repair retry before completion.", undefined, { validationResult: verdict });
@@ -13917,7 +14572,10 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       lastSummary: `Validation ${verdict} for mission milestone ${milestone?.id ?? "current"}.`,
     });
     checkpointMission(failed, `Validation failed for ${milestone?.id ?? "current milestone"}. Retry ${retry}/${maxRetries} per milestone; mission retry ${missionRetry}/${maxMissionRetries} total. ${compact(validationText, 500)}`, "Evaluate safe repair retry before blocking or advancing.", milestone?.id, { validationResult: verdict });
-    const unsafe = validationFailureRequiresApproval(failure, settings);
+    const unsafe = validationFailureRequiresApproval(failure, settings, {
+      concreteRepairableIssue: mission.concreteRepairableIssue,
+      evidenceGap: mission.evidenceGap,
+    });
     const shouldBlock = mission.autonomy === "manual"
       || settings.missions.autoRepairValidationFailures === false
       || settings.missions.pauseAfterValidationFailure === true
@@ -13993,7 +14651,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     const answerSummary = formatAnswersForPlanner(questions, answers);
     const settings = loadWorkflowSettings(ctx.cwd);
     const priorPlanning = snapshotSubagentPhaseUsage("Planning");
-    if (!beginForcedSubagentPhase(ctx, "Planning", settings)) {
+    if (!beginForcedSubagentPhase(ctx, "Planning", settings, { task: state.task ?? "Plan with clarification answers" })) {
       updateState({ mode: "planning", clarifyingAnswers: answers, draftPlan: state.draftPlan, approvedPlan: undefined, planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "planning", draftPlan: state.draftPlan, approvedPlan: undefined }, settings, { lifecycleStatus: "blocked", nextAction: "fix forced planning sub-agent policy or rerun planning", steps: [] }, undefined) : state.planProgress }, ctx);
       return;
     }
@@ -14066,7 +14724,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     }
     const questions = mission.clarificationQuestions?.length ? mission.clarificationQuestions : (state.clarifyingQuestions ?? []);
     const settings = loadWorkflowSettings(ctx.cwd);
-    const planningOverride = { policy: missionSubagentPolicy(settings), workers: missionPlanningWorkerCount(settings), label: "Mission Planning" };
+    const planningOverride = { policy: missionSubagentPolicy(settings), workers: missionPlanningWorkerCount(settings), label: "Mission Planning", task: mission.goal };
     const priorPlanning = snapshotSubagentPhaseUsage("Planning");
     if (!beginForcedSubagentPhase(ctx, "Planning", settings, planningOverride)) {
       const blocked = saveActiveMission({ ...mission, status: "blocked", clarificationQuestions: questions, clarificationAnswers: answers, lastBlockReason: "Mission clarification resume blocked by forced Mission Planning sub-agent policy.", nextAction: "Fix Mission Planning sub-agent workers, then run /mission resume or /mission plan.", lastSummary: "Mission clarification answers recorded, but forced Mission Planning availability gate did not pass." });
@@ -14173,15 +14831,10 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     } else if (choice === "Revise Mission Plan") {
       await beginMissionPlanning(ctx, { ...mission, clarificationAnswers: mission.clarificationAnswers ?? [] });
     } else if (choice === "Answer More Clarifications") {
-      if (mission.clarificationQuestions?.length) {
-        updateState({ mode: "mission_awaiting_clarification", activeMissionId: mission.id, task: mission.goal, originalTask: mission.goal, clarifyingQuestions: mission.clarificationQuestions, clarifyingAnswers: mission.clarificationAnswers }, ctx);
-        show(pi, `# Mission Clarification\n\n${renderClarificationQuestionsForUser(mission.clarificationQuestions)}`);
-      } else {
-        const next = saveActiveMission({ ...mission, status: "draft", lastSummary: "Additional mission clarification requested before approval.", nextAction: "Generate dynamic mission clarification questions before approval." });
-        checkpointMission(next, "Additional mission clarification requested before approval.", "Generate dynamic mission-specific clarification questions.");
-        recordWorkflowInternalEvent(ctx, "Internal workflow lifecycle event suppressed.");
-        await beginMissionPlanning(ctx, next, { forceClarification: true, forceReason: "user requested additional mission clarification before approval" });
-      }
+      const next = saveActiveMission({ ...mission, status: "draft", lastSummary: "Additional mission clarification requested before approval.", nextAction: "Generate dynamic mission clarification questions before approval." });
+      checkpointMission(next, "Additional mission clarification requested before approval.", "Generate dynamic mission-specific clarification questions.");
+      recordWorkflowInternalEvent(ctx, "Internal workflow lifecycle event suppressed.");
+      await beginMissionPlanning(ctx, next, { forceClarification: true, forceAdditionalClarification: true, forceReason: "user requested additional mission clarification before approval" });
     } else if (choice === "Cancel Mission") {
       const stopped = saveActiveMission({ ...mission, status: "stopped", lastSummary: "Mission cancelled before approval." });
       checkpointMission(stopped, "Mission cancelled before approval.", "No further mission action queued.");
@@ -14801,7 +15454,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       else if (choice === "Parallel Agent Settings") await showParallelismSettingsMenu(ctx);
       else if (choice === "Background Sub-agents") {
         const enabled = await chooseBool(ctx, "subagents.allowBackgroundSubagents?");
-        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.allowBackgroundSubagents = enabled; }); workflowUiNotify(ctx, `subagents.allowBackgroundSubagents set to ${enabled} in ${r.file}. Background sub-agents run in Planning/Review/Validation phases without blocking the parent.`, "info"); }
+        if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.allowBackgroundSubagents = enabled; }); workflowUiNotify(ctx, `subagents.allowBackgroundSubagents set to ${enabled} in ${r.file}. Background sub-agents are advisory and may run in Planning/Review preflight without blocking the parent.`, "info"); }
       } else if (choice === "Activity Indicator") {
         const enabled = await chooseBool(ctx, "subagents.activityIndicatorEnabled?");
         if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.activityIndicatorEnabled = enabled; }); workflowUiNotify(ctx, `subagents.activityIndicatorEnabled set to ${enabled} in ${r.file}`, "info"); renderWorkflowSubagentActivity(ctx); }
@@ -16145,30 +16798,96 @@ Pi Version: v${VERSION}
     if (process.env.PI_SUBAGENT_WORKER === "1") return;
     const settings = loadWorkflowSettings(ctx.cwd);
     let phase = phaseForWorkflowMode(state.mode);
+    const command = event.toolName === "bash" ? String((event.input as { command?: unknown }).command ?? "") : undefined;
     if (state.mode === "standard") {
       if (event.toolName === "bash") {
-        const command = String((event.input as { command?: unknown }).command ?? "");
         if (standardForcedSubagentSafeBash(command)) return;
       }
       if (event.toolName === "edit" || event.toolName === "write" || event.toolName === "bash") phase = "Execution";
     }
-    const planValidationPhase = phase === "Validation" && (state.mode === "validating" || state.mode === "revalidating");
-    if (phase !== "Execution" && phase !== "Repair" && !planValidationPhase) return;
+    if (event.toolName === WORKFLOW_EXECUTION_RESULT_TOOL || event.toolName === MISSION_MILESTONE_RESULT_TOOL) phase = "Execution";
+    if (event.toolName === WORKFLOW_REPAIR_RESULT_TOOL) phase = "Repair";
+    if (event.toolName === WORKFLOW_VALIDATION_RESULT_TOOL) phase = "Validation";
+    if (event.toolName === WORKFLOW_REVIEW_RESULT_TOOL) phase = "Review";
+    if (!phase) return;
     const policy = state.mode === "standard" ? standardPhasePolicy(settings, phase) : phasePolicy(settings, phase);
-    if (policy !== "forced") return;
+    if (subagentPolicyNeedsInternalDecision(policy)) {
+      if (event.toolName === "subagent") {
+        const workers = state.mode === "standard" ? standardWorkerCount(settings, phase) : workerCount(settings, phase);
+        const target = advisoryWorkerTargetForPolicy(policy, workers);
+        const observed = subagentUsageByPhase[phase] ?? 0;
+        const task = state.task ?? state.originalTask;
+        recordSubagentPolicyDecision(ctx, {
+          phase,
+          policy,
+          outcome: "auto_delegate",
+          reason: "visible parent sub-agent call started after advisory consideration",
+          task,
+          required: target,
+          observed,
+          background: false,
+        });
+      }
+      return;
+    }
+    if (!subagentPolicyRequiresRequiredEvidence(policy)) return;
     if (state.mode === "standard" && standardForcedSubagentSatisfied(phase, settings, state.task ?? state.originalTask ?? "Standard Mode task")) return;
-    const required = workerTargetForPolicy("forced", state.mode === "standard" ? standardWorkerCount(settings, phase) : workerCount(settings, phase));
+    const required = workerTargetForPolicy(policy, state.mode === "standard" ? standardWorkerCount(settings, phase) : workerCount(settings, phase));
     const observed = subagentUsageByPhase[phase] ?? 0;
     if (observed >= required) return;
-    if (planValidationPhase) {
-      if (event.toolName === "subagent") return;
-      return { block: true, reason: `${event.toolName} blocked — validation workers required (${observed}/${required})` };
+    if (phase === "Validation" && event.toolName === WORKFLOW_VALIDATION_RESULT_TOOL) {
+      recordSubagentPolicyDecision(ctx, {
+        phase,
+        policy,
+        outcome: "allow_user_explicit_finalization",
+        reason: "typed validation verdict is finalization; forced validation workers must be enforced before validation work, not after verdict",
+        task: state.task ?? state.originalTask,
+        required,
+        observed,
+        background: false,
+      });
+      return;
     }
-    if (event.toolName === "edit" || event.toolName === "write" || event.toolName === "bash") {
-      if (phase === "Repair") return;
-      const label = state.mode === "standard" ? "Standard Mode" : phase;
-      return { block: true, reason: `${event.toolName} blocked — execution workers required (${observed}/${required})` };
+    if (event.toolName === "subagent") {
+      const label = forcedSubagentGuardLabel(phase);
+      const block = forcedSubagentVisibleCallBlock(ctx, phase, required, observed, event.input, label);
+      if (block) return { block: true, reason: block };
+      recordSubagentPolicyDecision(ctx, {
+        phase,
+        policy,
+        outcome: "required",
+        reason: "visible sub-agent call requested enough forced worker task entries for the remaining requirement",
+        task: state.task ?? state.originalTask,
+        required,
+        observed,
+        background: false,
+      });
+      return;
     }
+    const actionDecision = forcedSubagentActionDecision({
+      phase,
+      policy,
+      task: state.task ?? state.originalTask,
+      kind: state.standardWorkKind,
+      toolName: event.toolName,
+      command,
+    });
+    if (actionDecision.allowBeforeEvidence) {
+      recordSubagentPolicyDecision(ctx, {
+        phase,
+        policy,
+        outcome: actionDecision.outcome,
+        reason: actionDecision.reason,
+        task: state.task ?? state.originalTask,
+        required,
+        observed,
+        background: false,
+      });
+      return;
+    }
+    const label = forcedSubagentGuardLabel(phase);
+    const noun = phase === "Planning" ? "planning" : phase === "Repair" ? "repair" : phase === "Review" ? "review" : phase === "Validation" ? "validation" : "execution";
+    return { block: true, reason: `${event.toolName} blocked — forced ${noun} workers required (${observed}/${required}) for ${label}` };
   });
 
   function workflowAutoCompactionModeEligible(mode: string): boolean {
@@ -16377,7 +17096,7 @@ Pi Version: v${VERSION}
           const settings = loadWorkflowSettings(ctx.cwd);
           const override = standardForcedSubagentOverride(settings, phase);
           const task = state.task ?? state.originalTask ?? "Standard Mode task";
-          if (override.policy === "forced") rememberStandardSubagentPreflight(ctx, phase, task, workerTargetForPolicy("forced", override.workers));
+          if (subagentPolicyRequiresRequiredEvidence(override.policy)) rememberStandardSubagentPreflight(ctx, phase, task, workerTargetForPolicy(override.policy, override.workers));
         }
       }
       finishSubagentActivity(event.toolCallId, Boolean(event.isError), ctx);
@@ -16635,7 +17354,7 @@ Pi Version: v${VERSION}
     const shouldRespectDraftPlanningRail = (action === "continue" || action === "next") && currentMission?.status === "draft" && currentMission.milestones.length === 0;
     const needsMissionResolution = action === "retry" || action === "repair" || action === "revalidate" || ((action === "continue" || action === "next") && !shouldRespectDraftPlanningRail);
     const resolvedMission = needsMissionResolution
-      ? await chooseResumeMission(ctx, resolveActiveMissionForResume(), action as "continue" | "next" | "retry" | "repair" | "revalidate")
+      ? await chooseResumeMission(ctx, resolveActiveMissionForResume(ctx), action as "continue" | "next" | "retry" | "repair" | "revalidate")
       : undefined;
     const mission = resolvedMission ?? currentMission;
     if (!mission) return show(pi, `# Mission ${action}\n\nNo mission selected. ${action} cancelled.`);
@@ -17822,6 +18541,10 @@ Public workflow commands:
         if (route) updateState({ modelsUsed: { ...(state.modelsUsed ?? {}), [standardRole]: modelLabel(route) } }, ctx);
       }
       pi.setActiveTools(standardToolsFor(settings));
+      const standardSurfaceBlock = verifyWorkflowToolSurface(ctx, "Execution", "standard before_agent_start", "standard");
+      if (standardSurfaceBlock) {
+        return { systemPrompt: `${event.systemPrompt}\n\nPI WORKFLOW STANDARD MODE BLOCKED: ${standardSurfaceBlock}\n\nDo not execute the user request. Retry after the Standard tool surface is repaired.` };
+      }
       standardTodoCreatedThisTurn = false;
       const rawPrompt = event.prompt?.trim() ?? "";
       const answeredClarification = Boolean(state.standardClarificationAnswer?.trim() && state.standardClarificationTask?.trim() && !state.standardClarificationPending);
@@ -17840,7 +18563,8 @@ Public workflow commands:
           return { systemPrompt: `${event.systemPrompt}\n\n${standardClarificationRequestPrompt(task, settings, gate.reason)}` };
         }
       }
-      if (task && (standardWork.phase === "Execution" || standardWork.phase === "Repair")) {
+      const standardTodoMustInitialize = standardRequiredTodoMissing(state, settings, task);
+      if (task && !standardTodoMustInitialize && (standardWork.phase === "Execution" || standardWork.phase === "Repair")) {
         const override = standardForcedSubagentOverride(settings, standardWork.phase);
         if (!beginForcedSubagentPhase(ctx, standardWork.phase, settings, override)) {
           pi.setActiveTools(clarificationToolsFor(settings, false));
@@ -17859,7 +18583,7 @@ Public workflow commands:
       if (!route) return { systemPrompt: `${event.systemPrompt}\n\nPI WORKFLOW PLAN MODE ROUTING FAILED: the configured planner model is unavailable. Do not execute the user request; explain the routing error and ask the user to check /workflow-settings list.` };
       const task = event.prompt || "Create an implementation plan for the user's requested task.";
       const gate = clarificationGate(task, settings, false, false);
-      if (!beginForcedSubagentPhase(ctx, "Planning", settings)) return { systemPrompt: `${event.systemPrompt}\n\nPI WORKFLOW PLAN MODE BLOCKED: forced planning sub-agent requirements are unavailable. Do not execute the user request; report the sub-agent policy blocker and wait for settings or worker availability to be fixed.` };
+      if (!beginForcedSubagentPhase(ctx, "Planning", settings, { task })) return { systemPrompt: `${event.systemPrompt}\n\nPI WORKFLOW PLAN MODE BLOCKED: forced planning sub-agent requirements are unavailable. Do not execute the user request; report the sub-agent policy blocker and wait for settings or worker availability to be fixed.` };
       activeMission = undefined;
       const activePlanId = createWorkflowPlanId(ctx.cwd);
       updateState({ mode: "planning", activePlanId, activeMissionId: undefined, task, originalTask: task, draftPlan: undefined, approvedPlan: undefined, clarifyingQuestions: undefined, clarifyingAnswers: undefined, clarificationAlreadyAsked: gate.force ? true : undefined, clarificationRequiredBeforePlan: gate.force || undefined, clarificationRequirementReason: gate.forceReason, clarificationSkipReason: gate.skipReason, clarificationQualityRetryCount: undefined, planningDepth: settings.planning.depth, clarificationMode: settings.planning.clarificationMode, executionSummary: undefined, validationReport: undefined, validationVerdict: undefined, currentValidationRetry: 0, workflowValidationRetryCount: 0, maxValidationRetriesPerPlan: undefined, maxValidationRetriesPerWorkflow: undefined, lastValidationFailure: undefined, lastRepairAttempt: undefined, repairHistory: undefined, lastRepairStatus: "none", planRuntime: undefined, planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "planning", task, draftPlan: undefined, approvedPlan: undefined }, settings, { lifecycleStatus: "planning", nextAction: "planner" }, undefined) : undefined, modelsUsed: { planner: modelLabel(route) }, planHistoryId: undefined, approvedPlanHistoryId: undefined }, ctx);
@@ -17907,6 +18631,10 @@ Public workflow commands:
       if (mission?.currentStep === "reviewer") {
         const settings = loadWorkflowSettings(ctx.cwd);
         armWorkflowToolsForPhase(ctx, "Review", "mission review before_agent_start");
+        const reviewSurfaceBlock = verifyWorkflowToolSurface(ctx, "Review", "mission review before_agent_start");
+        if (reviewSurfaceBlock) {
+          return { systemPrompt: `${event.systemPrompt}\n\nPI MISSION REVIEW BLOCKED: ${reviewSurfaceBlock}\n\nDo not approve, execute, validate, repair, call workflow_plan_result, call mission_plan_result, or call workflow_progress. Report that Mission review stayed pending because required Review tools were unavailable, then stop.` };
+        }
         const surfaceProblem = missionReviewRequiredToolSurfaceProblem(pi.getActiveTools());
         if (surfaceProblem) {
           blockMissionReviewToolSurface(ctx, mission, surfaceProblem, "mission review before_agent_start", false);
@@ -17934,7 +18662,14 @@ Public workflow commands:
         const prompt = await missionActiveGatePrompt(ctx, mission, persistedGateMode, event.systemPrompt);
         if (prompt) return prompt;
       }
-      pi.setActiveTools(executionToolsFor(loadWorkflowSettings(ctx.cwd)));
+      if (state.reviewHandoffSuppression?.kind === "mission_typed_review_to_approval") {
+        clearReviewHandoffSuppression(ctx, "mission execution turn started after typed Mission review handoff");
+      }
+      pi.setActiveTools(missionExecutionToolsFor(loadWorkflowSettings(ctx.cwd)));
+      const missionExecutionSurfaceBlock = verifyWorkflowToolSurface(ctx, "Execution", "mission execution before_agent_start");
+      if (missionExecutionSurfaceBlock) {
+        return { systemPrompt: `${event.systemPrompt}\n\nPI MISSION EXECUTION BLOCKED: ${missionExecutionSurfaceBlock}\n\nDo not execute the milestone. Run /mission continue after the tool surface is repaired.` };
+      }
       return { systemPrompt: `${event.systemPrompt}\n\n${missionRuntimePrompt(mission, loadWorkflowSettings(ctx.cwd), phasePreflightBlocks.Execution)}` };
     }
 
@@ -17942,7 +18677,11 @@ Public workflow commands:
       if (state.lastWorkflowHandoff?.type === WORKFLOW_REPAIR_RESULT_TOOL) return;
       const mission = (state.activeMissionId ? loadMissionState(state.activeMissionId) : undefined) ?? activeMission ?? loadMissionState("latest");
       if (!mission) return { systemPrompt: event.systemPrompt };
-      pi.setActiveTools(executionToolsFor(loadWorkflowSettings(ctx.cwd)));
+      pi.setActiveTools(missionRepairToolsFor(loadWorkflowSettings(ctx.cwd)));
+      const missionRepairSurfaceBlock = verifyWorkflowToolSurface(ctx, "Repair", "mission repair before_agent_start");
+      if (missionRepairSurfaceBlock) {
+        return { systemPrompt: `${event.systemPrompt}\n\nPI MISSION REPAIR BLOCKED: ${missionRepairSurfaceBlock}\n\nDo not repair the mission. Run /mission repair or /mission resume after the tool surface is repaired.` };
+      }
       return { systemPrompt: `${event.systemPrompt}\n\n${missionRepairPrompt(mission, loadWorkflowSettings(ctx.cwd), phasePreflightBlocks.Repair)}` };
     }
 
@@ -17950,6 +18689,10 @@ Public workflow commands:
       const mission = (state.activeMissionId ? loadMissionState(state.activeMissionId) : undefined) ?? activeMission ?? loadMissionState("latest");
       if (!mission) return { systemPrompt: event.systemPrompt };
       pi.setActiveTools(validationToolsFor(loadWorkflowSettings(ctx.cwd)));
+      const missionValidationSurfaceBlock = verifyWorkflowToolSurface(ctx, "Validation", "mission validation before_agent_start");
+      if (missionValidationSurfaceBlock) {
+        return { systemPrompt: `${event.systemPrompt}\n\nPI MISSION VALIDATION BLOCKED: ${missionValidationSurfaceBlock}\n\nDo not validate the mission. Run /mission revalidate after the tool surface is repaired.` };
+      }
       return { systemPrompt: `${event.systemPrompt}\n\n${missionValidationPrompt(mission, loadWorkflowSettings(ctx.cwd), state.executionSummary, phasePreflightBlocks.Validation)}` };
     }
 
@@ -17957,6 +18700,10 @@ Public workflow commands:
       const mission = (state.activeMissionId ? loadMissionState(state.activeMissionId) : undefined) ?? activeMission ?? loadMissionState("latest");
       if (!mission) return { systemPrompt: event.systemPrompt };
       pi.setActiveTools(validationToolsFor(loadWorkflowSettings(ctx.cwd)));
+      const missionFinalValidationSurfaceBlock = verifyWorkflowToolSurface(ctx, "Validation", "mission final validation before_agent_start");
+      if (missionFinalValidationSurfaceBlock) {
+        return { systemPrompt: `${event.systemPrompt}\n\nPI MISSION FINAL VALIDATION BLOCKED: ${missionFinalValidationSurfaceBlock}\n\nDo not validate the mission. Run /mission revalidate after the tool surface is repaired.` };
+      }
       return { systemPrompt: `${event.systemPrompt}\n\n${missionFinalValidationPrompt(mission, loadWorkflowSettings(ctx.cwd), state.executionSummary, phasePreflightBlocks.Validation)}` };
     }
 
@@ -17972,13 +18719,13 @@ Public workflow commands:
         const questions = state.clarifyingQuestions ?? parseClarifyingQuestions(state.draftPlan ?? "");
         const answerSummary = formatAnswersForPlanner(questions, parsed);
         const settings = loadWorkflowSettings(ctx.cwd);
-        if (!beginForcedSubagentPhase(ctx, "Planning", settings)) return { systemPrompt: `${event.systemPrompt}\n\nPI WORKFLOW PLAN MODE BLOCKED: forced planning sub-agent requirements are unavailable. Report the blocker and wait.` };
+        if (!beginForcedSubagentPhase(ctx, "Planning", settings, { task: state.task ?? state.originalTask })) return { systemPrompt: `${event.systemPrompt}\n\nPI WORKFLOW PLAN MODE BLOCKED: forced planning sub-agent requirements are unavailable. Report the blocker and wait.` };
         updateState({ mode: "planning", clarifyingAnswers: parsed, modelsUsed: { ...(state.modelsUsed ?? {}), planner: modelLabel(route) } }, ctx);
         return { systemPrompt: `${event.systemPrompt}\n\n${planPrompt(state.task ?? "Plan with answers", state.approvedPlan, answerSummary, settings, { feedbackKind: "clarification" })}` };
       }
       // Not a shorthand answer — treat as free-text clarification
       const settings = loadWorkflowSettings(ctx.cwd);
-      if (!beginForcedSubagentPhase(ctx, "Planning", settings)) return { systemPrompt: `${event.systemPrompt}\n\nPI WORKFLOW PLAN MODE BLOCKED: forced planning sub-agent requirements are unavailable. Report the blocker and wait.` };
+      if (!beginForcedSubagentPhase(ctx, "Planning", settings, { task: state.task ?? state.originalTask })) return { systemPrompt: `${event.systemPrompt}\n\nPI WORKFLOW PLAN MODE BLOCKED: forced planning sub-agent requirements are unavailable. Report the blocker and wait.` };
       updateState({ mode: "planning", clarifyingAnswers: input ? [{ index: 1, letter: "D", custom: input }] : state.clarifyingAnswers, modelsUsed: { ...(state.modelsUsed ?? {}), planner: modelLabel(route) } }, ctx);
       return { systemPrompt: `${event.systemPrompt}\n\n${planPrompt(state.task ?? "Plan with answers", state.approvedPlan, input, settings, { feedbackKind: "clarification" })}` };
     }
@@ -18001,6 +18748,10 @@ Public workflow commands:
     }
     if (state.mode === "reviewing") {
       pi.setActiveTools(reviewToolsFor(loadWorkflowSettings(ctx.cwd)));
+      const reviewSurfaceBlock = verifyWorkflowToolSurface(ctx, "Review", "plan review before_agent_start");
+      if (reviewSurfaceBlock) {
+        return { systemPrompt: `${event.systemPrompt}\n\nPI WORKFLOW REVIEW BLOCKED: ${reviewSurfaceBlock}\n\nDo not review the approved plan. Run /plan continue after the review tool surface is repaired.` };
+      }
       return { systemPrompt: `${event.systemPrompt}\n\n${reviewerPrompt(state, loadWorkflowSettings(ctx.cwd), phasePreflightBlocks.Review)}` };
     }
     if (state.mode === "reviewed") {
@@ -18011,23 +18762,26 @@ Public workflow commands:
       const settings = loadWorkflowSettings(ctx.cwd);
       clearReviewHandoffSuppression(ctx, "execution turn started after typed Plan review handoff");
       pi.setActiveTools(executionToolsFor(settings));
-      const missingExecutionTools = missingRequiredPlanExecutionTools(pi.getActiveTools(), settings);
-      traceWorkflowTracking(ctx, "before-agent-execution-tool-snapshot", { activeTools: pi.getActiveTools(), missingExecutionTools });
-      if (missingExecutionTools.length) {
-        const reason = `Required execution tools are unavailable after before_agent_start execution tool rearm: ${missingExecutionTools.join(", ")}. Execution prompt was not injected.`;
-        updateState({ mode: "plan_approved", planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "plan_approved" }, settings, { lifecycleStatus: "blocked", nextAction: "repair execution tool surface" }, state.approvedPlan) : state.planProgress, lastReviewFailure: reason }, ctx);
-        pi.setActiveTools(webSafePlanTools(PLAN_TOOLS));
-        recordWorkflowInternalEvent(ctx, `Plan execution blocked at before_agent_start because required execution tools were unavailable after rearm: ${missingExecutionTools.join(", ")}.`);
-        return { systemPrompt: `${event.systemPrompt}\n\nPI WORKFLOW EXECUTION BLOCKED: ${reason}\n\nDo not execute the approved plan. Run /plan continue after the execution tool surface is repaired.` };
+      const executionSurfaceBlock = verifyWorkflowToolSurface(ctx, "Execution", "plan execution before_agent_start");
+      if (executionSurfaceBlock) {
+        return { systemPrompt: `${event.systemPrompt}\n\nPI WORKFLOW EXECUTION BLOCKED: ${executionSurfaceBlock}\n\nDo not execute the approved plan. Run /plan continue after the execution tool surface is repaired.` };
       }
       return { systemPrompt: `${event.systemPrompt}\n\n${executePrompt(state, settings, phasePreflightBlocks.Execution)}` };
     }
     if (state.mode === "repairing") {
       pi.setActiveTools(executionToolsFor(loadWorkflowSettings(ctx.cwd)));
+      const repairSurfaceBlock = verifyWorkflowToolSurface(ctx, "Repair", "plan repair before_agent_start");
+      if (repairSurfaceBlock) {
+        return { systemPrompt: `${event.systemPrompt}\n\nPI WORKFLOW REPAIR BLOCKED: ${repairSurfaceBlock}\n\nDo not repair the approved plan. Run /plan repair after the tool surface is repaired.` };
+      }
       return { systemPrompt: `${event.systemPrompt}\n\n${workflowRepairPrompt(state, loadWorkflowSettings(ctx.cwd), phasePreflightBlocks.Repair)}` };
     }
     if (state.mode === "validating" || state.mode === "revalidating") {
       pi.setActiveTools(validationToolsFor(loadWorkflowSettings(ctx.cwd)));
+      const validationSurfaceBlock = verifyWorkflowToolSurface(ctx, "Validation", "plan validation before_agent_start");
+      if (validationSurfaceBlock) {
+        return { systemPrompt: `${event.systemPrompt}\n\nPI WORKFLOW VALIDATION BLOCKED: ${validationSurfaceBlock}\n\nDo not validate the approved plan. Run /plan revalidate after the tool surface is repaired.` };
+      }
       return { systemPrompt: `${event.systemPrompt}\n\n${validatePrompt(state, loadWorkflowSettings(ctx.cwd), phasePreflightBlocks.Validation)}` };
     }
     if (state.mode === "validated") {
@@ -18057,6 +18811,11 @@ Public workflow commands:
 
     if (planReviewParentSuppressed()) {
       traceWorkflowTracking(ctx, "typed-plan-review-parent-message-suppressed", { mode: state.mode, lifecycleStatus: state.planProgress?.lifecycleStatus });
+      return { message: { ...message, content: [{ type: "text" as const, text: "" }] } };
+    }
+
+    if (missionReviewParentSuppressed()) {
+      traceWorkflowTracking(ctx, "typed-mission-review-parent-message-suppressed", { mode: state.mode, activeMissionId: state.activeMissionId });
       return { message: { ...message, content: [{ type: "text" as const, text: "" }] } };
     }
 
@@ -18144,6 +18903,12 @@ Public workflow commands:
       return;
     }
 
+    if (missionReviewParentSuppressed()) {
+      traceWorkflowTracking(ctx, "typed-mission-review-parent-agent-end-suppressed", { mode: state.mode, activeMissionId: state.activeMissionId });
+      clearReviewHandoffSuppression(ctx, "typed Mission review parent turn ended after accepted approval handoff");
+      return;
+    }
+
     if (!text) {
       const interruptionReason = workflowTransientInterruptionReason(event, "Workflow turn stopped before producing assistant output.");
       if (recoverContextInterruptedWorkflowTurn(event, ctx)) return;
@@ -18162,14 +18927,6 @@ Public workflow commands:
 
     if ((state.mode === "validating" || state.mode === "revalidating") && state.lastWorkflowHandoff?.type === WORKFLOW_VALIDATION_RESULT_TOOL) {
       traceWorkflowTracking(ctx, "typed-plan-validation-agent-end-boundary", { source: "typed_validation_tool_agent_end", mode: state.mode, verdict: state.validationVerdict, nextAction: "route validation verdict" });
-      planForcedSubagentPreflightReconcile(ctx, "Validation");
-      const forcedValidationBlock = forcedSubagentUsageSatisfied(ctx, "Validation");
-      if (forcedValidationBlock) {
-        const report = state.validationReport ?? text;
-        if (queuePlanValidationHandoffRetry(ctx, report, forcedValidationBlock, "typed validation accepted without forced Validation evidence")) return;
-        blockPlanValidationHandoff(ctx, report, forcedValidationBlock);
-        return;
-      }
       const report = state.validationReport ?? text;
       const verdict = state.validationVerdict ?? normalizeValidationVerdict(extractVerdict(report), report);
       const validationStatus = planValidationStatusForVerdict(verdict);
@@ -18326,11 +19083,34 @@ Public workflow commands:
       return;
     }
 
+    if (state.mode === "revalidating" && state.lastWorkflowHandoff?.type === WORKFLOW_REPAIR_RESULT_TOOL) {
+      traceWorkflowTracking(ctx, "typed-plan-stale-repair-agent-end-boundary", { source: "typed_repair_tool_agent_end", mode: state.mode, nextAction: "discard stale repair handoff before validation prose fallback" });
+      updateState({ lastWorkflowHandoff: undefined }, ctx);
+      return;
+    }
+
     if (state.mode === "executed" && state.lastWorkflowHandoff?.type === WORKFLOW_EXECUTION_RESULT_TOOL) {
       const validationAvailable = planValidationModelAvailable(settings);
       const validateAfterExecution = planAutoValidationEnabled(settings);
       const validationGateActive = planValidationGateActive(settings);
       traceWorkflowTracking(ctx, "typed-execution-agent-end-validation-boundary", { source: "typed_execution_tool_agent_end", mode: "executed", validationAvailable, validateAfterExecution, validationGateActive });
+      if (planExecutionIncomplete(state, settings)) {
+        const reason = "Typed execution completed while approved Plan progress still has incomplete steps. Resume execution to complete remaining steps before validation.";
+        updateState({
+          mode: "reviewed",
+          planExecutionStepIndex: undefined,
+          planStepValidationIndex: undefined,
+          validationReport: undefined,
+          validationVerdict: undefined,
+          lastValidationFailure: undefined,
+          lastRepairStatus: "none",
+          lastRepairAttempt: undefined,
+          planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "reviewed" }, settings, { lifecycleStatus: "reviewed", validationStatus: "pending", repairStatus: "none", nextAction: "continue execution" }) : state.planProgress,
+        }, ctx);
+        queuePlanTerminalSummary(ctx, "blocked", "Plan execution incomplete", { reason });
+        showBlockedPlanRecoveryMenu(ctx);
+        return;
+      }
       if (validationAvailable && validateAfterExecution) {
         schedulePlanValidationAfterExecution(ctx, "typed execution agent end", "begin validation after typed execution agent end", "Typed execution completed but validation handoff failed");
       } else if (validationAvailable && settings.workflow.offerValidationAfterExecute !== false) {
@@ -18742,7 +19522,7 @@ Public workflow commands:
         return;
       }
       if (state.reviewRepairInProgress) {
-        recordWorkflowInternalEvent(ctx, "Reviewer-requested Plan repair text completed; accepting structurally valid repair without forced Planning retry.");
+        recordWorkflowInternalEvent(ctx, "Reviewer-requested Plan repair text completed; enforcing forced Planning evidence before accepting repair.");
       }
       const requiredClarificationStillMissing = state.clarificationRequiredBeforePlan === true && !state.clarifyingAnswers?.length;
       if (requiredClarificationStillMissing) {
@@ -18758,6 +19538,23 @@ Public workflow commands:
           return;
         }
         updateState({ mode: "awaiting_clarification", draftPlan: text, clarifyingQuestions: undefined, clarificationQualityRetryCount: retryCount, planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "awaiting_clarification" }, settings, { lifecycleStatus: "awaiting_clarification", nextAction: "answer or revise clarification", steps: [] }, undefined) : state.planProgress }, ctx);
+        recordWorkflowInternalEvent(ctx, "Internal workflow lifecycle event suppressed.");
+        return;
+      }
+      planForcedSubagentPreflightReconcile(ctx, "Planning");
+      const forcedPlanningBlock = forcedSubagentUsageSatisfied(ctx, "Planning");
+      if (forcedPlanningBlock) {
+        updateState({
+          mode: "plan_draft",
+          activePlanId: state.activePlanId ?? ensureActivePlanId(ctx),
+          draftPlan: text,
+          approvedPlan: undefined,
+          lastReviewFailure: forcedPlanningBlock,
+          planProgress: workflowPlanProgressEnabled(settings)
+            ? mergePlanProgress({ ...state, mode: "validated", draftPlan: text, approvedPlan: undefined }, settings, { lifecycleStatus: "blocked", nextAction: "planning blocked by forced sub-agent policy", steps: [] }, undefined)
+            : state.planProgress,
+        }, ctx);
+        showInternal(pi, `# Sub-Agent Policy Blocked\n\n${forcedSubagentMessage("Planning", forcedPlanningBlock, "Planning")}`);
         recordWorkflowInternalEvent(ctx, "Internal workflow lifecycle event suppressed.");
         return;
       }
@@ -18904,8 +19701,19 @@ Public workflow commands:
       planForcedSubagentPreflightReconcile(ctx, "Execution");
       if (!allTrackedStepsCompleted && blockIfForcedSubagentsMissing(ctx, "Execution")) {
         const reason = "Execution stopped before all approved Plan steps were tracked and the forced execution worker requirement was not satisfied.";
-        updateState({ mode: "validated", executionSummary: text, validationReport: reason, validationVerdict: "UNKNOWN", planExecutionStepIndex: undefined, planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "validated", validationVerdict: "UNKNOWN" }, settings, { lifecycleStatus: "blocked", validationStatus: "unknown", nextAction: "fix execution progress/sub-agent blocker then /plan continue" }) : state.planProgress }, ctx);
-        queuePlanTerminalSummary(ctx, "blocked", "Plan execution blocked", { validationText: reason, verdict: "UNKNOWN", reason });
+        updateState({
+          mode: "reviewed",
+          executionSummary: text,
+          validationReport: undefined,
+          validationVerdict: undefined,
+          lastValidationFailure: undefined,
+          lastRepairStatus: "none",
+          lastRepairAttempt: undefined,
+          planExecutionStepIndex: undefined,
+          planStepValidationIndex: undefined,
+          planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "reviewed" }, settings, { lifecycleStatus: "reviewed", validationStatus: "pending", repairStatus: "none", nextAction: "fix execution progress/sub-agent blocker then /plan continue" }) : state.planProgress,
+        }, ctx);
+        queuePlanTerminalSummary(ctx, "blocked", "Plan execution blocked", { reason });
         return;
       }
       const progressWarning = !allTrackedStepsCompleted && settings.workflow.validateAfterEachStep !== true && settings.workflow.requireApprovalPerStep !== true && workflowPlanProgressEnabled(settings) && state.planProgress?.steps.length
@@ -18945,6 +19753,23 @@ Public workflow commands:
           return;
         }
       }
+      if (planExecutionIncomplete(state, settings)) {
+        const reason = "Execution summary arrived while approved Plan progress still has incomplete steps. Resume execution to complete remaining steps before validation.";
+        updateState({
+          mode: "reviewed",
+          planExecutionStepIndex: undefined,
+          planStepValidationIndex: undefined,
+          validationReport: undefined,
+          validationVerdict: undefined,
+          lastValidationFailure: undefined,
+          lastRepairStatus: "none",
+          lastRepairAttempt: undefined,
+          planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "reviewed" }, settings, { lifecycleStatus: "reviewed", validationStatus: "pending", repairStatus: "none", nextAction: "continue execution" }) : state.planProgress,
+        }, ctx);
+        queuePlanTerminalSummary(ctx, "blocked", "Plan execution incomplete", { reason });
+        showBlockedPlanRecoveryMenu(ctx);
+        return;
+      }
       if (validationAvailable && validateAfterExecution) {
         schedulePlanValidationAfterExecution(ctx, "execution complete", "begin validation after execution", "Execution completed but validation handoff failed");
       } else if (validationAvailable && settings.workflow.offerValidationAfterExecute !== false) {
@@ -18969,10 +19794,10 @@ Public workflow commands:
         const repairWorkers = workerCount(settings, "Repair");
         const repairRequired = workerTargetForPolicy(repairPolicy, repairWorkers);
         const availableRepairAgents = listEffectiveAgents(ctx.cwd);
-        const repairSuitable = repairPolicy === "forced" ? chooseForcedSubagents("Repair", repairRequired, "Repair", availableRepairAgents) : [];
+        const repairSuitable = subagentPolicyRequiresRequiredEvidence(repairPolicy) ? chooseForcedSubagents("Repair", repairRequired, "Repair", availableRepairAgents) : [];
         const hasWriteCapableSubagents = repairSuitable.some(a => subagentToolsAllowMutation(a.tools));
         if (hasWriteCapableSubagents) {
-          const required = workerTargetForPolicy("forced", workerCount(settings, "Repair"));
+          const required = workerTargetForPolicy(repairPolicy, workerCount(settings, "Repair"));
           const observed = subagentUsageByPhase.Repair ?? 0;
           updateState({ mode: "validated", lastRepairStatus: "blocked", lastRepairAttempt: compact(text, 1200), repairHistory: appendWorkflowRepairHistory({ timestamp: new Date().toISOString(), retry: state.currentValidationRetry ?? 0, status: "blocked", repairSummary: compact(text, 800), nextAction: `Repair summary saved, but revalidation blocked by forced repair sub-agent policy (${observed}/${required} workers).` }), planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "validated" }, settings, { lifecycleStatus: "blocked", repairStatus: "blocked", nextAction: "repair summary saved; forced repair sub-agents missing" }) : state.planProgress }, ctx);
           return;
@@ -18989,6 +19814,22 @@ Public workflow commands:
         recordWorkflowInternalEvent(ctx, "Internal workflow lifecycle event suppressed.");
         return;
       }
+      if (!planValidationBoundaryReached(state, settings)) {
+        updateState({
+          mode: "reviewed",
+          executionSummary: `${state.executionSummary ?? ""}\n\nRepair summary received before validation boundary (not revalidated):\n${text}`.trim(),
+          lastRepairStatus: "none",
+          lastRepairAttempt: undefined,
+          repairRetryState: { ...(state.repairRetryState ?? {}), validation: undefined },
+          validationReport: undefined,
+          validationVerdict: undefined,
+          lastValidationFailure: undefined,
+          planStepValidationIndex: undefined,
+          planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "reviewed" }, settings, { lifecycleStatus: "reviewed", validationStatus: "pending", repairStatus: "none", nextAction: "continue execution" }) : state.planProgress,
+        }, ctx);
+        show(pi, "# Plan Repair Ignored\n\nApproved Plan execution is incomplete. Repair/revalidation is not available until the configured validation boundary is reached.\n\nUse /plan continue.");
+        return;
+      }
       updateState({ mode: "revalidating", executionSummary: `${state.executionSummary ?? ""}\n\nRepair summary:\n${text}`.trim(), lastRepairStatus: "completed", repairRetryState: { ...(state.repairRetryState ?? {}), validation: state.repairRetryState?.validation ? { ...state.repairRetryState.validation, status: "completed", inProgress: false, lastAttempt: compact(text, 1200) } : undefined }, planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "revalidating", lastRepairStatus: "completed" }, settings, { lifecycleStatus: "revalidating", validationStatus: "running", repairStatus: "completed", nextAction: "validation result" }) : state.planProgress, lastRepairAttempt: compact(text, 1200), repairHistory: appendWorkflowRepairHistory({ timestamp: new Date().toISOString(), retry: state.currentValidationRetry ?? 0, status: "completed", repairSummary: compact(text, 800), nextAction: "Revalidate repaired Plan Mode workflow." }) }, ctx);
       deferWorkflowAction(pi, "begin revalidation after repair", async () => {
         const revalidationStarted = await beginValidation(ctx, true, true);
@@ -19000,11 +19841,19 @@ Public workflow commands:
     // ── Validation complete ──
     if (state.mode === "validating" || state.mode === "revalidating") {
       if (state.lastWorkflowHandoff?.type === WORKFLOW_VALIDATION_RESULT_TOOL) return;
-      planForcedSubagentPreflightReconcile(ctx, "Validation");
-      const forcedValidationBlock = forcedSubagentUsageSatisfied(ctx, "Validation");
-      if (forcedValidationBlock) {
-        if (queuePlanValidationHandoffRetry(ctx, text, forcedValidationBlock, "validation completed without forced Validation evidence")) return;
-        blockPlanValidationHandoff(ctx, text, forcedValidationBlock);
+      if (!planValidationBoundaryReached(state, settings)) {
+        const reason = "Approved Plan execution is incomplete. Validation output was ignored until the configured validation boundary is reached.";
+        updateState({
+          mode: "reviewed",
+          validationReport: undefined,
+          validationVerdict: undefined,
+          lastValidationFailure: undefined,
+          lastRepairStatus: "none",
+          lastRepairAttempt: undefined,
+          planStepValidationIndex: undefined,
+          planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "reviewed" }, settings, { lifecycleStatus: "reviewed", validationStatus: "pending", repairStatus: "none", nextAction: "continue execution" }) : state.planProgress,
+        }, ctx);
+        show(pi, `# Plan Validation Ignored\n\n${reason}\n\nUse /plan continue.`);
         return;
       }
       const verdict = normalizeValidationVerdict(extractVerdict(text), text);

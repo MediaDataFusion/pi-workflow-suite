@@ -141,6 +141,25 @@ export interface StandardTodoState {
 
 export type StandardClarificationStage = "drafting" | "awaiting_answer" | "answered";
 export type WorkflowSubagentPhase = "Planning" | "Execution" | "Repair" | "Review" | "Validation";
+export type WorkflowSubagentPolicyDecisionOutcome =
+  | "required"
+  | "exempt_trivial"
+  | "auto_delegate"
+  | "auto_skip_trivial"
+  | "auto_skip_no_useful_parallel_work"
+  | "unavailable";
+
+export interface WorkflowSubagentPolicyDecision {
+  phase: WorkflowSubagentPhase;
+  policy: "off" | "auto" | "deep" | "maximum" | "forced";
+  outcome: WorkflowSubagentPolicyDecisionOutcome;
+  reason: string;
+  task?: string;
+  required?: number;
+  observed?: number;
+  background?: boolean;
+  createdAt: string;
+}
 
 export interface StandardSubagentPreflightRecord {
   task?: string;
@@ -310,6 +329,7 @@ export interface WorkflowState {
   standardClarifyingQuestions?: ClarificationQuestion[];
   standardClarifyingAnswers?: ClarificationAnswer[];
   standardSubagentPreflight?: Partial<Record<WorkflowSubagentPhase, StandardSubagentPreflightRecord>>;
+  subagentPolicyDecisions?: Partial<Record<WorkflowSubagentPhase, WorkflowSubagentPolicyDecision>>;
   standardLastTodoDecision?: string;
   standardLastTodoReason?: string;
   lastCompletedPlanSummary?: CompletedPlanSummary;

@@ -2,6 +2,17 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.21] - 2026-06-13
+
+### Hardened
+
+- Hardened Mission Mode clarification and execution handoff behavior.
+- Hardened sub-agent policy handling across workflow phases.
+- Refined forced sub-agent exceptions and validation handoff timing.
+- Refined Mission validation repair routing for safer continued progress.
+- Hardened project-aware Plan/Mission resume selection.
+- Hardened Plan Mode continuation behavior for multi-step plans.
+
 ## [0.0.20] - 2026-06-12
 
 ### Improved
