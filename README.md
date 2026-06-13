@@ -11,7 +11,7 @@
   <a href="#settings-reference"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.3/docs/assets/readme-link-settings.svg" alt="Settings" /></a>
 </p>
 
-**Workflow Suite Version:** `v0.0.21`
+**Workflow Suite Version:** `v0.0.22`
 
 ## Overview
 
@@ -257,36 +257,63 @@ The reviewer is a pre-execution second opinion on the approved plan and risk pro
 
 Core behavior:
 
-- Plain `/p` enters Plan Mode and waits for your next message.
-- `/p <task>` starts planning immediately.
-- `/plan <task>` provides the same workflow through the full command name.
+- Plain `/p` or `/plan` enters Plan Mode and waits for your next message.
+- `/p <task>` or `/plan <task>` starts planning immediately.
 - The planner must choose either `PLAN_DECISION: clarify` or `PLAN_DECISION: plan`.
 - Clarification questions are generated from the actual task, not static boilerplate.
-- Execution is approval-gated.
-- Execution must follow the approved plan only.
+- Execution is approval-gated and must follow the approved plan only.
+- Plan execution tracks approved steps through `workflow_progress`.
+- Review is a pre-execution second opinion when enabled.
 - Validation is read-only and reports PASS, PARTIAL PASS, FAIL, or UNKNOWN.
-- Plan history can save draft, revised, and approved plans.
+- Repair, retry, and revalidation recover failed or partial validation when safe.
+- Plan history saves draft, revised, approved, completed, and archived plan records.
+- `/plan resume` or `/p resume` restores current or recoverable Plan state and shows the next action or resume menu; it does not auto-run workflow gates.
+- `/plan continue` or `/p continue` advances the current or recovered Plan through the next configured gate, such as review, execution, validation, repair, or final completion.
 
 Common commands:
 
 ```text
+Entry and status:
 /p
-/p <task>
-/p status
-/p approve
-/p revise <feedback>
-/p cancel
 /plan
+/p <task>
 /plan <task>
+/p status
+/plan status
+
+Approval and revision:
+/p approve
 /plan approve
+/p revise <feedback>
 /plan revise <feedback>
-/plan cancel
+
+Resume and continuation:
+/p resume
+/plan resume
+/p continue
+/plan continue
+
+Validation repair:
+/p repair
+/plan repair
+/p retry
+/plan retry
+/p revalidate
+/plan revalidate
+
+Clarification, execution, and history:
 /clarify questions
 /clarify answer 1A 2C
 /execute
 /validate
 /workflow plans list
 /workflow plans list latest
+/workflow plans list <id>
+/workflow plans cleanup [limit]
+
+Exit:
+/p cancel
+/plan cancel
 ```
 
 ## Mission Mode
@@ -988,6 +1015,11 @@ Plan history can persist workflow plans under Pi runtime state. Saved plans incl
 - clarification questions and answers,
 - final plan,
 - approval status,
+- execution summary and final report,
+- reviewer report and review history,
+- validation verdict and validation report,
+- repair status, repair attempt, and repair history,
+- progress and runtime snapshot,
 - model role usage,
 - sub-agent metadata,
 - save reason.
@@ -1066,8 +1098,8 @@ pi install -l npm:@mediadatafusion/pi-workflow-suite
 ### Installing specific versions
 
 ```bash
-pi install npm:@mediadatafusion/pi-workflow-suite@0.0.21
-pi install -l npm:@mediadatafusion/pi-workflow-suite@0.0.21
+pi install npm:@mediadatafusion/pi-workflow-suite@0.0.22
+pi install -l npm:@mediadatafusion/pi-workflow-suite@0.0.22
 ```
 
 An unversioned install follows normal update behavior: `pi update` and `pi update --extensions` will pick up new package releases. A versioned install pins the package to that version. Pinned package specs are intentionally skipped by Pi's normal package update commands. To move a pinned install to a newer version, reinstall with the desired version. To switch back to latest tracking, use the unversioned install command without `@<version>`.
@@ -1151,6 +1183,8 @@ Choose Mission Mode when you want milestone-based, resumable work:
 | `/workflow status` | List current workflow, Standard, Plan, and Mission state. |
 | `/standard` | Enter Standard Mode for direct active work. |
 | `/p` / `/plan` | Plan a task before editing. |
+| `/plan resume` | Restore current or recoverable Plan state and show the next action. |
+| `/plan continue` | Continue an approved or recovered Plan through the next configured gate. |
 | `/clarify` | Answer Plan Mode clarification questions. |
 | `/execute` | Run an approved plan. |
 | `/validate` | Validate implementation against the approved plan. |
@@ -1273,10 +1307,10 @@ See `docs/TROUBLESHOOTING.md` for detailed diagnostics.
 
 ## Versioning
 
-The current preparation version is `v0.0.21`. Version information is intentionally aligned across:
+The current preparation version is `v0.0.22`. Version information is intentionally aligned across:
 
-- `VERSION` (`v0.0.21`),
-- `package.json` (`0.0.21`),
+- `VERSION` (`v0.0.22`),
+- `package.json` (`0.0.22`),
 - `package-lock.json`,
 - this README,
 - Workflow Suite settings/about output.

@@ -2,6 +2,13 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.22] - 2026-06-14
+
+### Improved
+
+- Refined Standard Mode sub-agent worker bucket handling.
+- Refreshed Plan Mode README commands and recovery notes.
+
 ## [0.0.21] - 2026-06-13
 
 ### Hardened
