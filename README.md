@@ -11,7 +11,7 @@
   <a href="#settings-reference"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.3/docs/assets/readme-link-settings.svg" alt="Settings" /></a>
 </p>
 
-**Workflow Suite Version:** `v0.0.22`
+**Workflow Suite Version:** `v0.0.23`
 
 ## Overview
 
@@ -1098,11 +1098,11 @@ pi install -l npm:@mediadatafusion/pi-workflow-suite
 ### Installing specific versions
 
 ```bash
-pi install npm:@mediadatafusion/pi-workflow-suite@0.0.22
-pi install -l npm:@mediadatafusion/pi-workflow-suite@0.0.22
+pi install npm:@mediadatafusion/pi-workflow-suite@0.0.23
+pi install -l npm:@mediadatafusion/pi-workflow-suite@0.0.23
 ```
 
-An unversioned install follows normal update behavior: `pi update` and `pi update --extensions` will pick up new package releases. A versioned install pins the package to that version. Pinned package specs are intentionally skipped by Pi's normal package update commands. To move a pinned install to a newer version, reinstall with the desired version. To switch back to latest tracking, use the unversioned install command without `@<version>`.
+An unversioned install follows normal package update behavior through `pi update --all`, which updates Pi and installed packages/extensions together. Bare `pi update` updates Pi itself only. A versioned install pins the package to that version. Pinned package specs are intentionally skipped by Pi's normal package update commands. To move a pinned install to a newer version, reinstall with the desired version. To switch back to latest tracking, use the unversioned install command without `@<version>`.
 
 ### Source install
 
@@ -1307,10 +1307,10 @@ See `docs/TROUBLESHOOTING.md` for detailed diagnostics.
 
 ## Versioning
 
-The current preparation version is `v0.0.22`. Version information is intentionally aligned across:
+The current preparation version is `v0.0.23`. Version information is intentionally aligned across:
 
-- `VERSION` (`v0.0.22`),
-- `package.json` (`0.0.22`),
+- `VERSION` (`v0.0.23`),
+- `package.json` (`0.0.23`),
 - `package-lock.json`,
 - this README,
 - Workflow Suite settings/about output.
@@ -1354,4 +1354,5 @@ pi install npm:@mediadatafusion/pi-workflow-suite@<version>
 - Optional timed checkpoint scheduling.
 - User-supervised recovery helpers.
 - Agent-routed compaction after Custom agent mode is implemented.
+- Sub-agent model routing so support workers can use lower-cost provider/model/thinking settings while parent workflow roles keep stronger models where needed.
 - Session-local workflow profiles if the Pi runtime supports them cleanly.

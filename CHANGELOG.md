@@ -2,6 +2,13 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.23] - 2026-06-19
+
+### Improved
+
+- Updated install guidance for Pi's self-only `pi update` behavior and `pi update --all` package updates.
+- Documented planned sub-agent model routing for lower-cost worker configuration.
+
 ## [0.0.22] - 2026-06-14
 
 ### Improved
