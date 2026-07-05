@@ -17,6 +17,14 @@ export interface RoleModelSettings {
   askBeforeRun?: boolean;
 }
 
+export type WorkflowSubagentModelBucket = "planning" | "execution" | "repair" | "review" | "validation";
+export type WorkflowSubagentModelMode = "plan" | "standard" | "mission";
+
+export interface WorkflowSubagentModelRouting {
+  enabled?: boolean;
+  models?: Partial<Record<WorkflowSubagentModelBucket, RoleModelSettings>>;
+}
+
 export type PlanningClarificationMode = "auto" | "always_for_nontrivial" | "never";
 export type PlanningDepth = "fast" | "standard" | "deep" | "maximum";
 export type ClarificationTiming = "immediate" | "after_initial_analysis";
@@ -97,6 +105,7 @@ export interface WorkflowSubagentSettings {
   subagentTimeoutMinutes?: number;
   subagentStaleMinutes?: number;
   allowBackgroundSubagents?: boolean;
+  modelRouting?: WorkflowSubagentModelRouting;
 }
 
 export interface WorkflowSettings {
@@ -112,6 +121,9 @@ export interface WorkflowSettings {
     useSubagentsBeforeClarification?: boolean;
     maxTokens?: number;
     maxRuntimeHours?: number;
+    usePlanSpecificModels?: boolean;
+    models?: Record<WorkflowRole, RoleModelSettings>;
+    subagentModelRouting?: WorkflowSubagentModelRouting;
   };
   workflow: {
     requirePlanApprovalBeforeExecute: boolean;
@@ -167,6 +179,7 @@ export interface WorkflowSettings {
     useStandardSpecificModels?: boolean;
     modelRole?: StandardModelRole;
     models?: Record<WorkflowRole, RoleModelSettings>;
+    subagentModelRouting?: WorkflowSubagentModelRouting;
     maxTokens?: number;
   };
   missions: {
@@ -218,6 +231,7 @@ export interface WorkflowSettings {
     minWorkersForMaximum?: number;
     useMissionSpecificModels?: boolean;
     models?: Record<MissionModelRole, RoleModelSettings>;
+    subagentModelRouting?: WorkflowSubagentModelRouting;
   };
   safety: {
     repoLockEnabled?: boolean;
@@ -274,6 +288,7 @@ export interface WorkflowSettings {
   };
   presets?: {
     activePreset?: string;
+    noneSnapshot?: WorkflowPresetBundle;
     items?: Record<string, WorkflowPresetBundle>;
   };
 }
@@ -281,11 +296,11 @@ export interface WorkflowSettings {
 export interface WorkflowPresetBundle {
   displayName?: string;
   description?: string;
-  planning?: Partial<WorkflowSettings["planning"]>;
+  planning?: Partial<Omit<WorkflowSettings["planning"], "models" | "usePlanSpecificModels" | "subagentModelRouting">>;
   workflow?: Partial<WorkflowSettings["workflow"]>;
-  standard?: Partial<Omit<WorkflowSettings["standard"], "models" | "useSharedExecutorModel" | "useStandardSpecificModels" | "modelRole">>;
-  missions?: Partial<Omit<WorkflowSettings["missions"], "models" | "useMissionSpecificModels">>;
-  subagents?: Partial<WorkflowSettings["subagents"]>;
+  standard?: Partial<Omit<WorkflowSettings["standard"], "models" | "useSharedExecutorModel" | "useStandardSpecificModels" | "modelRole" | "subagentModelRouting">>;
+  missions?: Partial<Omit<WorkflowSettings["missions"], "models" | "useMissionSpecificModels" | "subagentModelRouting">>;
+  subagents?: Partial<Omit<WorkflowSettings["subagents"], "modelRouting">>;
   ui?: Partial<WorkflowSettings["ui"]>;
 }
 
@@ -406,6 +421,10 @@ const BUILTIN_DEFAULT_WORKFLOW_SETTINGS = {
     "useSharedExecutorModel": true,
     "useStandardSpecificModels": false,
     "modelRole": "executor",
+    "subagentModelRouting": {
+      "enabled": false,
+      "models": {}
+    },
     "models": {
       "planner": {
         "enabled": true,
@@ -477,6 +496,10 @@ const BUILTIN_DEFAULT_WORKFLOW_SETTINGS = {
     "minWorkersForDeep": 1,
     "minWorkersForMaximum": 1,
     "useMissionSpecificModels": false,
+    "subagentModelRouting": {
+      "enabled": false,
+      "models": {}
+    },
     "models": {
       "planner": {
         "enabled": true,
@@ -587,7 +610,11 @@ const BUILTIN_DEFAULT_WORKFLOW_SETTINGS = {
     "planningOrchestrationPolicy": "orchestrator_first",
     "subagentTimeoutMinutes": 20,
     "subagentStaleMinutes": 8,
-    "allowBackgroundSubagents": true
+    "allowBackgroundSubagents": true,
+    "modelRouting": {
+      "enabled": false,
+      "models": {}
+    }
   },
   "planning": {
     "clarificationMode": "auto",
@@ -599,7 +626,38 @@ const BUILTIN_DEFAULT_WORKFLOW_SETTINGS = {
     "allowClarificationWithoutAnalysis": false,
     "useSubagentsBeforeClarification": true,
     "maxTokens": 0,
-    "maxRuntimeHours": 0
+    "maxRuntimeHours": 0,
+    "usePlanSpecificModels": false,
+    "subagentModelRouting": {
+      "enabled": false,
+      "models": {}
+    },
+    "models": {
+      "planner": {
+        "enabled": true,
+        "provider": null,
+        "model": null,
+        "thinkingLevel": "high"
+      },
+      "executor": {
+        "enabled": true,
+        "provider": null,
+        "model": null,
+        "thinkingLevel": "high"
+      },
+      "reviewer": {
+        "enabled": true,
+        "provider": null,
+        "model": null,
+        "thinkingLevel": "xhigh"
+      },
+      "validator": {
+        "enabled": true,
+        "provider": null,
+        "model": null,
+        "thinkingLevel": "xhigh"
+      }
+    }
   },
   "context": {
     "compactionMode": "pi_default",
@@ -613,7 +671,7 @@ const BUILTIN_DEFAULT_WORKFLOW_SETTINGS = {
     "workflowCompactionCheckMode": "boundary"
   },
   "presets": {
-    "activePreset": "custom",
+    "activePreset": "standard",
     "items": {}
   }
 } as WorkflowSettings;
@@ -661,13 +719,13 @@ export function defaultWorkflowSettings(): WorkflowSettings {
       validator: normalizeRole(defaults.models.validator, parsed.models?.validator),
       reviewer: normalizeRole(defaults.models.reviewer, parsed.models?.reviewer),
     },
-    planning: { ...defaults.planning, ...(parsed.planning ?? {}) },
+    planning: normalizePlanningSettings(defaults, parsed.planning),
     workflow: { ...defaults.workflow, ...(parsed.workflow ?? {}) },
     standard: normalizeStandardSettings(defaults, parsed.standard),
-    missions: { ...defaults.missions, ...(parsed.missions ?? {}), models: normalizeMissionModels(defaults, parsed.missions) },
+    missions: normalizeMissionSettings(defaults, parsed.missions),
     safety: { ...defaults.safety, ...(parsed.safety ?? {}) },
     ui: normalizeUiSettings({ ...defaults.ui, ...(parsed.ui ?? {}) }),
-    subagents: { ...defaults.subagents, ...(parsed.subagents ?? {}) },
+    subagents: normalizeSubagentSettings(defaults, parsed.subagents),
     context: { ...defaults.context, ...(parsed.context ?? {}) },
     presets: { ...(defaults.presets ?? {}), ...(parsed.presets ?? {}), items: { ...(defaults.presets?.items ?? {}), ...(parsed.presets?.items ?? {}) } },
   };
@@ -675,6 +733,48 @@ export function defaultWorkflowSettings(): WorkflowSettings {
 
 function normalizeRole(defaultRole: RoleModelSettings, parsedRole?: Partial<RoleModelSettings>): RoleModelSettings {
   return { ...defaultRole, ...(parsedRole ?? {}) };
+}
+
+const WORKFLOW_SUBAGENT_MODEL_BUCKETS: WorkflowSubagentModelBucket[] = ["planning", "execution", "repair", "review", "validation"];
+
+function subagentBucketDefaultRole(defaults: WorkflowSettings, bucket: WorkflowSubagentModelBucket): RoleModelSettings {
+  if (bucket === "planning") return defaults.models.planner;
+  if (bucket === "review") return defaults.models.reviewer;
+  if (bucket === "validation") return defaults.models.validator;
+  return defaults.models.executor;
+}
+
+function defaultSubagentModelRouting(defaults: WorkflowSettings): WorkflowSubagentModelRouting {
+  const models: Partial<Record<WorkflowSubagentModelBucket, RoleModelSettings>> = {};
+  for (const bucket of WORKFLOW_SUBAGENT_MODEL_BUCKETS) {
+    const role = subagentBucketDefaultRole(defaults, bucket);
+    models[bucket] = { enabled: true, provider: null, model: null, thinkingLevel: role.thinkingLevel };
+  }
+  return { enabled: false, models };
+}
+
+function normalizeSubagentModelRouting(defaults: WorkflowSettings, base?: WorkflowSubagentModelRouting, override?: WorkflowSubagentModelRouting): WorkflowSubagentModelRouting {
+  const defaultRouting = defaultSubagentModelRouting(defaults);
+  const models: Partial<Record<WorkflowSubagentModelBucket, RoleModelSettings>> = {};
+  for (const bucket of WORKFLOW_SUBAGENT_MODEL_BUCKETS) {
+    const defaultRoute = defaultRouting.models?.[bucket] ?? { enabled: true, provider: null, model: null, thinkingLevel: subagentBucketDefaultRole(defaults, bucket).thinkingLevel };
+    models[bucket] = normalizeRole(defaultRoute, { ...(base?.models?.[bucket] ?? {}), ...(override?.models?.[bucket] ?? {}) });
+  }
+  return {
+    ...defaultRouting,
+    ...(base ?? {}),
+    ...(override ?? {}),
+    models,
+  };
+}
+
+function normalizeSubagentSettings(defaults: WorkflowSettings, base?: Partial<WorkflowSettings>["subagents"], override?: Partial<WorkflowSettings>["subagents"]): WorkflowSubagentSettings {
+  return {
+    ...defaults.subagents,
+    ...(base ?? {}),
+    ...(override ?? {}),
+    modelRouting: normalizeSubagentModelRouting(defaults, base?.modelRouting, override?.modelRouting),
+  };
 }
 
 function normalizeUiSettings(ui: WorkflowSettings["ui"]): WorkflowSettings["ui"] {
@@ -700,10 +800,38 @@ function normalizeStandardSettings(defaults: WorkflowSettings, base?: Partial<Wo
       ...(override?.subagents ?? {}),
     },
     models: normalizeStandardModels(defaults, base, override),
+    subagentModelRouting: normalizeSubagentModelRouting(defaults, base?.subagentModelRouting, override?.subagentModelRouting),
   };
   return {
     ...merged,
     clarificationMode: normalizeStandardClarificationMode(merged.clarificationMode, defaults.standard.clarificationMode ?? "auto"),
+  };
+}
+
+function normalizePlanningSettings(defaults: WorkflowSettings, base?: Partial<WorkflowSettings>["planning"], override?: Partial<WorkflowSettings>["planning"]): WorkflowSettings["planning"] {
+  return {
+    ...defaults.planning,
+    ...(base ?? {}),
+    ...(override ?? {}),
+    models: normalizePlanModels(defaults, base, override),
+    subagentModelRouting: normalizeSubagentModelRouting(defaults, base?.subagentModelRouting, override?.subagentModelRouting),
+  };
+}
+
+function normalizePlanModels(defaults: WorkflowSettings, base?: Partial<WorkflowSettings>["planning"], override?: Partial<WorkflowSettings>["planning"]): Record<WorkflowRole, RoleModelSettings> {
+  const defaultModels = defaults.planning.models ?? {
+    planner: { enabled: true, provider: null, model: null, thinkingLevel: defaults.models.planner.thinkingLevel },
+    executor: { enabled: true, provider: null, model: null, thinkingLevel: defaults.models.executor.thinkingLevel },
+    reviewer: { enabled: true, provider: null, model: null, thinkingLevel: defaults.models.reviewer.thinkingLevel },
+    validator: { enabled: true, provider: null, model: null, thinkingLevel: defaults.models.validator.thinkingLevel },
+  };
+  const baseModels: Partial<Record<WorkflowRole, RoleModelSettings>> = base?.models ?? {};
+  const overrideModels: Partial<Record<WorkflowRole, RoleModelSettings>> = override?.models ?? {};
+  return {
+    planner: normalizeRole(defaultModels.planner, { ...(baseModels.planner ?? {}), ...(overrideModels.planner ?? {}) }),
+    executor: normalizeRole(defaultModels.executor, { ...(baseModels.executor ?? {}), ...(overrideModels.executor ?? {}) }),
+    reviewer: normalizeRole(defaultModels.reviewer, { ...(baseModels.reviewer ?? {}), ...(overrideModels.reviewer ?? {}) }),
+    validator: normalizeRole(defaultModels.validator, { ...(baseModels.validator ?? {}), ...(overrideModels.validator ?? {}) }),
   };
 }
 
@@ -738,6 +866,16 @@ function normalizeMissionModels(defaults: WorkflowSettings, base?: Partial<Workf
     executor: normalizeRole(defaultModels.executor, { ...(baseModels.executor ?? {}), ...(overrideModels.executor ?? {}) }),
     reviewer: normalizeRole(defaultModels.reviewer, { ...(baseModels.reviewer ?? {}), ...(overrideModels.reviewer ?? {}) }),
     validator: normalizeRole(defaultModels.validator, { ...(baseModels.validator ?? {}), ...(overrideModels.validator ?? {}) }),
+  };
+}
+
+function normalizeMissionSettings(defaults: WorkflowSettings, base?: Partial<WorkflowSettings>["missions"], override?: Partial<WorkflowSettings>["missions"]): WorkflowSettings["missions"] {
+  return {
+    ...defaults.missions,
+    ...(base ?? {}),
+    ...(override ?? {}),
+    models: normalizeMissionModels(defaults, base, override),
+    subagentModelRouting: normalizeSubagentModelRouting(defaults, base?.subagentModelRouting, override?.subagentModelRouting),
   };
 }
 
@@ -778,13 +916,13 @@ function mergeSettings(global: WorkflowSettings, project: Partial<WorkflowSettin
       validator: normalizeRole(global.models.validator, project.models?.validator),
       reviewer: normalizeRole(global.models.reviewer, project.models?.reviewer),
     },
-    planning: { ...defaults.planning, ...global.planning, ...(project.planning ?? {}) },
+    planning: normalizePlanningSettings(defaults, global.planning, project.planning),
     workflow: { ...defaults.workflow, ...global.workflow, ...(project.workflow ?? {}) },
     standard: normalizeStandardSettings(defaults, global.standard, project.standard),
-    missions: { ...defaults.missions, ...global.missions, ...(project.missions ?? {}), models: normalizeMissionModels(defaults, global.missions, project.missions) },
+    missions: normalizeMissionSettings(defaults, global.missions, project.missions),
     safety: { ...defaults.safety, ...global.safety, ...(project.safety ?? {}) },
     ui: normalizeUiSettings({ ...defaults.ui, ...global.ui, ...(project.ui ?? {}) }),
-    subagents: { ...defaults.subagents, ...global.subagents, ...(project.subagents ?? {}) },
+    subagents: normalizeSubagentSettings(defaults, global.subagents, project.subagents),
     context: { ...defaults.context, ...global.context, ...(project.context ?? {}) },
     presets: { ...(defaults.presets ?? {}), ...(global.presets ?? {}), ...(project.presets ?? {}), items: { ...(defaults.presets?.items ?? {}), ...(global.presets?.items ?? {}), ...(project.presets?.items ?? {}) } },
   };
@@ -806,6 +944,22 @@ interface UpdateSettingsOptions {
 }
 
 export const WORKFLOW_CUSTOM_PRESET_MARKER = "custom";
+const WORKFLOW_NONE_PRESET_ALIASES = new Set(["none", "no-preset", "no-active-preset", "custom"]);
+
+function normalizeActiveWorkflowPresetName(value?: string): string {
+  const normalized = normalizeWorkflowPresetName(value ?? "");
+  return normalized && WORKFLOW_NONE_PRESET_ALIASES.has(normalized) ? WORKFLOW_CUSTOM_PRESET_MARKER : (value || WORKFLOW_CUSTOM_PRESET_MARKER);
+}
+
+function planningSettingsWithoutModelRouting(planning?: Partial<WorkflowSettings["planning"]>): Partial<WorkflowSettings["planning"]> {
+  const {
+    models: _ignoredModels,
+    usePlanSpecificModels: _ignoredUsePlanSpecificModels,
+    subagentModelRouting: _ignoredSubagentModelRouting,
+    ...planningWithoutModelRouting
+  } = planning ?? {};
+  return planningWithoutModelRouting;
+}
 
 function standardSettingsWithoutModelRouting(standard?: Partial<WorkflowSettings["standard"]>): Partial<WorkflowSettings["standard"]> {
   const {
@@ -813,6 +967,7 @@ function standardSettingsWithoutModelRouting(standard?: Partial<WorkflowSettings
     useSharedExecutorModel: _ignoredUseSharedExecutorModel,
     useStandardSpecificModels: _ignoredUseStandardSpecificModels,
     modelRole: _ignoredModelRole,
+    subagentModelRouting: _ignoredSubagentModelRouting,
     ...standardWithoutModelRouting
   } = standard ?? {};
   return standardWithoutModelRouting;
@@ -822,41 +977,97 @@ function missionSettingsWithoutModelRouting(missions?: Partial<WorkflowSettings[
   const {
     models: _ignoredModels,
     useMissionSpecificModels: _ignoredUseMissionSpecificModels,
+    subagentModelRouting: _ignoredSubagentModelRouting,
     ...missionsWithoutModelRouting
   } = missions ?? {};
   return missionsWithoutModelRouting;
 }
 
+function subagentSettingsWithoutModelRouting(subagents?: Partial<WorkflowSettings["subagents"]>): Partial<WorkflowSettings["subagents"]> {
+  const {
+    modelRouting: _ignoredModelRouting,
+    ...subagentsWithoutModelRouting
+  } = subagents ?? {};
+  return subagentsWithoutModelRouting;
+}
+
+function workflowPresetSnapshotFromSettings(settings: WorkflowSettings): WorkflowPresetBundle {
+  return {
+    planning: { ...planningSettingsWithoutModelRouting(settings.planning) },
+    workflow: { ...settings.workflow },
+    standard: { ...standardSettingsWithoutModelRouting(settings.standard) } as WorkflowPresetBundle["standard"],
+    missions: { ...missionSettingsWithoutModelRouting(settings.missions) } as WorkflowPresetBundle["missions"],
+    subagents: { ...subagentSettingsWithoutModelRouting(settings.subagents) },
+    ui: { showWorkflowStatus: settings.ui.showWorkflowStatus, showPlanModeIndicator: settings.ui.showPlanModeIndicator, planTopWidgetVisible: settings.ui.planTopWidgetVisible, planBottomWidgetVisible: settings.ui.planBottomWidgetVisible, missionTopWidgetVisible: settings.ui.missionTopWidgetVisible, missionBottomWidgetVisible: settings.ui.missionBottomWidgetVisible, workflowTheme: settings.ui.workflowTheme, workflowThemeOverrides: settings.ui.workflowThemeOverrides, startupVisual: settings.ui.startupVisual, startupVisualOnSessionStart: settings.ui.startupVisualOnSessionStart, customBrandEnabled: settings.ui.customBrandEnabled, customBrandText: settings.ui.customBrandText },
+  };
+}
+
+function defaultNoneWorkflowSettings(): WorkflowSettings {
+  const settings = defaultWorkflowSettings();
+  settings.presets = { ...(settings.presets ?? {}), activePreset: WORKFLOW_CUSTOM_PRESET_MARKER, items: { ...(settings.presets?.items ?? {}) } };
+  return settings;
+}
+
+function defaultNoneWorkflowPresetSnapshot(): WorkflowPresetBundle {
+  return workflowPresetSnapshotFromSettings(defaultNoneWorkflowSettings());
+}
+
+function canonicalUntouchedDefaultSignature(settings: WorkflowSettings): string {
+  const copy = cloneWorkflowSettings(settings);
+  copy.presets = { activePreset: WORKFLOW_CUSTOM_PRESET_MARKER, items: {} };
+  return JSON.stringify(copy);
+}
+
+function shouldMigrateUntouchedLegacyDefaultToStandard(parsed: Partial<WorkflowSettings>, merged: WorkflowSettings): boolean {
+  const active = normalizeActiveWorkflowPresetName(parsed.presets?.activePreset);
+  if (active !== WORKFLOW_CUSTOM_PRESET_MARKER) return false;
+  if (parsed.presets?.noneSnapshot) return false;
+  if (Object.keys(parsed.presets?.items ?? {}).length > 0) return false;
+  const canonicalDefault = defaultNoneWorkflowSettings();
+  canonicalDefault.presets = { activePreset: WORKFLOW_CUSTOM_PRESET_MARKER, items: {} };
+  return canonicalUntouchedDefaultSignature(merged) === canonicalUntouchedDefaultSignature(canonicalDefault);
+}
+
 function presetOwnedSettingsSignature(settings: WorkflowSettings): string {
   return JSON.stringify({
-    planning: settings.planning,
+    planning: planningSettingsWithoutModelRouting(settings.planning),
     workflow: settings.workflow,
     standard: standardSettingsWithoutModelRouting(settings.standard),
     missions: missionSettingsWithoutModelRouting(settings.missions),
-    subagents: settings.subagents,
+    subagents: subagentSettingsWithoutModelRouting(settings.subagents),
   });
 }
 
 function applyActivePresetOverlay(settings: WorkflowSettings): WorkflowSettings {
-  const active = settings.presets?.activePreset ?? WORKFLOW_CUSTOM_PRESET_MARKER;
+  const active = normalizeActiveWorkflowPresetName(settings.presets?.activePreset);
   if (active === WORKFLOW_CUSTOM_PRESET_MARKER) return settings;
   const preset = workflowPresetCatalog(settings)[active];
   if (!preset) return settings;
   const defaults = defaultWorkflowSettings();
   const normalized = normalizeWorkflowPresetBundle(preset);
+  const currentPlanModelRouting = {
+    models: settings.planning.models,
+    usePlanSpecificModels: settings.planning.usePlanSpecificModels,
+    subagentModelRouting: settings.planning.subagentModelRouting,
+  };
   const currentStandardModelRouting = {
     models: settings.standard.models,
     useSharedExecutorModel: settings.standard.useSharedExecutorModel,
     useStandardSpecificModels: settings.standard.useStandardSpecificModels,
     modelRole: settings.standard.modelRole,
+    subagentModelRouting: settings.standard.subagentModelRouting,
   };
   const currentMissionModelRouting = {
     models: settings.missions.models,
     useMissionSpecificModels: settings.missions.useMissionSpecificModels,
+    subagentModelRouting: settings.missions.subagentModelRouting,
+  };
+  const currentSharedSubagentModelRouting = {
+    modelRouting: settings.subagents.modelRouting,
   };
   return {
     ...settings,
-    planning: normalized.planning ? { ...settings.planning, ...normalized.planning } : settings.planning,
+    planning: normalized.planning ? { ...settings.planning, ...normalized.planning, ...currentPlanModelRouting } : settings.planning,
     workflow: normalized.workflow ? { ...settings.workflow, ...normalized.workflow } : settings.workflow,
     standard: {
       ...defaults.standard,
@@ -866,7 +1077,7 @@ function applyActivePresetOverlay(settings: WorkflowSettings): WorkflowSettings 
       ...currentStandardModelRouting,
     },
     missions: normalized.missions ? { ...settings.missions, ...normalized.missions, ...currentMissionModelRouting } : settings.missions,
-    subagents: normalized.subagents ? { ...settings.subagents, ...normalized.subagents } : settings.subagents,
+    subagents: normalized.subagents ? { ...settings.subagents, ...normalized.subagents, ...currentSharedSubagentModelRouting } : settings.subagents,
     presets: settings.presets,
   };
 }
@@ -889,10 +1100,15 @@ export function loadGlobalSettings(): WorkflowSettings {
   const defaults = defaultWorkflowSettings();
   if (!existsSync(WORKFLOW_SETTINGS_FILE)) {
     saveWorkflowSettings(defaults);
-    return defaults;
+    return applyActivePresetOverlay(defaults);
   }
   const parsed = parseWorkflowSettingsFile(WORKFLOW_SETTINGS_FILE, defaults, "global workflow settings") as Partial<WorkflowSettings>;
-  return applyActivePresetOverlay(mergeSettings(defaults, parsed));
+  const merged = mergeSettings(defaults, parsed);
+  if (shouldMigrateUntouchedLegacyDefaultToStandard(parsed, merged)) {
+    merged.presets = { ...(merged.presets ?? {}), activePreset: "standard", items: { ...(merged.presets?.items ?? {}) } };
+    saveWorkflowSettings(merged);
+  }
+  return applyActivePresetOverlay(merged);
 }
 
 /** Backwards-compatible: loads effective settings for a given cwd. */
@@ -953,12 +1169,19 @@ export function createProjectSettingsOverride(cwd: string): SettingsWriteResult 
 export function updateSettings(cwd: string, requestedScope: WorkflowSettingsScope | undefined, updater: (settings: WorkflowSettings) => void, options: UpdateSettingsOptions = {}): SettingsWriteResult {
   const target = getWriteTarget(cwd, requestedScope);
   const settings = target.scope === "global" ? loadGlobalSettings() : loadEffectiveSettings(cwd).settings;
-  const beforePreset = settings.presets?.activePreset ?? WORKFLOW_CUSTOM_PRESET_MARKER;
+  const beforePreset = normalizeActiveWorkflowPresetName(settings.presets?.activePreset);
   const beforePresetOwned = presetOwnedSettingsSignature(settings);
+  const beforeNoneSnapshot = beforePreset === WORKFLOW_CUSTOM_PRESET_MARKER ? workflowPresetSnapshotFromSettings(settings) : undefined;
   updater(settings);
   const afterPresetOwned = presetOwnedSettingsSignature(settings);
-  if (!options.preserveActivePreset && beforePreset !== WORKFLOW_CUSTOM_PRESET_MARKER && settings.presets?.activePreset === beforePreset && beforePresetOwned !== afterPresetOwned) {
+  if (!options.preserveActivePreset && beforePreset !== WORKFLOW_CUSTOM_PRESET_MARKER && normalizeActiveWorkflowPresetName(settings.presets?.activePreset) === beforePreset && beforePresetOwned !== afterPresetOwned) {
     settings.presets = { ...(settings.presets ?? {}), activePreset: WORKFLOW_CUSTOM_PRESET_MARKER, items: { ...(settings.presets?.items ?? {}) } };
+  }
+  const afterPreset = normalizeActiveWorkflowPresetName(settings.presets?.activePreset);
+  if (beforePreset === WORKFLOW_CUSTOM_PRESET_MARKER && afterPreset !== WORKFLOW_CUSTOM_PRESET_MARKER && beforeNoneSnapshot) {
+    settings.presets = { ...(settings.presets ?? {}), noneSnapshot: beforeNoneSnapshot, items: { ...(settings.presets?.items ?? {}) } };
+  } else if (afterPreset === WORKFLOW_CUSTOM_PRESET_MARKER && (beforePresetOwned !== presetOwnedSettingsSignature(settings) || !settings.presets?.noneSnapshot)) {
+    settings.presets = { ...(settings.presets ?? {}), activePreset: WORKFLOW_CUSTOM_PRESET_MARKER, noneSnapshot: workflowPresetSnapshotFromSettings(settings), items: { ...(settings.presets?.items ?? {}) } };
   }
   saveSettingsFile(target.file, settings);
   return { settings, scope: target.scope, file: target.file };
@@ -968,36 +1191,36 @@ export function builtInWorkflowPresets(): Record<string, WorkflowPresetBundle> {
   return {
     simple: {
       displayName: "Simple",
-      description: "Fast end-to-end Plan/Mission/Standard workflow with minimal ceremony, automatic validation when work runs, low safe repair retries, and one-worker sub-agent support.",
+      description: "Fast end-to-end Plan/Mission/Standard workflow with minimal ceremony, manual Plan validation, low safe repair retries, and one-worker sub-agent support.",
       planning: { depth: "fast", clarificationMode: "auto", maxClarificationQuestions: 2, interactiveClarificationEnabled: true, clarificationQualityGate: false, useSubagentsBeforeClarification: true },
-      workflow: { offerReviewerBeforeExecute: false, autoRunReviewerBeforeExecute: false, offerValidationAfterExecute: true, autoRunValidationAfterExecute: true, validateAfterExecution: true, requirePlanApprovalBeforeExecute: false, requireApprovalBeforeExecution: false, autoRepairReviewFailures: false, autoRepairValidationFailures: true, reviewRetryMode: "off", validationRetryMode: "safe_only", maxReviewRetriesPerPlan: 0, maxReviewRetriesPerWorkflow: 0, maxValidationRetriesPerPlan: 1, maxValidationRetriesPerWorkflow: 2, pauseAfterReviewFailure: true, pauseAfterValidationFailure: false, planProgressEnabled: true, planRuntimeEnabled: true, planShowProgressBar: true },
+      workflow: { offerReviewerBeforeExecute: false, autoRunReviewerBeforeExecute: false, offerValidationAfterExecute: true, autoRunValidationAfterExecute: false, validateAfterExecution: false, requirePlanApprovalBeforeExecute: false, requireApprovalBeforeExecution: false, autoRepairReviewFailures: false, autoRepairValidationFailures: true, reviewRetryMode: "off", validationRetryMode: "safe_only", maxReviewRetriesPerPlan: 0, maxReviewRetriesPerWorkflow: 0, maxValidationRetriesPerPlan: 1, maxValidationRetriesPerWorkflow: 2, pauseAfterReviewFailure: true, pauseAfterValidationFailure: false, planProgressEnabled: true, planRuntimeEnabled: true, planShowProgressBar: true },
       standard: { enabled: true, autoTodoEnabled: true, todoProgressVisible: true, todoTriggerMode: "auto", clarificationEnabled: true, clarificationMode: "auto", maxClarificationQuestions: 1, interactiveClarificationEnabled: true, clarificationTiming: "after_initial_analysis", clarificationQualityGate: false, allowClarificationWithoutAnalysis: false, useSubagentsBeforeClarification: false, allowSubagents: true, subagentScope: "user", subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "auto", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 1, minPlanningWorkersForMaximum: 1, minExecutionWorkersForDeep: 1, minExecutionWorkersForMaximum: 1, minRepairWorkersForDeep: 1, minRepairWorkersForMaximum: 1, minReviewWorkersForDeep: 1, minReviewWorkersForMaximum: 1, minValidationWorkersForDeep: 1, minValidationWorkersForMaximum: 1 }, statusWidgetVisible: true },
       missions: { defaultAutonomy: "approval_gated", requireValidationPerMilestone: true, autoRunAfterApproval: true, continueAcrossMilestones: true, pauseBetweenMilestones: false, clarificationMode: "auto", maxClarificationQuestions: 2, planningDepth: "fast", useSubagentsBeforeClarification: true, autoRepairReviewFailures: false, reviewRetryMode: "off", maxReviewRetriesPerMission: 0, autoRepairValidationFailures: true, validationRetryMode: "safe_only", maxValidationRetriesPerMilestone: 1, maxValidationRetriesPerMission: 2, finalValidationEnabled: false, autoRepairFinalValidationFailures: false, maxFinalValidationRetries: 0, subagentPolicy: "forced", minWorkersForDeep: 1, minWorkersForMaximum: 1 },
       subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "auto", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 1, minPlanningWorkersForMaximum: 1, minExecutionWorkersForDeep: 1, minExecutionWorkersForMaximum: 1, minRepairWorkersForDeep: 1, minRepairWorkersForMaximum: 1, minReviewWorkersForDeep: 1, minReviewWorkersForMaximum: 1, minValidationWorkersForDeep: 1, minValidationWorkersForMaximum: 1, allowBackgroundSubagents: false },
     },
     standard: {
       displayName: "Standard",
-      description: "Default end-to-end workflow with useful clarification, automatic execution/validation after approval, safe repair retries, and balanced worker support.",
+      description: "Default end-to-end workflow with useful clarification, manual Plan validation after execution, safe repair retries, and balanced worker support.",
       planning: { depth: "standard", clarificationMode: "auto", maxClarificationQuestions: 3, interactiveClarificationEnabled: true, clarificationQualityGate: true, useSubagentsBeforeClarification: true },
-      workflow: { offerReviewerBeforeExecute: false, autoRunReviewerBeforeExecute: false, offerValidationAfterExecute: true, autoRunValidationAfterExecute: true, validateAfterExecution: true, requirePlanApprovalBeforeExecute: false, requireApprovalBeforeExecution: false, autoRepairReviewFailures: true, autoRepairValidationFailures: true, reviewRetryMode: "safe_only", validationRetryMode: "safe_only", maxReviewRetriesPerPlan: 2, maxReviewRetriesPerWorkflow: 4, maxValidationRetriesPerPlan: 2, maxValidationRetriesPerWorkflow: 4, pauseAfterReviewFailure: false, pauseAfterValidationFailure: false, planProgressEnabled: true, planRuntimeEnabled: true, planShowProgressBar: true },
+      workflow: { offerReviewerBeforeExecute: false, autoRunReviewerBeforeExecute: false, offerValidationAfterExecute: true, autoRunValidationAfterExecute: false, validateAfterExecution: false, requirePlanApprovalBeforeExecute: false, requireApprovalBeforeExecution: false, autoRepairReviewFailures: true, autoRepairValidationFailures: true, reviewRetryMode: "safe_only", validationRetryMode: "safe_only", maxReviewRetriesPerPlan: 2, maxReviewRetriesPerWorkflow: 4, maxValidationRetriesPerPlan: 2, maxValidationRetriesPerWorkflow: 4, pauseAfterReviewFailure: false, pauseAfterValidationFailure: false, planProgressEnabled: true, planRuntimeEnabled: true, planShowProgressBar: true },
       standard: { enabled: true, autoTodoEnabled: true, todoProgressVisible: true, todoTriggerMode: "auto", clarificationEnabled: true, clarificationMode: "auto", maxClarificationQuestions: 1, interactiveClarificationEnabled: true, clarificationTiming: "after_initial_analysis", clarificationQualityGate: true, allowClarificationWithoutAnalysis: false, useSubagentsBeforeClarification: false, allowSubagents: true, subagentScope: "user", subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "forced", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 1, minPlanningWorkersForMaximum: 1, minExecutionWorkersForDeep: 2, minExecutionWorkersForMaximum: 2, minRepairWorkersForDeep: 2, minRepairWorkersForMaximum: 2, minReviewWorkersForDeep: 2, minReviewWorkersForMaximum: 2, minValidationWorkersForDeep: 2, minValidationWorkersForMaximum: 2 }, statusWidgetVisible: true },
       missions: { defaultAutonomy: "approval_gated", requireValidationPerMilestone: true, autoRunAfterApproval: true, continueAcrossMilestones: true, pauseBetweenMilestones: false, clarificationMode: "auto", maxClarificationQuestions: 3, planningDepth: "standard", useSubagentsBeforeClarification: true, autoRepairReviewFailures: true, reviewRetryMode: "safe_only", maxReviewRetriesPerMission: 2, autoRepairValidationFailures: true, validationRetryMode: "safe_only", maxValidationRetriesPerMilestone: 2, maxValidationRetriesPerMission: 6, finalValidationEnabled: false, autoRepairFinalValidationFailures: false, maxFinalValidationRetries: 1, subagentPolicy: "forced", minWorkersForDeep: 1, minWorkersForMaximum: 1 },
       subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "forced", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 1, minPlanningWorkersForMaximum: 1, minExecutionWorkersForDeep: 2, minExecutionWorkersForMaximum: 2, minRepairWorkersForDeep: 2, minRepairWorkersForMaximum: 2, minReviewWorkersForDeep: 2, minReviewWorkersForMaximum: 2, minValidationWorkersForDeep: 2, minValidationWorkersForMaximum: 2, allowBackgroundSubagents: false },
     },
     deep: {
       displayName: "Deep",
-      description: "Careful end-to-end workflow for risky or codebase-heavy work with stronger clarification, manual Plan review, automatic validation, final mission validation, and larger worker teams.",
+      description: "Careful end-to-end workflow for risky or codebase-heavy work with stronger clarification, manual Plan review/validation, final mission validation, and larger worker teams.",
       planning: { depth: "deep", clarificationMode: "always_for_nontrivial", maxClarificationQuestions: 5, interactiveClarificationEnabled: true, clarificationQualityGate: true, useSubagentsBeforeClarification: true },
-      workflow: { offerReviewerBeforeExecute: false, autoRunReviewerBeforeExecute: false, offerValidationAfterExecute: true, autoRunValidationAfterExecute: true, validateAfterExecution: true, requirePlanApprovalBeforeExecute: false, requireApprovalBeforeExecution: false, autoRepairReviewFailures: true, autoRepairValidationFailures: true, reviewRetryMode: "safe_only", validationRetryMode: "safe_only", maxReviewRetriesPerPlan: 3, maxReviewRetriesPerWorkflow: 6, maxValidationRetriesPerPlan: 3, maxValidationRetriesPerWorkflow: 6, pauseAfterReviewFailure: false, pauseAfterValidationFailure: false, planProgressEnabled: true, planRuntimeEnabled: true, planShowProgressBar: true },
+      workflow: { offerReviewerBeforeExecute: false, autoRunReviewerBeforeExecute: false, offerValidationAfterExecute: true, autoRunValidationAfterExecute: false, validateAfterExecution: false, requirePlanApprovalBeforeExecute: false, requireApprovalBeforeExecution: false, autoRepairReviewFailures: true, autoRepairValidationFailures: true, reviewRetryMode: "safe_only", validationRetryMode: "safe_only", maxReviewRetriesPerPlan: 3, maxReviewRetriesPerWorkflow: 6, maxValidationRetriesPerPlan: 3, maxValidationRetriesPerWorkflow: 6, pauseAfterReviewFailure: false, pauseAfterValidationFailure: false, planProgressEnabled: true, planRuntimeEnabled: true, planShowProgressBar: true },
       standard: { enabled: true, autoTodoEnabled: true, todoProgressVisible: true, todoTriggerMode: "auto", clarificationEnabled: true, clarificationMode: "auto", maxClarificationQuestions: 2, interactiveClarificationEnabled: true, clarificationTiming: "after_initial_analysis", clarificationQualityGate: true, allowClarificationWithoutAnalysis: false, useSubagentsBeforeClarification: true, allowSubagents: true, subagentScope: "user", subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "forced", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 2, minPlanningWorkersForMaximum: 2, minExecutionWorkersForDeep: 3, minExecutionWorkersForMaximum: 3, minRepairWorkersForDeep: 2, minRepairWorkersForMaximum: 2, minReviewWorkersForDeep: 3, minReviewWorkersForMaximum: 3, minValidationWorkersForDeep: 3, minValidationWorkersForMaximum: 3 }, statusWidgetVisible: true },
       missions: { defaultAutonomy: "approval_gated", requireValidationPerMilestone: true, autoRunAfterApproval: true, continueAcrossMilestones: true, pauseBetweenMilestones: false, clarificationMode: "always_for_nontrivial", maxClarificationQuestions: 5, planningDepth: "deep", useSubagentsBeforeClarification: true, autoRepairReviewFailures: true, reviewRetryMode: "safe_only", maxReviewRetriesPerMission: 3, autoRepairValidationFailures: true, validationRetryMode: "safe_only", maxValidationRetriesPerMilestone: 3, maxValidationRetriesPerMission: 8, finalValidationEnabled: true, autoRepairFinalValidationFailures: true, maxFinalValidationRetries: 2, subagentPolicy: "forced", minWorkersForDeep: 3, minWorkersForMaximum: 3 },
       subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "forced", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 3, minPlanningWorkersForMaximum: 3, minExecutionWorkersForDeep: 3, minExecutionWorkersForMaximum: 3, minRepairWorkersForDeep: 2, minRepairWorkersForMaximum: 2, minReviewWorkersForDeep: 3, minReviewWorkersForMaximum: 3, minValidationWorkersForDeep: 3, minValidationWorkersForMaximum: 3, allowBackgroundSubagents: true },
     },
     maximum: {
       displayName: "Maximum",
-      description: "Highest-rigor end-to-end workflow with strongest clarification, automatic review/validation, final mission validation, aggressive in-scope repair, and maximum worker teams.",
+      description: "Highest-rigor end-to-end workflow with strongest clarification, offered Plan review, manual Plan validation, final mission validation, aggressive in-scope repair, and maximum worker teams.",
       planning: { depth: "maximum", clarificationMode: "always_for_nontrivial", maxClarificationQuestions: 5, interactiveClarificationEnabled: true, clarificationQualityGate: true, useSubagentsBeforeClarification: true },
-      workflow: { offerReviewerBeforeExecute: false, autoRunReviewerBeforeExecute: true, offerValidationAfterExecute: true, autoRunValidationAfterExecute: true, validateAfterExecution: true, requirePlanApprovalBeforeExecute: false, requireApprovalBeforeExecution: false, autoRepairReviewFailures: true, autoRepairValidationFailures: true, reviewRetryMode: "aggressive_within_scope", validationRetryMode: "aggressive_within_scope", maxReviewRetriesPerPlan: 5, maxReviewRetriesPerWorkflow: 8, maxValidationRetriesPerPlan: 5, maxValidationRetriesPerWorkflow: 8, pauseAfterReviewFailure: false, pauseAfterValidationFailure: false, planProgressEnabled: true, planRuntimeEnabled: true, planShowProgressBar: true },
+      workflow: { offerReviewerBeforeExecute: true, autoRunReviewerBeforeExecute: false, offerValidationAfterExecute: true, autoRunValidationAfterExecute: false, validateAfterExecution: false, requirePlanApprovalBeforeExecute: false, requireApprovalBeforeExecution: false, autoRepairReviewFailures: true, autoRepairValidationFailures: true, reviewRetryMode: "aggressive_within_scope", validationRetryMode: "aggressive_within_scope", maxReviewRetriesPerPlan: 5, maxReviewRetriesPerWorkflow: 8, maxValidationRetriesPerPlan: 5, maxValidationRetriesPerWorkflow: 8, pauseAfterReviewFailure: false, pauseAfterValidationFailure: false, planProgressEnabled: true, planRuntimeEnabled: true, planShowProgressBar: true },
       standard: { enabled: true, autoTodoEnabled: true, todoProgressVisible: true, todoTriggerMode: "auto", clarificationEnabled: true, clarificationMode: "auto", maxClarificationQuestions: 2, interactiveClarificationEnabled: true, clarificationTiming: "after_initial_analysis", clarificationQualityGate: true, allowClarificationWithoutAnalysis: false, useSubagentsBeforeClarification: true, allowSubagents: true, subagentScope: "user", subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "forced", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 3, minPlanningWorkersForMaximum: 3, minExecutionWorkersForDeep: 4, minExecutionWorkersForMaximum: 4, minRepairWorkersForDeep: 3, minRepairWorkersForMaximum: 3, minReviewWorkersForDeep: 4, minReviewWorkersForMaximum: 4, minValidationWorkersForDeep: 4, minValidationWorkersForMaximum: 4 }, statusWidgetVisible: true },
       missions: { defaultAutonomy: "supervised_auto", requireValidationPerMilestone: true, autoRunAfterApproval: true, continueAcrossMilestones: true, pauseBetweenMilestones: false, clarificationMode: "always_for_nontrivial", maxClarificationQuestions: 6, planningDepth: "maximum", useSubagentsBeforeClarification: true, autoRepairReviewFailures: true, reviewRetryMode: "aggressive_within_scope", maxReviewRetriesPerMission: 5, autoRepairValidationFailures: true, validationRetryMode: "aggressive_within_scope", maxValidationRetriesPerMilestone: 4, maxValidationRetriesPerMission: 12, finalValidationEnabled: true, autoRepairFinalValidationFailures: true, maxFinalValidationRetries: 4, subagentPolicy: "forced", minWorkersForDeep: 4, minWorkersForMaximum: 4 },
       subagents: { planningPolicy: "forced", executionPolicy: "forced", repairPolicy: "forced", reviewPolicy: "forced", validationPolicy: "forced", autoUseDuringPlanning: true, autoUseDuringExecution: true, autoUseDuringRepair: true, autoUseDuringReview: true, autoUseDuringValidation: true, minPlanningWorkersForDeep: 4, minPlanningWorkersForMaximum: 4, minExecutionWorkersForDeep: 4, minExecutionWorkersForMaximum: 4, minRepairWorkersForDeep: 3, minRepairWorkersForMaximum: 3, minReviewWorkersForDeep: 4, minReviewWorkersForMaximum: 4, minValidationWorkersForDeep: 4, minValidationWorkersForMaximum: 4, allowBackgroundSubagents: true },
@@ -1007,14 +1230,17 @@ export function builtInWorkflowPresets(): Record<string, WorkflowPresetBundle> {
 
 function normalizeWorkflowPresetBundle(preset: WorkflowPresetBundle): WorkflowPresetBundle & { standard: WorkflowSettings["standard"] } {
   const defaults = defaultWorkflowSettings();
+  const planningWithoutModelRouting = planningSettingsWithoutModelRouting(preset.planning as Partial<WorkflowSettings["planning"]> | undefined);
   const standardWithoutModelRouting = standardSettingsWithoutModelRouting(preset.standard as Partial<WorkflowSettings["standard"]> | undefined);
   return {
     ...preset,
+    planning: planningWithoutModelRouting as WorkflowPresetBundle["planning"],
     // Legacy custom presets saved before Standard Mode do not contain a
     // standard section. Hydrate it from safe defaults during apply so stale
     // Standard settings from the previously active preset cannot leak forward.
     standard: normalizeStandardSettings(defaults, defaults.standard, standardWithoutModelRouting as Partial<WorkflowSettings>["standard"] | undefined),
     missions: missionSettingsWithoutModelRouting(preset.missions as Partial<WorkflowSettings["missions"]> | undefined),
+    subagents: subagentSettingsWithoutModelRouting(preset.subagents as Partial<WorkflowSettings["subagents"]> | undefined),
   };
 }
 
@@ -1022,31 +1248,54 @@ function workflowPresetBundleWithoutUserOwnedSettings(preset: WorkflowPresetBund
   const { context: _ignoredContext, ...presetWithoutContext } = preset as WorkflowPresetBundle & { context?: unknown };
   return {
     ...presetWithoutContext,
+    planning: { ...planningSettingsWithoutModelRouting(preset.planning as Partial<WorkflowSettings["planning"]> | undefined) },
     standard: { ...standardSettingsWithoutModelRouting(preset.standard as Partial<WorkflowSettings["standard"]> | undefined) },
     missions: { ...missionSettingsWithoutModelRouting(preset.missions as Partial<WorkflowSettings["missions"]> | undefined) },
+    subagents: { ...subagentSettingsWithoutModelRouting(preset.subagents as Partial<WorkflowSettings["subagents"]> | undefined) },
   };
 }
 
 function applyPresetBundle(settings: WorkflowSettings, preset: WorkflowPresetBundle, name: string): void {
   const defaults = defaultWorkflowSettings();
   const normalized = normalizeWorkflowPresetBundle(preset);
+  const currentPlanModelRouting = {
+    models: settings.planning.models,
+    usePlanSpecificModels: settings.planning.usePlanSpecificModels,
+    subagentModelRouting: settings.planning.subagentModelRouting,
+  };
   const currentStandardModelRouting = {
     models: settings.standard.models,
     useSharedExecutorModel: settings.standard.useSharedExecutorModel,
     useStandardSpecificModels: settings.standard.useStandardSpecificModels,
     modelRole: settings.standard.modelRole,
+    subagentModelRouting: settings.standard.subagentModelRouting,
   };
   const currentMissionModelRouting = {
     models: settings.missions.models,
     useMissionSpecificModels: settings.missions.useMissionSpecificModels,
+    subagentModelRouting: settings.missions.subagentModelRouting,
   };
-  if (normalized.planning) settings.planning = { ...settings.planning, ...normalized.planning };
+  const currentSharedSubagentModelRouting = {
+    modelRouting: settings.subagents.modelRouting,
+  };
+  if (normalized.planning) settings.planning = { ...settings.planning, ...normalized.planning, ...currentPlanModelRouting };
   if (normalized.workflow) settings.workflow = { ...settings.workflow, ...normalized.workflow };
   settings.standard = { ...defaults.standard, ...normalized.standard, subagents: { ...(defaults.standard.subagents ?? {}), ...(normalized.standard?.subagents ?? {}) }, ...currentStandardModelRouting };
   if (normalized.missions) settings.missions = { ...settings.missions, ...normalized.missions, ...currentMissionModelRouting };
-  if (normalized.subagents) settings.subagents = { ...settings.subagents, ...normalized.subagents };
+  if (normalized.subagents) settings.subagents = { ...settings.subagents, ...normalized.subagents, ...currentSharedSubagentModelRouting };
   if (normalized.ui) settings.ui = { ...settings.ui, ...normalized.ui };
   settings.presets = { ...(settings.presets ?? {}), activePreset: name, items: { ...(settings.presets?.items ?? {}) } };
+}
+
+function applyNonePresetSnapshot(settings: WorkflowSettings): void {
+  const snapshot = settings.presets?.noneSnapshot ?? defaultNoneWorkflowPresetSnapshot();
+  applyPresetBundle(settings, snapshot, WORKFLOW_CUSTOM_PRESET_MARKER);
+  settings.presets = {
+    ...(settings.presets ?? {}),
+    activePreset: WORKFLOW_CUSTOM_PRESET_MARKER,
+    noneSnapshot: workflowPresetSnapshotFromSettings(settings),
+    items: { ...(settings.presets?.items ?? {}) },
+  };
 }
 
 export function normalizeWorkflowPresetName(name: string): string {
@@ -1062,27 +1311,27 @@ export function workflowPresetCatalog(settings: WorkflowSettings = loadGlobalSet
 export function workflowPresetNames(settings: WorkflowSettings = loadGlobalSettings()): string[] {
   const builtIns = ["simple", "standard", "deep", "maximum"];
   const custom = Object.keys(settings.presets?.items ?? {}).sort((a, b) => a.localeCompare(b));
-  return [...builtIns, ...custom.filter((name) => name !== WORKFLOW_CUSTOM_PRESET_MARKER && !builtIns.includes(name))];
+  return [WORKFLOW_CUSTOM_PRESET_MARKER, ...builtIns, ...custom.filter((name) => name !== WORKFLOW_CUSTOM_PRESET_MARKER && !builtIns.includes(name))];
 }
 
 export function workflowPresetLabel(name: string, preset?: WorkflowPresetBundle): string {
-  if (name === WORKFLOW_CUSTOM_PRESET_MARKER) return "No active preset";
+  if (name === WORKFLOW_CUSTOM_PRESET_MARKER) return "None";
   return preset?.displayName?.trim() || name;
 }
 
 export function workflowPresetTitle(name: string, preset?: WorkflowPresetBundle): string {
-  if (name === WORKFLOW_CUSTOM_PRESET_MARKER) return "No active preset";
+  if (name === WORKFLOW_CUSTOM_PRESET_MARKER) return "None";
   return preset?.displayName?.trim() || name;
 }
 
 export function activeWorkflowPresetLabel(settings: WorkflowSettings): string {
-  const active = settings.presets?.activePreset ?? WORKFLOW_CUSTOM_PRESET_MARKER;
-  if (active === WORKFLOW_CUSTOM_PRESET_MARKER) return "No active preset";
+  const active = normalizeActiveWorkflowPresetName(settings.presets?.activePreset);
+  if (active === WORKFLOW_CUSTOM_PRESET_MARKER) return "None";
   return workflowPresetLabel(active, workflowPresetCatalog(settings)[active]);
 }
 
 function assertValidCustomPresetName(name: string, safe: string): void {
-  if (safe === WORKFLOW_CUSTOM_PRESET_MARKER) throw new Error(`Reserved workflow preset name: ${name}. Use a specific preset name instead of custom.`);
+  if (WORKFLOW_NONE_PRESET_ALIASES.has(safe)) throw new Error(`Reserved workflow preset name: ${name}. Use a specific preset name instead of none/custom.`);
 }
 
 function sectionCoverage(section: unknown): "configured" | "missing" {
@@ -1090,7 +1339,7 @@ function sectionCoverage(section: unknown): "configured" | "missing" {
 }
 
 export function workflowPresetDiagnostics(name: string, preset?: WorkflowPresetBundle): string[] {
-  if (name === WORKFLOW_CUSTOM_PRESET_MARKER) return ["Diagnostic: reserved custom marker; no saved preset bundle is active."];
+  if (name === WORKFLOW_CUSTOM_PRESET_MARKER) return ["Diagnostic: None is active; no saved preset bundle is active."];
   const lines: string[] = [];
   if (normalizeWorkflowPresetName(name) === WORKFLOW_CUSTOM_PRESET_MARKER) lines.push("Diagnostic: reserved-name collision; rename this preset before use.");
   const standard = sectionCoverage(preset?.standard);
@@ -1113,19 +1362,19 @@ export function workflowPresetDiagnostics(name: string, preset?: WorkflowPresetB
 export function workflowPresetPickerLabel(name: string, preset?: WorkflowPresetBundle): string {
   const title = workflowPresetTitle(name, preset);
   const summaries: Record<string, string> = {
-    simple: "fast autonomous validation, low repair retries, 1-worker phases",
-    standard: "balanced autonomous validation and safe repair",
-    deep: "careful manual review, autonomous validation, and final mission validation",
-    maximum: "maximum autonomous rigor with bounded aggressive repair",
+    simple: "fast manual validation, low repair retries, 1-worker phases",
+    standard: "balanced manual validation and safe repair",
+    deep: "careful manual review/validation and final mission validation",
+    maximum: "maximum rigor with offered review and manual validation",
   };
   return summaries[name] ? `${title} — ${summaries[name]}` : title;
 }
 
 export function workflowPresetMeaningLines(name: string, preset?: WorkflowPresetBundle): string[] {
   if (name === WORKFLOW_CUSTOM_PRESET_MARKER) return [
-    "Name: No active preset",
-    "Purpose: uses the current workflow settings exactly as saved; this is not a built-in speed or rigor profile.",
-    "Applies to: the Standard, Plan, Mission, and shared sub-agent settings currently saved in workflow-settings.json.",
+    "Name: None",
+    "Purpose: uses the saved manual workflow settings; this is not a built-in speed or rigor profile.",
+    "Applies to: the saved manual Standard, Plan, Mission, and shared sub-agent settings in workflow-settings.json.",
     "Standard Mode: uses the saved Standard Mode To Do, clarification, continuation, and sub-agent settings.",
     "Plan Mode: uses the saved planning depth, clarification, approval, review, validation, and repair settings.",
     "Mission Mode: uses the saved mission autonomy, approval, milestone continuation, validation, and retry settings.",
@@ -1137,20 +1386,20 @@ export function workflowPresetMeaningLines(name: string, preset?: WorkflowPreset
   const builtIn: Record<string, string[]> = {
     simple: [
       "Name: Simple — Fast Autonomous",
-      "Purpose: fastest built-in profile for small or familiar work that should still validate before finishing.",
+      "Purpose: fastest built-in profile for small or familiar work with optional Plan validation before finishing.",
       "Applies to: Standard Mode, Plan Mode, Mission Mode, and shared sub-agent intensity.",
       "Standard Mode: creates a To Do only when useful, asks clarification only when useful, resumes automatically after answers, and uses one-worker phase support.",
-      "Plan Mode: uses fast planning, avoids a second execution-approval stop after the initial approval, skips automatic review, runs lightweight validation, and allows a small safe repair retry budget.",
+      "Plan Mode: uses fast planning, avoids a second execution-approval stop after the initial approval, skips automatic review, offers manual validation, and allows a small safe repair retry budget.",
       "Mission Mode: starts after approval, auto-runs after approval, continues milestones without pause, keeps milestone validation on, and leaves final comprehensive validation off by default.",
       "Shared sub-agents: keeps planning, execution, repair, and validation lean with one-worker support; review remains available but is not forced automatically.",
       "Does not change: models/providers/API keys/auth/session/runtime state/shared compaction settings.",
     ],
     standard: [
       "Name: Standard — Balanced Autonomous",
-      "Purpose: default built-in profile for normal work that should proceed end-to-end with balanced validation and repair.",
+      "Purpose: default built-in profile for normal work with balanced manual validation and repair options.",
       "Applies to: Standard Mode, Plan Mode, Mission Mode, and shared sub-agent intensity.",
       "Standard Mode: creates a To Do for normal substantive work, asks useful clarification, resumes automatically after answers, and uses balanced Standard workers.",
-      "Plan Mode: uses standard planning, avoids a second execution-approval stop after the initial approval, leaves review manual/optional, runs validation automatically, and performs safe repair/revalidation.",
+      "Plan Mode: uses standard planning, avoids a second execution-approval stop after the initial approval, leaves review manual/optional, offers manual validation, and performs safe repair/revalidation when validation is run.",
       "Mission Mode: starts after approval, auto-runs after approval, continues milestones without pause, keeps milestone validation on, and leaves final comprehensive validation off by default.",
       "Shared sub-agents: uses one-worker planning and two-worker execution, repair, review, and validation when those phases run.",
       "Does not change: models/providers/API keys/auth/session/runtime state/shared compaction settings.",
@@ -1160,7 +1409,7 @@ export function workflowPresetMeaningLines(name: string, preset?: WorkflowPreset
       "Purpose: higher-rigor built-in profile for broad, risky, or codebase-heavy work that still should not stall unnecessarily.",
       "Applies to: Standard Mode, Plan Mode, Mission Mode, and shared sub-agent intensity.",
       "Standard Mode: requires a To Do for substantive work, uses stronger clarification, resumes automatically after answers, and uses deeper Standard worker coverage.",
-      "Plan Mode: uses deep planning, clarifies non-trivial work, avoids a second execution-approval stop after the initial approval, leaves review manual/optional, runs validation automatically, and retries safe repairs.",
+      "Plan Mode: uses deep planning, clarifies non-trivial work, avoids a second execution-approval stop after the initial approval, leaves review manual/optional, offers manual validation, and retries safe repairs when validation is run.",
       "Mission Mode: starts after approval, auto-runs after approval, continues milestones without pause, keeps milestone validation on, and enables final comprehensive validation.",
       "Shared sub-agents: forces larger teams across planning, execution, repair, review, and validation.",
       "Does not change: models/providers/API keys/auth/session/runtime state/shared compaction settings.",
@@ -1170,7 +1419,7 @@ export function workflowPresetMeaningLines(name: string, preset?: WorkflowPreset
       "Purpose: highest-rigor built-in profile for complex or high-risk work within bounded safety limits.",
       "Applies to: Standard Mode, Plan Mode, Mission Mode, and shared sub-agent intensity.",
       "Standard Mode: requires a To Do, uses the strongest clarification behavior, resumes automatically after answers, and uses maximum Standard worker coverage.",
-      "Plan Mode: uses maximum planning, avoids a second execution-approval stop after the initial approval, runs automatic review and validation, and uses the largest bounded in-scope repair budget.",
+      "Plan Mode: uses maximum planning, avoids a second execution-approval stop after the initial approval, offers optional review from the approval menu, offers manual validation, and uses the largest bounded in-scope repair budget when validation is run.",
       "Mission Mode: uses supervised-auto mission autonomy, auto-runs after approval, continues milestones without pause, keeps milestone and final validation on, and uses the highest bounded retry budget.",
       "Shared sub-agents: forces maximum teams across planning, execution, repair, review, and validation.",
       "Does not change: models/providers/API keys/auth/session/runtime state/shared compaction settings.",
@@ -1198,7 +1447,7 @@ export function renderWorkflowPresetCard(name: string, preset?: WorkflowPresetBu
 }
 
 export function renderActiveWorkflowPresetSummary(settings: WorkflowSettings): string {
-  const active = settings.presets?.activePreset ?? WORKFLOW_CUSTOM_PRESET_MARKER;
+  const active = normalizeActiveWorkflowPresetName(settings.presets?.activePreset);
   const preset = active === WORKFLOW_CUSTOM_PRESET_MARKER ? undefined : workflowPresetCatalog(settings)[active];
   const lines = workflowPresetMeaningLines(active, preset);
   lines.push("Effective Settings: detailed current values are listed below.");
@@ -1209,12 +1458,13 @@ export function renderActiveWorkflowPresetSummary(settings: WorkflowSettings): s
 export function resolveWorkflowPresetName(settings: WorkflowSettings, input: string): string | undefined {
   const raw = input.trim();
   if (!raw) return undefined;
+  const normalized = normalizeWorkflowPresetName(raw);
+  if (WORKFLOW_NONE_PRESET_ALIASES.has(normalized)) return WORKFLOW_CUSTOM_PRESET_MARKER;
   const catalog = workflowPresetCatalog(settings);
   if (catalog[raw]) return raw;
   const lower = raw.toLowerCase();
   const exactLower = Object.keys(catalog).find((name) => name.toLowerCase() === lower || catalog[name]?.displayName?.toLowerCase() === lower);
   if (exactLower) return exactLower;
-  const normalized = normalizeWorkflowPresetName(raw);
   const normalizedMatches = Object.keys(catalog).filter((name) => normalizeWorkflowPresetName(name) === normalized || normalizeWorkflowPresetName(catalog[name]?.displayName ?? "") === normalized);
   if (normalizedMatches.length === 1) return normalizedMatches[0];
   return undefined;
@@ -1222,15 +1472,19 @@ export function resolveWorkflowPresetName(settings: WorkflowSettings, input: str
 
 export function renderWorkflowPresets(settings: WorkflowSettings = loadGlobalSettings()): string {
   const catalog = workflowPresetCatalog(settings);
-  const active = settings.presets?.activePreset ?? WORKFLOW_CUSTOM_PRESET_MARKER;
+  const active = normalizeActiveWorkflowPresetName(settings.presets?.activePreset);
   const names = workflowPresetNames(settings);
-  const cards = [renderWorkflowPresetCard(WORKFLOW_CUSTOM_PRESET_MARKER, undefined, active === WORKFLOW_CUSTOM_PRESET_MARKER), ...names.map((name) => renderWorkflowPresetCard(name, catalog[name], name === active))];
-  return `# Workflow Presets\n\nActive Preset: ${activeWorkflowPresetLabel(settings)}\nShortcut: ${workflowPresetCycleShortcutLabel()} cycles saved presets while Plan/Mission/Standard Mode is active\nSelector: /workflow presets\n\n${cards.join("\n\n") || "No presets available."}\n\nQuick commands:\n- /workflow presets list\n- /workflow presets apply <name>\n- /workflow presets next\n- /workflow presets prev\n- /workflow presets save <name>\n- /workflow presets create <name> from simple|standard|deep|maximum\n- /workflow presets edit <name>\n- /workflow presets rename <old> to <new>\n- /workflow presets delete <name>\n\nBuilt-in presets are package-defined and sync with the extension. User-named custom presets are saved entries in workflow-settings.json and stay in hotkey cycling. The reserved custom marker only means no built-in or user-named preset is active. Extension updates preserve workflow-settings.json and do not overwrite custom presets. Presets adjust workflow behavior only and preserve model/provider choices, API keys, auth/session files, runtime workflow state, and shared compaction settings.`;
+  const cards = names.map((name) => renderWorkflowPresetCard(name, catalog[name], name === active));
+  return `# Workflow Presets\n\nActive Preset: ${activeWorkflowPresetLabel(settings)}\nShortcut: ${workflowPresetCycleShortcutLabel()} cycles saved presets while Plan/Mission/Standard Mode is active\nSelector: /workflow presets\n\n${cards.join("\n\n") || "No presets available."}\n\nQuick commands:\n- /workflow presets list\n- /workflow presets apply none\n- /workflow presets apply <name>\n- /workflow presets next\n- /workflow presets prev\n- /workflow presets save <name>\n- /workflow presets create <name> from simple|standard|deep|maximum\n- /workflow presets edit <name>\n- /workflow presets rename <old> to <new>\n- /workflow presets delete <name>\n\nBuilt-in presets are package-defined and sync with the extension. User-named custom presets are saved entries in workflow-settings.json and stay in hotkey cycling. None means no built-in or user-named preset is active. Extension updates preserve workflow-settings.json and do not overwrite custom presets. Presets adjust workflow behavior only and preserve model/provider choices, API keys, auth/session files, runtime workflow state, and shared compaction settings.`;
 }
 
 export function applyWorkflowPreset(cwd: string, requestedScope: WorkflowSettingsScope | undefined, name: string): SettingsWriteResult {
   return updateSettings(cwd, requestedScope, (settings) => {
     const resolved = resolveWorkflowPresetName(settings, name);
+    if (resolved === WORKFLOW_CUSTOM_PRESET_MARKER) {
+      applyNonePresetSnapshot(settings);
+      return;
+    }
     const preset = resolved ? workflowPresetCatalog(settings)[resolved] : undefined;
     if (!resolved || !preset) throw new Error(`Unknown workflow preset: ${name}`);
     applyPresetBundle(settings, preset, resolved);
@@ -1246,11 +1500,11 @@ export function saveCurrentWorkflowPreset(cwd: string, requestedScope: WorkflowS
     settings.presets.items![safe] = {
       displayName: name.trim(),
       description: "Custom saved workflow preset.",
-      planning: { ...settings.planning },
+      planning: { ...planningSettingsWithoutModelRouting(settings.planning) },
       workflow: { ...settings.workflow },
       standard: { ...standardSettingsWithoutModelRouting(settings.standard) } as WorkflowPresetBundle["standard"],
       missions: { ...missionSettingsWithoutModelRouting(settings.missions) } as WorkflowPresetBundle["missions"],
-      subagents: { ...settings.subagents },
+      subagents: { ...subagentSettingsWithoutModelRouting(settings.subagents) },
       ui: { showWorkflowStatus: settings.ui.showWorkflowStatus, showPlanModeIndicator: settings.ui.showPlanModeIndicator, planTopWidgetVisible: settings.ui.planTopWidgetVisible, planBottomWidgetVisible: settings.ui.planBottomWidgetVisible, missionTopWidgetVisible: settings.ui.missionTopWidgetVisible, missionBottomWidgetVisible: settings.ui.missionBottomWidgetVisible, workflowTheme: settings.ui.workflowTheme, workflowThemeOverrides: settings.ui.workflowThemeOverrides, startupVisual: settings.ui.startupVisual, startupVisualOnSessionStart: settings.ui.startupVisualOnSessionStart, customBrandEnabled: settings.ui.customBrandEnabled, customBrandText: settings.ui.customBrandText },
     };
   }, { preserveActivePreset: true });
@@ -1282,7 +1536,8 @@ export function renameWorkflowPreset(cwd: string, requestedScope: WorkflowSettin
     if (!existing) throw new Error(`Unknown workflow preset: ${oldName}`);
     delete items[resolved];
     items[safe] = { ...existing, displayName: newName.trim() };
-    settings.presets = { ...(settings.presets ?? {}), activePreset: settings.presets?.activePreset === resolved ? safe : settings.presets?.activePreset, items };
+    const active = normalizeActiveWorkflowPresetName(settings.presets?.activePreset);
+    settings.presets = { ...(settings.presets ?? {}), activePreset: active === resolved ? safe : active, items };
   }, { preserveActivePreset: true });
 }
 
@@ -1293,7 +1548,8 @@ export function deleteWorkflowPreset(cwd: string, requestedScope: WorkflowSettin
     if (!resolved || builtInWorkflowPresets()[resolved]) throw new Error(`Cannot delete unknown or built-in workflow preset: ${name}`);
     const items = { ...(settings.presets?.items ?? {}) };
     delete items[resolved];
-    settings.presets = { ...(settings.presets ?? {}), activePreset: settings.presets?.activePreset === resolved ? WORKFLOW_CUSTOM_PRESET_MARKER : settings.presets?.activePreset, items };
+    const active = normalizeActiveWorkflowPresetName(settings.presets?.activePreset);
+    settings.presets = { ...(settings.presets ?? {}), activePreset: active === resolved ? WORKFLOW_CUSTOM_PRESET_MARKER : active, items };
   }, { preserveActivePreset: true });
 }
 
@@ -1316,6 +1572,24 @@ export function setRoleEnabled(role: WorkflowRole, enabled: boolean, cwd?: strin
 export function setThinkingForRole(role: WorkflowRole, thinkingLevel: ThinkingLevel, cwd?: string, scope?: WorkflowSettingsScope): SettingsWriteResult {
   return updateSettings(cwd ?? process.cwd(), scope, (settings) => {
     settings.models[role] = { ...settings.models[role], thinkingLevel };
+  });
+}
+
+export function setPlanModelForRole(role: WorkflowRole, provider: string, model: string, cwd?: string, scope?: WorkflowSettingsScope): SettingsWriteResult {
+  return updateSettings(cwd ?? process.cwd(), scope, (settings) => {
+    const models = settings.planning.models ?? normalizePlanModels(defaultWorkflowSettings(), settings.planning);
+    models[role] = { ...models[role], enabled: true, provider, model };
+    settings.planning.models = models;
+    settings.planning.usePlanSpecificModels = true;
+  });
+}
+
+export function setPlanThinkingForRole(role: WorkflowRole, thinkingLevel: ThinkingLevel, cwd?: string, scope?: WorkflowSettingsScope): SettingsWriteResult {
+  return updateSettings(cwd ?? process.cwd(), scope, (settings) => {
+    const models = settings.planning.models ?? normalizePlanModels(defaultWorkflowSettings(), settings.planning);
+    models[role] = { ...models[role], thinkingLevel };
+    settings.planning.models = models;
+    settings.planning.usePlanSpecificModels = true;
   });
 }
 
@@ -1363,6 +1637,71 @@ export function parseRole(value: string): WorkflowRole | undefined {
 
 export function parseMissionModelRole(value: string): MissionModelRole | undefined {
   return ["planner", "executor", "validator", "reviewer"].includes(value) ? (value as MissionModelRole) : undefined;
+}
+
+export function parseSubagentModelBucket(value: string): WorkflowSubagentModelBucket | undefined {
+  const normalized = value.trim().toLowerCase();
+  return WORKFLOW_SUBAGENT_MODEL_BUCKETS.includes(normalized as WorkflowSubagentModelBucket) ? (normalized as WorkflowSubagentModelBucket) : undefined;
+}
+
+function subagentRoutingForMode(settings: WorkflowSettings, mode?: WorkflowSubagentModelMode): WorkflowSubagentModelRouting | undefined {
+  if (mode === "plan") return settings.planning.subagentModelRouting;
+  if (mode === "standard") return settings.standard.subagentModelRouting;
+  if (mode === "mission") return settings.missions.subagentModelRouting;
+  return undefined;
+}
+
+function mutableSubagentRoutingForScope(settings: WorkflowSettings, scope: WorkflowSubagentModelMode | "shared"): WorkflowSubagentModelRouting {
+  const defaults = defaultWorkflowSettings();
+  if (scope === "plan") {
+    settings.planning.subagentModelRouting = normalizeSubagentModelRouting(defaults, settings.planning.subagentModelRouting);
+    return settings.planning.subagentModelRouting;
+  }
+  if (scope === "standard") {
+    settings.standard.subagentModelRouting = normalizeSubagentModelRouting(defaults, settings.standard.subagentModelRouting);
+    return settings.standard.subagentModelRouting;
+  }
+  if (scope === "mission") {
+    settings.missions.subagentModelRouting = normalizeSubagentModelRouting(defaults, settings.missions.subagentModelRouting);
+    return settings.missions.subagentModelRouting;
+  }
+  settings.subagents.modelRouting = normalizeSubagentModelRouting(defaults, settings.subagents.modelRouting);
+  return settings.subagents.modelRouting;
+}
+
+export function setSubagentModelForBucket(scopeName: WorkflowSubagentModelMode | "shared", bucket: WorkflowSubagentModelBucket, provider: string, model: string, cwd?: string, scope?: WorkflowSettingsScope): SettingsWriteResult {
+  return updateSettings(cwd ?? process.cwd(), scope, (settings) => {
+    const routing = mutableSubagentRoutingForScope(settings, scopeName);
+    const defaults = defaultSubagentModelRouting(defaultWorkflowSettings());
+    const models = { ...(routing.models ?? {}) };
+    const defaultRoute = defaults.models?.[bucket] ?? { enabled: true, provider: null, model: null, thinkingLevel: subagentBucketDefaultRole(defaultWorkflowSettings(), bucket).thinkingLevel };
+    models[bucket] = { ...defaultRoute, ...(models[bucket] ?? {}), enabled: true, provider, model };
+    routing.enabled = true;
+    routing.models = models;
+  });
+}
+
+export function setSubagentThinkingForBucket(scopeName: WorkflowSubagentModelMode | "shared", bucket: WorkflowSubagentModelBucket, thinkingLevel: ThinkingLevel, cwd?: string, scope?: WorkflowSettingsScope): SettingsWriteResult {
+  return updateSettings(cwd ?? process.cwd(), scope, (settings) => {
+    const routing = mutableSubagentRoutingForScope(settings, scopeName);
+    const defaults = defaultSubagentModelRouting(defaultWorkflowSettings());
+    const models = { ...(routing.models ?? {}) };
+    const defaultRoute = defaults.models?.[bucket] ?? { enabled: true, provider: null, model: null, thinkingLevel: subagentBucketDefaultRole(defaultWorkflowSettings(), bucket).thinkingLevel };
+    models[bucket] = { ...defaultRoute, ...(models[bucket] ?? {}), thinkingLevel };
+    routing.enabled = true;
+    routing.models = models;
+  });
+}
+
+export function clearSubagentModelForBucket(scopeName: WorkflowSubagentModelMode | "shared", bucket: WorkflowSubagentModelBucket, cwd?: string, scope?: WorkflowSettingsScope): SettingsWriteResult {
+  return updateSettings(cwd ?? process.cwd(), scope, (settings) => {
+    const routing = mutableSubagentRoutingForScope(settings, scopeName);
+    const defaults = defaultSubagentModelRouting(defaultWorkflowSettings());
+    const models = { ...(routing.models ?? {}) };
+    const defaultRoute = defaults.models?.[bucket] ?? { enabled: true, provider: null, model: null, thinkingLevel: subagentBucketDefaultRole(defaultWorkflowSettings(), bucket).thinkingLevel };
+    models[bucket] = { ...defaultRoute };
+    routing.models = models;
+  });
 }
 
 export function parseThinkingLevel(value: string): ThinkingLevel | undefined {
@@ -1444,7 +1783,7 @@ export function workflowSettingsConsistencyDiagnostics(settings: WorkflowSetting
   if (settings.missions.autoRepairReviewFailures !== false && settings.missions.reviewRetryMode === "off") {
     diagnostics.push("mission review auto-repair is enabled but reviewRetryMode is off — override to safe_only will be applied at runtime; set reviewRetryMode explicitly to avoid confusion");
   }
-  const activePreset = settings.presets?.activePreset ?? WORKFLOW_CUSTOM_PRESET_MARKER;
+  const activePreset = normalizeActiveWorkflowPresetName(settings.presets?.activePreset);
   if ((activePreset === "standard" || activePreset === "deep" || activePreset === "maximum")
     && (settings.missions.autoRepairReviewFailures === false || settings.missions.reviewRetryMode === "off" || (settings.missions.maxReviewRetriesPerMission ?? 0) <= 0)) {
     diagnostics.push(`active preset ${activePreset} expects Mission review repair to be available, but effective Mission review repair is disabled/off/zero; reapply the preset or update missions.autoRepairReviewFailures, missions.reviewRetryMode, and missions.maxReviewRetriesPerMission`);
@@ -1516,6 +1855,35 @@ function standardRoleRoute(settings: WorkflowSettings, role: WorkflowRole): { so
   return { source: "shared", route: settings.models[role] };
 }
 
+function planRoleRoute(settings: WorkflowSettings, role: WorkflowRole): { source: "plan_specific" | "shared"; route: RoleModelSettings } {
+  const planRoute = settings.planning.models?.[role];
+  if (settings.planning.usePlanSpecificModels && planRoute?.provider && planRoute?.model) return { source: "plan_specific", route: planRoute };
+  return { source: "shared", route: settings.models[role] };
+}
+
+function planModelSourceLabel(source: "plan_specific" | "shared"): string {
+  return source === "plan_specific" ? "Plan-specific" : "Shared";
+}
+
+export function renderPlanModelStrategy(settings: WorkflowSettings): string {
+  const source = settings.planning.usePlanSpecificModels ? "Plan-specific" : "Shared";
+  const lines = [`Plan Model Source: ${source}`];
+  lines.push("", "## Effective Plan Models");
+  for (const role of ["planner", "executor", "reviewer", "validator"] as WorkflowRole[]) {
+    const route = planRoleRoute(settings, role);
+    const fallback = settings.planning.usePlanSpecificModels && route.source === "shared" ? " (Plan-specific route not configured; falling back to Shared)" : "";
+    lines.push(`${workflowRoleLabel(role)}: ${planModelSourceLabel(route.source)} ${modelLabelForRoute(route.route)}${fallback}`);
+  }
+  lines.push("", "## Plan-Specific Models");
+  const planModels = settings.planning.models ?? normalizePlanModels(defaultWorkflowSettings(), settings.planning);
+  lines.push(`Planner: ${modelLabelForRoute(planModels.planner)}`);
+  lines.push(`Executor: ${modelLabelForRoute(planModels.executor)}`);
+  lines.push(`Reviewer: ${modelLabelForRoute(planModels.reviewer)}`);
+  lines.push(`Validator: ${modelLabelForRoute(planModels.validator)}`);
+  lines.push("", "## Shared Workflow Models", renderWorkflowModels(settings));
+  return lines.join("\n");
+}
+
 export function renderStandardModelStrategy(settings: WorkflowSettings): string {
   const source = standardModelSource(settings);
   const role = settings.standard.modelRole ?? "executor";
@@ -1539,6 +1907,56 @@ export function renderStandardModelStrategy(settings: WorkflowSettings): string 
 
 function modelLabelForRoute(model: RoleModelSettings): string {
   return roleIsConfigured(model) ? `${model.provider}/${model.model}, thinking: ${model.thinkingLevel}` : `not configured, thinking: ${model.thinkingLevel}`;
+}
+
+function subagentBucketLabel(bucket: WorkflowSubagentModelBucket): string {
+  return bucket.charAt(0).toUpperCase() + bucket.slice(1);
+}
+
+function subagentModelLabel(route: RoleModelSettings | undefined): string {
+  if (!route) return "not configured";
+  return modelLabelForRoute(route);
+}
+
+function configuredSubagentRoute(routing: WorkflowSubagentModelRouting | undefined, bucket: WorkflowSubagentModelBucket): RoleModelSettings | undefined {
+  if (routing?.enabled !== true) return undefined;
+  const route = routing.models?.[bucket];
+  return route && route.enabled !== false && roleIsConfigured(route) ? route : undefined;
+}
+
+export interface WorkflowSubagentResolvedModel {
+  model?: string;
+  thinkingLevel?: ThinkingLevel;
+  source: "mode" | "shared" | "agent" | "default";
+  route?: RoleModelSettings;
+}
+
+export function resolveWorkflowSubagentModelRoute(settings: WorkflowSettings, mode: WorkflowSubagentModelMode | undefined, bucket: WorkflowSubagentModelBucket, agentModel?: string): WorkflowSubagentResolvedModel {
+  const modeRoute = configuredSubagentRoute(subagentRoutingForMode(settings, mode), bucket);
+  if (modeRoute) return { model: `${modeRoute.provider}/${modeRoute.model}`, thinkingLevel: modeRoute.thinkingLevel, source: "mode", route: modeRoute };
+  const sharedRoute = configuredSubagentRoute(settings.subagents.modelRouting, bucket);
+  if (sharedRoute) return { model: `${sharedRoute.provider}/${sharedRoute.model}`, thinkingLevel: sharedRoute.thinkingLevel, source: "shared", route: sharedRoute };
+  if (agentModel?.trim()) return { model: agentModel.trim(), source: "agent" };
+  return { source: "default" };
+}
+
+export function renderSubagentModelRouting(settings: WorkflowSettings, scope: WorkflowSubagentModelMode | "shared" = "shared"): string {
+  const routing = scope === "shared"
+    ? settings.subagents.modelRouting
+    : scope === "plan"
+      ? settings.planning.subagentModelRouting
+      : scope === "standard"
+        ? settings.standard.subagentModelRouting
+        : settings.missions.subagentModelRouting;
+  const title = scope === "shared" ? "Shared Sub-agent Models" : `${scope.charAt(0).toUpperCase() + scope.slice(1)} Sub-agent Models`;
+  const lines = [`${title}: ${routing?.enabled === true ? "enabled" : "inherited/shared"}`];
+  for (const bucket of WORKFLOW_SUBAGENT_MODEL_BUCKETS) {
+    const route = routing?.models?.[bucket];
+    lines.push(`${subagentBucketLabel(bucket)}: ${subagentModelLabel(route)}`);
+  }
+  if (scope !== "shared") lines.push("Fallback: mode route -> shared sub-agent route -> agent default -> current child process default");
+  else lines.push("Fallback: shared route -> agent default -> current child process default");
+  return lines.join("\n");
 }
 
 async function applySpecificModel(pi: ExtensionAPI, ctx: ExtensionContext, label: string, route: RoleModelSettings, requireEnabled: boolean): Promise<RoleModelSettings | undefined> {
@@ -1597,6 +2015,12 @@ export async function applyStandardModelForRole(pi: ExtensionAPI, ctx: Extension
   if (source === "current") return undefined;
   const route = standardRoleRoute(settings, role);
   return applySpecificModel(pi, ctx, route.source === "standard_specific" ? `standard ${role}` : role, route.route, options.requireEnabled !== false);
+}
+
+export async function applyPlanModelForRole(pi: ExtensionAPI, ctx: ExtensionContext, role: WorkflowRole, options: { requireEnabled?: boolean; cwd?: string } = {}): Promise<RoleModelSettings | undefined> {
+  const settings = loadWorkflowSettings(options.cwd);
+  const route = planRoleRoute(settings, role);
+  return applySpecificModel(pi, ctx, route.source === "plan_specific" ? `plan ${role}` : role, route.route, options.requireEnabled !== false);
 }
 
 export async function applyMissionModelForRole(pi: ExtensionAPI, ctx: ExtensionContext, role: WorkflowRole, options: { requireEnabled?: boolean; cwd?: string } = {}): Promise<RoleModelSettings | undefined> {

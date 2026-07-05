@@ -25,7 +25,8 @@ import type { Message } from "@earendil-works/pi-ai";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, getAgentDir, getMarkdownTheme, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { loadWorkflowSettings } from "../workflow-model-router.js";
+import { loadWorkflowSettings, parseSubagentModelBucket, resolveWorkflowSubagentModelRoute, type ThinkingLevel, type WorkflowSubagentModelBucket, type WorkflowSubagentModelMode } from "../workflow-model-router.js";
+import { loadState, type WorkflowMode, type WorkflowSubagentPhase } from "../workflow-state.js";
 import { trackSubagentPid, untrackSubagentPid } from "./runner.js";
 import { type AgentConfig, type AgentScope, type AgentSource, discoverAgents } from "./agents.js";
 
@@ -76,6 +77,35 @@ function safeTruncateToWidth(line: string, width: number, ellipsis = "..."): str
 
 function safeRenderedLines(lines: string[], width: number): string[] {
 	return lines.flatMap((line) => String(line ?? "").split("\n")).map((line) => safeTruncateToWidth(line, width, "..."));
+}
+
+function subagentModelModeForWorkflowMode(mode: WorkflowMode): WorkflowSubagentModelMode | undefined {
+	if (mode === "standard") return "standard";
+	if (mode.startsWith("mission_")) return "mission";
+	if (mode === "awaiting_clarification" || mode === "planning" || mode === "plan_draft" || mode === "plan_approved" || mode === "reviewing" || mode === "reviewed" || mode === "executing" || mode === "executed" || mode === "validating" || mode === "validated" || mode === "repairing" || mode === "revalidating") return "plan";
+	return undefined;
+}
+
+function bucketForWorkflowMode(mode: WorkflowMode, standardActivePhase?: WorkflowSubagentPhase): WorkflowSubagentModelBucket | undefined {
+	if (mode === "standard") return standardActivePhase ? parseSubagentModelBucket(standardActivePhase.toLowerCase()) : "planning";
+	if (mode === "planning" || mode === "mission_planning") return "planning";
+	if (mode === "executing" || mode === "mission_running") return "execution";
+	if (mode === "repairing" || mode === "mission_repairing") return "repair";
+	if (mode === "reviewing" || mode === "reviewed" || mode === "mission_plan_ready") return "review";
+	if (mode === "validating" || mode === "revalidating" || mode === "mission_validating" || mode === "mission_revalidating" || mode === "mission_final_validating") return "validation";
+	return undefined;
+}
+
+function bucketForWorkflowPhase(workflowPhase: string | undefined, mode: WorkflowMode, standardActivePhase?: WorkflowSubagentPhase): WorkflowSubagentModelBucket | undefined {
+	if (workflowPhase) {
+		const parsed = parseSubagentModelBucket(workflowPhase);
+		if (parsed) return parsed;
+		const normalized = workflowPhase.trim().toLowerCase();
+		if (normalized === "plan" || normalized === "research") return "planning";
+		if (normalized === "execute") return "execution";
+		if (normalized === "validate") return "validation";
+	}
+	return bucketForWorkflowMode(mode, standardActivePhase);
 }
 
 function safeComponent(component: any): any {
@@ -165,6 +195,7 @@ function formatUsageStats(
 		turns?: number;
 	},
 	model?: string,
+	thinkingLevel?: ThinkingLevel,
 ): string {
 	const parts: string[] = [];
 	if (usage.turns) parts.push(`${usage.turns} turn${usage.turns > 1 ? "s" : ""}`);
@@ -177,6 +208,7 @@ function formatUsageStats(
 		parts.push(`ctx:${formatTokens(usage.contextTokens)}`);
 	}
 	if (model) parts.push(model);
+	if (thinkingLevel) parts.push(thinkingLevel === "off" ? "thinking:off" : `thinking:${thinkingLevel}`);
 	return parts.join(" ");
 }
 
@@ -267,6 +299,7 @@ interface SingleResult {
 	stderr: string;
 	usage: UsageStats;
 	model?: string;
+	thinkingLevel?: ThinkingLevel;
 	stopReason?: string;
 	errorMessage?: string;
 	step?: number;
@@ -384,6 +417,14 @@ async function runSingleAgent(
 	}
 
 	const settings = loadWorkflowSettings(defaultCwd);
+	const workflowState = loadState();
+	const bucket = bucketForWorkflowPhase(workflowPhase, workflowState.mode, workflowState.standardActivePhase);
+	const modelMode = subagentModelModeForWorkflowMode(workflowState.mode);
+	const route = bucket
+		? resolveWorkflowSubagentModelRoute(settings, modelMode, bucket, agent.model)
+		: { model: agent.model, thinkingLevel: undefined, source: agent.model ? "agent" as const : "default" as const };
+	const effectiveModel = route.model;
+	const effectiveThinking = route.thinkingLevel;
 	const lockRoot = repoLockRootForSubagent(defaultCwd, settings);
 	const effectiveCwd = resolveSubagentCwd(cwd, defaultCwd);
 	if (lockRoot && !pathInsideRoot(effectiveCwd, lockRoot)) {
@@ -400,7 +441,8 @@ async function runSingleAgent(
 	}
 
 	const args: string[] = ["--no-extensions", "--extension", REPOLOCK_GUARD_EXTENSION, "--mode", "json", "-p", "--no-session"];
-	if (agent.model) args.push("--model", agent.model);
+	if (effectiveModel) args.push("--model", effectiveModel);
+	if (effectiveThinking) args.push("--thinking", effectiveThinking);
 	if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
 
 	let tmpPromptDir: string | null = null;
@@ -414,7 +456,8 @@ async function runSingleAgent(
 		messages: [],
 		stderr: "",
 		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
-		model: agent.model,
+		model: effectiveModel,
+		thinkingLevel: effectiveThinking,
 		step,
 	};
 
@@ -1013,7 +1056,7 @@ export default function (pi: ExtensionAPI) {
 							container.addChild(safeMarkdown(finalOutput.trim(), mdTheme));
 						}
 					}
-					const usageStr = formatUsageStats(r.usage, r.model);
+					const usageStr = formatUsageStats(r.usage, r.model, r.thinkingLevel);
 					if (usageStr) {
 						container.addChild(new Spacer(1));
 						container.addChild(new Text(theme.fg("dim", usageStr), 0, 0));
@@ -1029,7 +1072,7 @@ export default function (pi: ExtensionAPI) {
 					text += `\n${renderDisplayItems(displayItems, COLLAPSED_ITEM_COUNT)}`;
 					if (displayItems.length > COLLAPSED_ITEM_COUNT) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
 				}
-				const usageStr = formatUsageStats(r.usage, r.model);
+				const usageStr = formatUsageStats(r.usage, r.model, r.thinkingLevel);
 				if (usageStr) text += `\n${theme.fg("dim", usageStr)}`;
 				return safeText(text);
 			}
@@ -1098,7 +1141,7 @@ export default function (pi: ExtensionAPI) {
 							container.addChild(safeMarkdown(finalOutput.trim(), mdTheme));
 						}
 
-						const stepUsage = formatUsageStats(r.usage, r.model);
+						const stepUsage = formatUsageStats(r.usage, r.model, r.thinkingLevel);
 						if (stepUsage) container.addChild(new Text(theme.fg("dim", stepUsage), 0, 0));
 					}
 
@@ -1122,6 +1165,8 @@ export default function (pi: ExtensionAPI) {
 					text += `\n\n${theme.fg("muted", `─── Step ${r.step}: `)}${theme.fg("accent", r.agent)} ${rIcon}`;
 					if (displayItems.length === 0) text += `\n${theme.fg("muted", "(no output)")}`;
 					else text += `\n${renderDisplayItems(displayItems, 5)}`;
+					const stepUsage = formatUsageStats(r.usage, r.model, r.thinkingLevel);
+					if (stepUsage) text += `\n${theme.fg("dim", stepUsage)}`;
 				}
 				const usageStr = formatUsageStats(aggregateUsage(details.results));
 				if (usageStr) text += `\n\n${theme.fg("dim", `Total: ${usageStr}`)}`;
@@ -1183,7 +1228,7 @@ export default function (pi: ExtensionAPI) {
 							container.addChild(safeMarkdown(finalOutput.trim(), mdTheme));
 						}
 
-						const taskUsage = formatUsageStats(r.usage, r.model);
+						const taskUsage = formatUsageStats(r.usage, r.model, r.thinkingLevel);
 						if (taskUsage) container.addChild(new Text(theme.fg("dim", taskUsage), 0, 0));
 					}
 
@@ -1209,6 +1254,8 @@ export default function (pi: ExtensionAPI) {
 					if (displayItems.length === 0)
 						text += `\n${theme.fg("muted", r.exitCode === -1 ? "(running...)" : "(no output)")}`;
 					else text += `\n${renderDisplayItems(displayItems, 5)}`;
+					const taskUsage = formatUsageStats(r.usage, r.model, r.thinkingLevel);
+					if (taskUsage) text += `\n${theme.fg("dim", taskUsage)}`;
 				}
 				if (!isRunning) {
 					const usageStr = formatUsageStats(aggregateUsage(details.results));

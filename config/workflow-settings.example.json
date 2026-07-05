@@ -156,6 +156,16 @@
         "model": null,
         "thinkingLevel": "xhigh"
       }
+    },
+    "subagentModelRouting": {
+      "enabled": false,
+      "models": {
+        "planning": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "medium" },
+        "execution": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "medium" },
+        "repair": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "medium" },
+        "review": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "xhigh" },
+        "validation": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "xhigh" }
+      }
     }
   },
   "missions": {
@@ -225,6 +235,16 @@
         "provider": null,
         "model": null,
         "thinkingLevel": "xhigh"
+      }
+    },
+    "subagentModelRouting": {
+      "enabled": false,
+      "models": {
+        "planning": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "medium" },
+        "execution": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "medium" },
+        "repair": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "medium" },
+        "review": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "xhigh" },
+        "validation": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "xhigh" }
       }
     },
     "clarificationTiming": "after_initial_analysis",
@@ -308,7 +328,17 @@
     "planningOrchestrationPolicy": "orchestrator_first",
     "subagentTimeoutMinutes": 20,
     "subagentStaleMinutes": 8,
-    "allowBackgroundSubagents": true
+    "allowBackgroundSubagents": true,
+    "modelRouting": {
+      "enabled": false,
+      "models": {
+        "planning": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "high" },
+        "execution": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "high" },
+        "repair": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "high" },
+        "review": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "xhigh" },
+        "validation": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "xhigh" }
+      }
+    }
   },
   "planning": {
     "clarificationMode": "auto",
@@ -318,7 +348,24 @@
     "clarificationTiming": "after_initial_analysis",
     "clarificationQualityGate": true,
     "allowClarificationWithoutAnalysis": false,
-    "useSubagentsBeforeClarification": true
+    "useSubagentsBeforeClarification": true,
+    "usePlanSpecificModels": false,
+    "models": {
+      "planner": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "high" },
+      "executor": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "high" },
+      "reviewer": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "xhigh" },
+      "validator": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "xhigh" }
+    },
+    "subagentModelRouting": {
+      "enabled": false,
+      "models": {
+        "planning": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "high" },
+        "execution": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "high" },
+        "repair": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "high" },
+        "review": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "xhigh" },
+        "validation": { "enabled": true, "provider": null, "model": null, "thinkingLevel": "xhigh" }
+      }
+    }
   },
   "context": {
     "compactionMode": "pi_default",
@@ -332,7 +379,7 @@
     "workflowCompactionCheckMode": "boundary"
   },
   "presets": {
-    "activePreset": "custom",
+    "activePreset": "standard",
     "items": {}
   }
 }

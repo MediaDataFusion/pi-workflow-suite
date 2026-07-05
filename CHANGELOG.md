@@ -2,6 +2,13 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.24] - 2026-07-05
+
+- Added `None` preset support for saved manual settings.
+- Added Plan and sub-agent model controls, including child model/thinking visibility and token accounting.
+- Set built-in Plan presets to offer manual validation after execution.
+- Refined sub-agent policy, validation repair handling, and workflow menu completion.
+
 ## [0.0.23] - 2026-06-19
 
 ### Improved

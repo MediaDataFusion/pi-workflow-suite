@@ -8,7 +8,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
 import { CustomEditor, VERSION, compact as piCompact, estimateTokens as piEstimateTokens, findCutPoint as piFindCutPoint, getAgentDir, getMarkdownTheme, type ExtensionAPI, type ExtensionContext, type FileOperations, type SessionEntry, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { activeWorkflowPresetLabel, applyMissionModelForRole, applyModelForRole, applyStandardModelForRole, applyWorkflowPreset, compactionModeLabel, createProjectSettingsOverride, createWorkflowPreset, defaultWorkflowSettings, deleteWorkflowPreset, effectivePlanApprovalRequired, effectiveReviewAutoRun, effectiveValidateAfterExecution, effectiveValidationAutoRun, effectiveRepairGate, formatRole, getDefaultWriteTarget, loadEffectiveSettings, loadGlobalSettings, loadWorkflowSettings, normalizeWorkflowPresetName, parseMissionModelRole, parseRole, parseThinkingLevel, renameWorkflowPreset, renderActiveWorkflowPresetSummary, renderStandardModelStrategy, renderWorkflowModels, renderWorkflowPresets, resolveWorkflowPresetName, roleIsConfigured, saveCurrentWorkflowPreset, setMissionModelForRole, setMissionThinkingForRole, setModelForRole, setRoleEnabled, setStandardModelForRole, setStandardThinkingForRole, setThinkingForRole, standardModelSource, standardModelSourceLabel, standardTodoTriggerModeLabel, updateSettings, workflowCompactionCheckModeLabel, workflowPresetCatalog, workflowPresetLabel, workflowPresetNames, workflowPresetPickerLabel, workflowRoleLabel, workflowSettingsConsistencyDiagnostics, WORKFLOW_CUSTOM_PRESET_MARKER, WORKFLOW_SETTINGS_FILE, type MissionModelRole, type RoleModelSettings, type WorkflowRole, type WorkflowSettingsScope, type WorkflowStartupLogo, type WorkflowStartupLogoColorStyle, type WorkflowStartupLogoFont, type WorkflowStartupLogoShadowDirection, type WorkflowStartupVisual, type WorkflowEditorHintContrast, type CustomBrandBaseVisual, type StandardClarificationMode, type StandardModelRole, type StandardTodoTriggerMode, type WorkflowAgentScope } from "./workflow-model-router.js";
+import { activeWorkflowPresetLabel, applyMissionModelForRole, applyPlanModelForRole, applyStandardModelForRole, applyWorkflowPreset, clearSubagentModelForBucket, compactionModeLabel, createProjectSettingsOverride, createWorkflowPreset, defaultWorkflowSettings, deleteWorkflowPreset, effectivePlanApprovalRequired, effectiveReviewAutoRun, effectiveValidateAfterExecution, effectiveValidationAutoRun, effectiveRepairGate, formatRole, getDefaultWriteTarget, loadEffectiveSettings, loadGlobalSettings, loadWorkflowSettings, normalizeWorkflowPresetName, parseMissionModelRole, parseRole, parseSubagentModelBucket, parseThinkingLevel, renameWorkflowPreset, renderActiveWorkflowPresetSummary, renderPlanModelStrategy, renderStandardModelStrategy, renderSubagentModelRouting, renderWorkflowModels, renderWorkflowPresets, resolveWorkflowPresetName, resolveWorkflowSubagentModelRoute, roleIsConfigured, saveCurrentWorkflowPreset, setMissionModelForRole, setMissionThinkingForRole, setModelForRole, setPlanModelForRole, setPlanThinkingForRole, setRoleEnabled, setStandardModelForRole, setStandardThinkingForRole, setSubagentModelForBucket, setSubagentThinkingForBucket, setThinkingForRole, standardModelSource, standardModelSourceLabel, standardTodoTriggerModeLabel, updateSettings, workflowCompactionCheckModeLabel, workflowPresetCatalog, workflowPresetLabel, workflowPresetNames, workflowPresetPickerLabel, workflowRoleLabel, workflowSettingsConsistencyDiagnostics, WORKFLOW_CUSTOM_PRESET_MARKER, WORKFLOW_SETTINGS_FILE, type MissionModelRole, type RoleModelSettings, type ThinkingLevel, type WorkflowRole, type WorkflowSettingsScope, type WorkflowStartupLogo, type WorkflowStartupLogoColorStyle, type WorkflowStartupLogoFont, type WorkflowStartupLogoShadowDirection, type WorkflowStartupVisual, type WorkflowEditorHintContrast, type CustomBrandBaseVisual, type StandardClarificationMode, type StandardModelRole, type StandardTodoTriggerMode, type WorkflowAgentScope, type WorkflowSubagentModelBucket, type WorkflowSubagentModelMode } from "./workflow-model-router.js";
 import { renderHandoffProjectContext, renderWorkflowStatus, renderWorkflowSummary } from "./workflow-summary.js";
 import { BASE_EXECUTE_TOOLS, EXECUTE_TOOLS, PLAN_TOOLS, REVIEW_TOOLS, WORKFLOW_DIAGRAM_TOOL, WORKFLOW_PLAN_RESULT_TOOL, WORKFLOW_REVIEW_RESULT_TOOL, WORKFLOW_EXECUTION_RESULT_TOOL, WORKFLOW_VALIDATION_RESULT_TOOL, WORKFLOW_REPAIR_RESULT_TOOL, WORKFLOW_PROGRESS_TOOL, MISSION_PLAN_RESULT_TOOL, MISSION_MILESTONE_RESULT_TOOL, STANDARD_HANDOFF_RESULT_TOOL, isBlockedExecuteCommand, registerToolGuard, standardSafeReadOnlyBash, VALIDATOR_TOOLS } from "./workflow-tool-guard.js";
 import { refreshRuntimeWebTools, registerWorkflowWebTools, runtimeWebResearchGuidance, webSafePlanTools, withRuntimeWebTools } from "./workflow-web-tools.js";
@@ -1064,6 +1064,8 @@ type WorkflowHandoffSnapshot = {
   expectedMode?: string;
   activePlanId?: string;
   activeMissionId?: string;
+  missionUpdatedAt?: string;
+  missionPlanFingerprint?: string;
   draftPlan?: string;
   task?: string;
   questions?: ClarificationQuestion[];
@@ -1072,6 +1074,11 @@ type WorkflowHandoffSnapshot = {
 
 function scheduleWorkflowHandoff(pi: ExtensionAPI, snapshot: WorkflowHandoffSnapshot, action: () => Promise<void> | void): void {
   deferWorkflowMenuAction(pi, snapshot.kind, action);
+}
+
+function missionPlanMenuFingerprint(mission: MissionState): string {
+  const milestones = mission.milestones.map((m) => `${m.id}:${m.title}:${m.steps.join("|")}`).join("\n");
+  return createHash("sha256").update(`${mission.planText ?? ""}\n${milestones}`).digest("hex").slice(0, 12);
 }
 
 // ── Parsing helpers (imported from workflow-parsers.ts) ───────────
@@ -2862,7 +2869,7 @@ Compaction note:
 }
 
 function modelsHelp(): string {
-  return `# Workflow Models Help\n\nShared model commands:\n- /workflow-settings configure models\n- /workflow models list\n- /workflow models active\n- /workflow models set planner <provider> <model>\n- /workflow models set executor <provider> <model>\n- /workflow models thinking planner medium\n- /workflow models thinking executor high\n- /workflow-settings set planner thinking high\n- /workflow-settings set planner thinkingLevel high\n\nMission model settings:\n- /workflow-settings configure mission-mode\n- /workflow-settings set missions useMissionSpecificModels true|false`;
+  return `# Workflow Models Help\n\nShared model commands:\n- /workflow-settings configure models\n- /workflow models list\n- /workflow models active\n- /workflow models set planner <provider> <model>\n- /workflow models set executor <provider> <model>\n- /workflow models thinking planner medium\n- /workflow models thinking executor high\n- /workflow-settings set planner thinking high\n- /workflow-settings set planner thinkingLevel high\n\nPlan model settings:\n- /workflow-settings configure plan-mode\n- /workflow-settings set planning usePlanSpecificModels true|false\n- /workflow-settings set plan-models planner <provider> <model>\n- /workflow-settings set plan-models planner thinking high\n\nMission model settings:\n- /workflow-settings configure mission-mode\n- /workflow-settings set missions useMissionSpecificModels true|false\n\nSub-agent worker model settings:\n- /workflow-settings set subagent-models <shared|plan|standard|mission> <planning|execution|repair|review|validation> <provider> <model>\n- /workflow-settings set subagent-models <shared|plan|standard|mission> <phase> thinking <off|minimal|low|medium|high|xhigh>\n- /workflow-settings set subagent-models <shared|plan|standard|mission> <phase> inherit`;
 }
 
 const WORKFLOW_SETTINGS_COMPLETIONS = [
@@ -3024,6 +3031,8 @@ type ActiveSubagent = {
   startedAt: string;
   status: "running" | "completed" | "failed";
   background?: boolean;
+  model?: string;
+  thinkingLevel?: ThinkingLevel;
 };
 
 type WorkflowPendingToolPhase = "Planning" | "Execution" | "Review" | "Validation" | "Repair";
@@ -3440,8 +3449,7 @@ Mission Checkpoint Model: ${missionCheckpointModelLabel(settings)}`;
 }
 
 function renderPlanModelSettings(settings: ReturnType<typeof loadWorkflowSettings>): string {
-  return `Plan Model Source: shared workflow role models
-${renderWorkflowModels(settings)}
+  return `${renderPlanModelStrategy(settings)}
 Compaction Model: ${settings.context.compactionModelProvider && settings.context.compactionModel ? `${settings.context.compactionModelProvider}/${settings.context.compactionModel}` : "Pi default"}`;
 }
 
@@ -3452,6 +3460,7 @@ ${phaseWorkerSettingsLine(settings, "Plan Execution", "Execution")}
 ${phaseWorkerSettingsLine(settings, "Plan Repair", "Repair")}
 ${phaseWorkerSettingsLine(settings, "Plan Review", "Review")}
 ${phaseWorkerSettingsLine(settings, "Plan Validation", "Validation")}
+${renderSubagentModelRouting(settings, "plan")}
 Forced Policy Rule: forced is a hard requirement and uses the Maximum / Forced target for that phase.`;
 }
 
@@ -3462,6 +3471,7 @@ ${phaseWorkerSettingsLine(settings, "Mission Execution", "Execution", "shared ex
 ${phaseWorkerSettingsLine(settings, "Mission Repair", "Repair", "shared repair phase")}
 ${phaseWorkerSettingsLine(settings, "Mission Review", "Review", "shared review phase")}
 ${phaseWorkerSettingsLine(settings, "Mission Validation", "Validation", "shared validation phase")}
+${renderSubagentModelRouting(settings, "mission")}
 Forced Policy Rule: forced is a hard requirement and uses the Maximum / Forced target for that phase.`;
 }
 
@@ -3891,14 +3901,35 @@ function workflowPlanProgressEnabled(settings: ReturnType<typeof loadWorkflowSet
   return (settings.workflow as typeof settings.workflow & { planProgressEnabled?: boolean }).planProgressEnabled !== false;
 }
 
-function planValidationModelAvailable(settings: ReturnType<typeof loadWorkflowSettings>): boolean {
-  return settings.models.validator.enabled && roleIsConfigured(settings.models.validator);
-}
-
 function missionModelRouteForRole(settings: ReturnType<typeof loadWorkflowSettings>, role: WorkflowRole): RoleModelSettings {
   const missionRoute = settings.missions.models?.[role];
   if (settings.missions.useMissionSpecificModels && missionRoute?.provider && missionRoute?.model) return missionRoute;
   return settings.models[role];
+}
+
+function planModelRouteForRole(settings: ReturnType<typeof loadWorkflowSettings>, role: WorkflowRole): RoleModelSettings {
+  const planRoute = settings.planning.models?.[role];
+  if (settings.planning.usePlanSpecificModels && planRoute?.provider && planRoute?.model) return planRoute;
+  return settings.models[role];
+}
+
+function planModelAvailable(settings: ReturnType<typeof loadWorkflowSettings>, role: WorkflowRole): boolean {
+  const route = planModelRouteForRole(settings, role);
+  return route.enabled && roleIsConfigured(route);
+}
+
+function planModelEnabled(settings: ReturnType<typeof loadWorkflowSettings>, role: WorkflowRole): boolean {
+  return planModelRouteForRole(settings, role).enabled;
+}
+
+function setPlanRoleEnabled(settings: ReturnType<typeof loadWorkflowSettings>, role: WorkflowRole, enabled: boolean): void {
+  const models = { ...(settings.planning.models ?? {}) } as Record<WorkflowRole, RoleModelSettings>;
+  models[role] = { ...(models[role] ?? settings.models[role]), enabled };
+  settings.planning.models = models;
+}
+
+function planValidationModelAvailable(settings: ReturnType<typeof loadWorkflowSettings>): boolean {
+  return planModelAvailable(settings, "validator");
 }
 
 function missionModelAvailable(settings: ReturnType<typeof loadWorkflowSettings>, role: WorkflowRole): boolean {
@@ -4923,7 +4954,7 @@ function standardPrompt(state: WorkflowState, settings: ReturnType<typeof loadWo
     ? `Standard sub-agent policy:\n- current worker bucket: ${state.standardActivePhase ?? "Planning"}${state.standardWorkKind ? ` (${state.standardWorkKind})` : ""}\n- agentScope: ${settings.standard.subagentScope ?? "user"}\n- planning/research: ${activeWorkerTargetLabel(standardPhasePolicy(settings, "Planning"), standardWorkerCount(settings, "Planning"))}\n- execution: ${activeWorkerTargetLabel(standardPhasePolicy(settings, "Execution"), standardWorkerCount(settings, "Execution"))}\n- repair: ${activeWorkerTargetLabel(standardPhasePolicy(settings, "Repair"), standardWorkerCount(settings, "Repair"))}\n- review: ${activeWorkerTargetLabel(standardPhasePolicy(settings, "Review"), standardWorkerCount(settings, "Review"))}\n- validation: ${activeWorkerTargetLabel(standardPhasePolicy(settings, "Validation"), standardWorkerCount(settings, "Validation"))}\nUse any configured package, user, or project agent that fits the task. When calling subagent in Standard Mode, pass agentScope=${settings.standard.subagentScope ?? "user"} and workflowPhase=planning, execution, repair, review, or validation. These workflowPhase labels are Standard worker buckets only; they do not move Standard into Plan/Mission review or validation UI. Do not launch execution sub-agents merely for read-only summaries, status updates, action-item reports, or docs/repo inspection; use execution sub-agents only before actual mutation or execution-class bash. If the active Standard worker bucket is execution or repair and that bucket policy is forced, satisfy the required sub-agent usage before edit/write/unsafe bash.`
     : "Standard Mode sub-agent delegation is disabled by settings.";
   const standardSubagentDecisionInstruction = standardSubagentsAllowed(settings)
-    ? "For Standard auto/deep/maximum sub-agent policies, internally decide delegate or skip. Delegate for non-trivial parallelizable research, validation, repair, or implementation prep. Skip for trivial read-only/status work or when no useful parallel worker exists. Do not print internal sub-agent policy deliberation; if no worker runs, give only a concise user-facing skip reason when a Sub-Agent Usage Summary is naturally relevant."
+    ? "For Standard auto/deep/maximum sub-agent policies, internally decide delegate or skip. Delegate for non-trivial parallelizable research, validation, repair, audit, or implementation prep. Skip for trivial read-only/status work or when no useful parallel worker exists. Advisory skips are non-blocking; do not use blocked, forced-policy, or retry wording for auto/deep/maximum skips. Do not print internal sub-agent policy deliberation; if no worker runs, give only a concise user-facing skip reason when a Sub-Agent Usage Summary is naturally relevant."
     : "";
   const autoCheckInstruction = standardAutoChecksRequired(state, settings)
     ? `Your first visible lines for every user-submitted Standard Mode response must be exactly this parser-safe Standard Auto Checks contract before any other text:\nStandard Auto Checks:\nCLARIFICATION_DECISION: ask|skip|disabled\nCLARIFICATION_REASON: <brief user-facing reason>\nTODO_DECISION: create|skip|on request|required|disabled|active\nTODO_REASON: <brief user-facing reason>\nUse CLARIFICATION_DECISION=ask only when you will ask clarification. Use skip when clarification is not needed. Use TODO_DECISION=create when you will initialize optional task-specific To Do tracking with standard_todo, required when To Do tracking is required by settings, active when a To Do list is already active, skip when visible tracking is not useful, on request when To Do tracking starts only on explicit request, and disabled when settings disable it. Keep reasons concise; do not reveal chain-of-thought.`
@@ -5021,7 +5052,7 @@ function completedPlanProgressBar(summary: NonNullable<WorkflowState["lastComple
 function completedPlanValidationLabel(summary: NonNullable<WorkflowState["lastCompletedPlanSummary"]>, settings: ReturnType<typeof loadWorkflowSettings>): string {
   if (summary.validationResult !== "UNKNOWN") return summary.validationResult;
   if (planValidationGateActive(settings)) return "UNKNOWN";
-  const preset = settings.presets?.activePreset;
+  const preset = activePresetName(settings);
   return preset === "simple" ? "skipped by simple preset" : "skipped by workflow settings";
 }
 
@@ -6727,21 +6758,26 @@ function subagentActivityLines(ctx: ExtensionContext, activeSubagents: ActiveSub
   const failed = activeSubagents.filter((agent) => agent.status === "failed");
   const visible = running.length > 0 ? running : failed;
   if (visible.length === 0) return [];
+  const displayLabel = (agent: ActiveSubagent): string => {
+    const route = [agent.model, agent.thinkingLevel ? `thinking:${agent.thinkingLevel}` : undefined].filter(Boolean).join(", ");
+    return route ? `${agent.name} (${route})` : agent.name;
+  };
   const fgCounts = new Map<string, number>();
   const bgCounts = new Map<string, number>();
   for (const agent of visible) {
     const map = agent.background ? bgCounts : fgCounts;
-    map.set(agent.name, (map.get(agent.name) ?? 0) + 1);
+    const label = displayLabel(agent);
+    map.set(label, (map.get(label) ?? 0) + 1);
   }
   const role: WorkflowWidgetColorRole = running.length > 0 ? "subagent" : "error";
   const spinner = WORKFLOW_SUBAGENT_SPINNER_FRAMES[workflowSubagentActivityFrame % WORKFLOW_SUBAGENT_SPINNER_FRAMES.length] ?? "•";
   const title = running.length > 0
     ? `${workflowWidgetRgb(settings, "subagent", spinner)} ${workflowSubagentActivityTitle(settings, "active", running.length)}`
     : workflowWidgetRgb(settings, "error", `${failed.length === 1 ? "Sub-agent" : "Sub-agents"} failed: ${failed.length}`);
-  const fgLines = Array.from(fgCounts.entries()).map(([name, count]) => workflowSubagentAgentLine(settings, role, name, count));
-  const bgLines = Array.from(bgCounts.entries()).map(([name, count]) => {
-    const label = count > 1 ? `${name} x${count}` : name;
-    return `${workflowWidgetRgb(settings, "muted", label)} ${workflowWidgetRgb(settings, "muted", "[bg]")}`;
+  const fgLines = Array.from(fgCounts.entries()).map(([label, count]) => workflowSubagentAgentLine(settings, role, label, count));
+  const bgLines = Array.from(bgCounts.entries()).map(([label, count]) => {
+    const text = count > 1 ? `${label} x${count}` : label;
+    return `${workflowWidgetRgb(settings, "muted", text)} ${workflowWidgetRgb(settings, "muted", "[bg]")}`;
   });
   return [title, ...fgLines, ...bgLines];
 }
@@ -7501,7 +7537,8 @@ function finalMilestoneSummaryText(mission: MissionState, settings: ReturnType<t
 }
 
 function activePresetName(settings: ReturnType<typeof loadWorkflowSettings>): string {
-  return (settings.presets?.activePreset ?? "custom").trim().toLowerCase();
+  const normalized = normalizeWorkflowPresetName(settings.presets?.activePreset ?? WORKFLOW_CUSTOM_PRESET_MARKER);
+  return normalized === "none" || normalized === "no-preset" || normalized === "no-active-preset" ? WORKFLOW_CUSTOM_PRESET_MARKER : normalized;
 }
 
 function simplePresetActive(settings: ReturnType<typeof loadWorkflowSettings>): boolean {
@@ -7844,6 +7881,12 @@ function reviewControlHandoffMessage(control: PlanReviewControlVerdict, scope: "
     return `Review recorded. Control verdict: ${label}. ${scope === "mission" ? "Mission planner repair" : "Planner repair"} will start.`;
   }
   return `Review recorded. Control verdict: ${label}. Workflow will block for review recovery.`;
+}
+
+function planReviewExecutionDidNotStartMessage(control: PlanReviewControlVerdict): string {
+  const label = control.verdict === "NEEDS REPAIR" ? "NEEDS REPAIR" : control.verdict;
+  const suffix = control.verdict === "NOTES" ? " with reviewer notes" : "";
+  return `Review recorded. Control verdict: ${label}${suffix}. Execution did not start; use /plan continue after fixing the handoff blocker. Stop immediately; do not call more tools, sub-agents, diagrams, or prose.`;
 }
 
 type PlanReviewIssueSeverity = "info" | "low" | "medium" | "high" | "critical";
@@ -8984,8 +9027,7 @@ export default function workflowModes(pi: ExtensionAPI): void {
 
   const applyMissionPlanResult = (ctx: ExtensionContext, params: Record<string, unknown>) => {
     if (state.mode !== "mission_planning") {
-      recordTypedHandoff(ctx, MISSION_PLAN_RESULT_TOOL as WorkflowTypedHandoffType, params);
-      return { ...typedToolAck(), details: { accepted: false, reason: "mission_plan_result is only for mission planning. Use mission_milestone_result to submit milestone execution checkpoints." } };
+      return { ...typedToolAck(false), details: { accepted: false, reason: "mission_plan_result is only for mission planning. Use mission_milestone_result to submit milestone execution checkpoints." }, isError: true };
     }
     const settings = loadWorkflowSettings(ctx.cwd);
     recordTypedHandoff(ctx, MISSION_PLAN_RESULT_TOOL as WorkflowTypedHandoffType, params);
@@ -9012,10 +9054,10 @@ export default function workflowModes(pi: ExtensionAPI): void {
     if (!milestones.length) return { ...typedToolAck(false), details: { accepted: false }, isError: true };
     const text = typedMissionPlanText(mission.goal, milestones);
     const next = saveActiveMission({ ...mission, status: "planned", milestones, planText: text, currentStep: undefined, lastSummary: `Typed mission plan generated with ${milestones.length} milestone${milestones.length === 1 ? "" : "s"}.` });
-    checkpointMission(next, "Typed mission milestone plan generated and saved.", "Review the mission plan, then approve with /mission approve.");
-    updateState({ mode: "mission_plan_ready", activeMissionId: next.id, task: next.goal, originalTask: next.goal, draftPlan: text, clarificationQualityRetryCount: undefined }, ctx);
-    const snapshot: WorkflowHandoffSnapshot = { kind: "mission_plan_menu", expectedMode: "mission_plan_ready", activeMissionId: next.id, task: next.goal, fallback: "Mission plan is ready, but the interactive menu is unavailable." };
-    scheduleWorkflowHandoff(pi, snapshot, () => showMissionPlanMenu(ctx, next, snapshot));
+    const checkpointed = checkpointMission(next, "Typed mission milestone plan generated and saved.", "Review the mission plan, then approve with /mission approve.");
+    updateState({ mode: "mission_plan_ready", activeMissionId: checkpointed.id, task: checkpointed.goal, originalTask: checkpointed.goal, draftPlan: text, clarificationQualityRetryCount: undefined }, ctx);
+    const snapshot: WorkflowHandoffSnapshot = { kind: "mission_plan_menu", expectedMode: "mission_plan_ready", activeMissionId: checkpointed.id, missionUpdatedAt: checkpointed.updatedAt, missionPlanFingerprint: missionPlanMenuFingerprint(checkpointed), task: checkpointed.goal, fallback: "Mission plan is ready, but the interactive menu is unavailable." };
+    scheduleWorkflowHandoff(pi, snapshot, () => showMissionPlanMenu(ctx, checkpointed, snapshot));
     return { ...typedToolAck(), details: { accepted: true, decision, milestones: milestones.length } };
   };
 
@@ -9102,8 +9144,6 @@ export default function workflowModes(pi: ExtensionAPI): void {
     if (validationAvailable && validateAfterExecution) {
       setPendingWorkflowToolPhase(ctx, "Validation", "typed execution accepted");
     }
-    else if (!planValidationGateActive(settings)) deferWorkflowAction(pi, "complete plan after typed execution without validation", () => completePlanWithoutValidation(ctx, validationAvailable ? "Validation skipped: validation is disabled by workflow settings." : "Validation skipped: validator disabled or not configured."));
-    else deferWorkflowMenuAction(pi, "show post execution menu after typed execution", () => showPostExecutionMenu(ctx, validationAvailable));
     return { ...typedToolAck(), details: { accepted: true, status } };
   };
 
@@ -9331,12 +9371,16 @@ export default function workflowModes(pi: ExtensionAPI): void {
       await handleWorkflowReviewFailure(ctx, planReview.verdict, planReview.report);
       return { content: [{ type: "text", text: reviewControlHandoffMessage(planReview, "plan") }], details: { accepted: true, verdict: planReview.verdict, controlVerdict: planReview.verdict, originalVerdict: planReview.originalVerdict, normalized: planReview.downgraded } };
     }
-    updateState({ mode: "reviewed", reviewerReport: planReview.report, reviewerVerdict: planReview.verdict, lastReviewAttempt: planReview.downgraded ? planReview.reason : planReview.verdict, lastReviewFailure: "", planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "reviewed" }, settings, { lifecycleStatus: "reviewed", nextAction: "executor" }, state.approvedPlan) : state.planProgress }, ctx);
+    updateState({ mode: "reviewed", reviewerReport: planReview.report, reviewerVerdict: planReview.verdict, currentReviewRetry: 0, lastReviewAttempt: planReview.downgraded ? planReview.reason : planReview.verdict, lastReviewFailure: "", lastReviewRepairStatus: state.lastReviewRepairStatus === "running" ? "completed" : (state.lastReviewRepairStatus ?? "none"), reviewRepairInProgress: false, repairRetryState: { ...(state.repairRetryState ?? {}), review: state.repairRetryState?.review ? { ...state.repairRetryState.review, currentRetry: 0, status: state.repairRetryState.review.status === "running" ? "completed" : state.repairRetryState.review.status, inProgress: false, lastAttempt: planReview.downgraded ? planReview.reason : planReview.verdict } : undefined }, planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "reviewed" }, settings, { lifecycleStatus: "reviewed", nextAction: "executor" }, state.approvedPlan) : state.planProgress }, ctx);
     setPendingWorkflowToolPhase(ctx, "Execution", "typed reviewer accepted");
     traceWorkflowTracking(ctx, "reviewer-to-executor-handoff", { source: "typed_review_tool", mode: "reviewed", lifecycleStatus: "reviewed", nextAction: "execution queued", toolsArmed: true, hasApprovedPlan: Boolean(state.approvedPlan), stepCount: state.planProgress?.steps?.length ?? 0, verdict: planReview.verdict, originalVerdict: planReview.originalVerdict, normalized: planReview.downgraded });
     const executionStarted = await beginExecution(ctx, true);
-    if (executionStarted) setReviewHandoffSuppression(ctx, "plan_typed_review_to_execution");
-    return { content: [{ type: "text", text: reviewControlHandoffMessage(planReview, "plan") }], details: { accepted: true, verdict: planReview.verdict, controlVerdict: planReview.verdict, originalVerdict: planReview.originalVerdict, normalized: planReview.downgraded, executionStarted } };
+    if (executionStarted) {
+      setReviewHandoffSuppression(ctx, "plan_typed_review_to_execution");
+      return { content: [{ type: "text", text: reviewControlHandoffMessage(planReview, "plan") }], details: { accepted: true, verdict: planReview.verdict, controlVerdict: planReview.verdict, originalVerdict: planReview.originalVerdict, normalized: planReview.downgraded, executionStarted } };
+    }
+    clearPendingWorkflowToolPhase(ctx, "Execution", "typed reviewer accepted but execution did not start");
+    return { content: [{ type: "text", text: planReviewExecutionDidNotStartMessage(planReview) }], details: { accepted: true, verdict: planReview.verdict, controlVerdict: planReview.verdict, originalVerdict: planReview.originalVerdict, normalized: planReview.downgraded, executionStarted } };
   };
 
   const setStandardRuntimeActive = (ctx: ExtensionContext, active: boolean): void => {
@@ -10040,7 +10084,7 @@ export default function workflowModes(pi: ExtensionAPI): void {
 
   const reapplyPlannerRouteIfPlanMode = async (ctx: ExtensionContext, showNotice = false): Promise<boolean> => {
     if (!isPlanWorkflowMode(state)) return false;
-    const route = await applyModelForRole(pi, ctx, "planner", { cwd: ctx.cwd });
+    const route = await applyPlanModelForRole(pi, ctx, "planner", { cwd: ctx.cwd });
     if (!route) return false;
     updateState({ modelsUsed: { ...(state.modelsUsed ?? {}), planner: modelLabel(route) } }, ctx);
     if (showNotice) workflowUiNotify(ctx, `Active Plan Mode planner route reapplied: ${modelLabel(route)}\n${activeModelDiagnostic(ctx)}`, "info");
@@ -10477,7 +10521,7 @@ ${reportExcerpt(validation, 2400)}
     queueNativeFinalSummary(pi, nativePlanFinalDeliverableSummary(completedPlanSummary), "workflow-plan-final-summary");
   };
 
-  const completePlanWithoutValidation = async (ctx: ExtensionContext, reason: string) => {
+  const completePlanWithoutValidation = async (ctx: ExtensionContext, reason: string, options: { showMenu?: boolean } = {}) => {
     const settings = loadWorkflowSettings(ctx.cwd);
     const returnToPlan = (settings.workflow as typeof settings.workflow & { returnToPlanModeAfterWorkflow?: boolean }).returnToPlanModeAfterWorkflow !== false;
     if (returnToPlan) {
@@ -10494,7 +10538,7 @@ ${reportExcerpt(validation, 2400)}
       planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "validated", validationVerdict: "UNKNOWN" }, settings, { lifecycleStatus: "completed", validationStatus: "unknown", lastValidationStatus: "unknown", repairRetry: 0, repairStatus: state.lastRepairStatus === "running" ? "completed" : (state.lastRepairStatus ?? "none"), nextAction: "list summary or start new plan", steps: planCompletionSteps(state.planProgress, extractApprovedPlanSteps(state.approvedPlan ?? state.draftPlan)) }) : state.planProgress,
     }, ctx);
     recordWorkflowInternalEvent(ctx, "Internal workflow lifecycle event suppressed.");
-    await showPostExecutionMenu(ctx);
+    if (options.showMenu !== false) await showPostExecutionMenu(ctx);
   };
 
   const touchMissionHeartbeat = (mission: MissionState, progress = true): MissionState => {
@@ -11213,7 +11257,7 @@ ${resolved.reason ?? "No mission found. Use /mission list to see saved missions.
 
     const activateSelectedMission = (mission: MissionState): MissionState => {
       const next = saveActiveMission(mission, true);
-      updateState({ mode: missionWorkflowModeForStatus(next.status), activeMissionId: next.id, task: next.goal, originalTask: next.goal, approvedPlan: next.milestones.length ? missionRunPlan(next) : undefined, draftPlan: undefined, executionSummary: undefined, validationReport: undefined, validationVerdict: undefined, reviewerReport: undefined }, ctx);
+      updateState({ mode: missionWorkflowModeForStatus(next.status), activeMissionId: next.id, task: next.goal, originalTask: next.goal, approvedPlan: next.milestones.length ? missionRunPlan(next) : undefined, draftPlan: undefined, executionSummary: undefined, validationReport: undefined, validationVerdict: undefined, reviewerReport: undefined, lastWorkflowHandoff: undefined, reviewHandoffSuppression: undefined }, ctx);
       return next;
     };
 
@@ -11578,7 +11622,13 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       updateState({ mode: "reviewed", reviewerReport: planReview.report, reviewerVerdict: planReview.verdict, currentReviewRetry: 0, lastReviewFailure: "", lastReviewAttempt: planReview.downgraded ? planReview.reason : planReview.verdict, lastReviewRepairStatus: state.lastReviewRepairStatus === "running" ? "completed" : (state.lastReviewRepairStatus ?? "none"), reviewRepairInProgress: false, repairRetryState: { ...(state.repairRetryState ?? {}), review: state.repairRetryState?.review ? { ...state.repairRetryState.review, status: state.repairRetryState.review.status === "running" ? "completed" : state.repairRetryState.review.status, inProgress: false, lastAttempt: planReview.downgraded ? planReview.reason : planReview.verdict } : undefined }, planProgress: workflowPlanProgressEnabled(loadWorkflowSettings(ctx.cwd)) ? mergePlanProgress({ ...state, mode: "reviewed" }, loadWorkflowSettings(ctx.cwd), { lifecycleStatus: "reviewed", nextAction: "executor" }, state.approvedPlan) : state.planProgress }, ctx);
       setPendingWorkflowToolPhase(ctx, "Execution", "late plan reviewer notes recovered");
       recordWorkflowInternalEvent(ctx, "Recovered late Plan reviewer report after out-of-phase review handoff; normalized to Plan reviewer notes.");
-      deferWorkflowAction(pi, "begin execution after late reviewer notes", async () => { await beginExecution(ctx, true); }, { onFailure: (error) => recoverPlanTransientHandoffFailure(ctx, "execution", transientFailureReason("Late Plan review normalized to notes but execution handoff failed", error instanceof Error ? error.message : String(error)), { phase: "Execution" }) });
+      deferWorkflowAction(pi, "begin execution after late reviewer notes", async () => {
+        const started = await beginExecution(ctx, true);
+        if (!started) {
+          clearPendingWorkflowToolPhase(ctx, "Execution", "late plan reviewer notes did not start execution");
+          recoverPlanTransientHandoffFailure(ctx, "execution", "Late Plan review normalized to notes but execution handoff did not start.", { phase: "Execution" });
+        }
+      }, { onFailure: (error) => recoverPlanTransientHandoffFailure(ctx, "execution", transientFailureReason("Late Plan review normalized to notes but execution handoff failed", error instanceof Error ? error.message : String(error)), { phase: "Execution" }) });
       return true;
     }
     recordWorkflowInternalEvent(ctx, "Recovered late Plan reviewer report after out-of-phase review handoff; routing to plan repair.");
@@ -11771,6 +11821,20 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
 
   const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object";
 
+  const subagentUsageTokensFromResult = (result: unknown): number => {
+    if (!isRecord(result)) return 0;
+    const details = isRecord(result.details) ? result.details : undefined;
+    const results = details && Array.isArray(details.results) ? details.results : [];
+    if (results.length > 0) {
+      return results.reduce((sum, item) => {
+        if (!isRecord(item) || !isRecord(item.usage)) return sum;
+        return sum + (Number(item.usage.input) || 0) + (Number(item.usage.output) || 0);
+      }, 0);
+    }
+    const usage = isRecord(result.usage) ? result.usage : undefined;
+    return usage ? (Number(usage.input) || 0) + (Number(usage.output) || 0) : 0;
+  };
+
   const extractSubagentObservations = (args: Record<string, unknown>, prefix = "top"): SubagentNameObservation[] => {
     const observations: SubagentNameObservation[] = [];
     if (typeof args.agent === "string" && args.agent.trim()) observations.push({ name: args.agent.trim(), key: `${prefix}:agent:0:${args.agent.trim()}` });
@@ -11852,6 +11916,20 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     if (mode === "reviewing" || mode === "reviewed" || mode === "mission_plan_ready") return "Review";
     if (mode === "validating" || mode === "revalidating" || mode === "mission_validating" || mode === "mission_revalidating" || mode === "mission_final_validating") return "Validation";
     return undefined;
+  };
+
+  const subagentModelModeForWorkflowMode = (mode: WorkflowState["mode"]): WorkflowSubagentModelMode | undefined => {
+    if (mode === "standard") return "standard";
+    if (mode.startsWith("mission_")) return "mission";
+    if (isPlanWorkflowMode({ ...state, mode })) return "plan";
+    return undefined;
+  };
+
+  const subagentModelBucketForPhase = (phase: SubagentPhase): WorkflowSubagentModelBucket => phase.toLowerCase() as WorkflowSubagentModelBucket;
+
+  const routedSubagentTaskFields = (settings: ReturnType<typeof loadWorkflowSettings>, phase: SubagentPhase): Partial<WorkflowSubagentTask> => {
+    const route = resolveWorkflowSubagentModelRoute(settings, subagentModelModeForWorkflowMode(state.mode), subagentModelBucketForPhase(phase));
+    return route.model ? { model: route.model, thinkingLevel: route.thinkingLevel } : {};
   };
 
   const forcedSubagentGuardLabel = (phase: SubagentPhase): string => {
@@ -11952,6 +12030,20 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     const candidates = chooseForcedSubagents(phase, Math.min(target, 8), label, listEffectiveAgents(ctx.cwd));
     if (candidates.length === 0) return `no suitable ${phase.toLowerCase()} sub-agent workers are available`;
     return undefined;
+  };
+
+  const rememberStandardAdvisorySubagentDecisionForWork = (ctx: ExtensionContext, settings: ReturnType<typeof loadWorkflowSettings>, work: { phase: SubagentPhase; kind: NonNullable<WorkflowState["standardWorkKind"]> }, task?: string): void => {
+    if (!task?.trim()) return;
+    const policy = standardPhasePolicy(settings, work.phase);
+    if (!subagentPolicyNeedsInternalDecision(policy)) return;
+    const workers = standardWorkerCount(settings, work.phase);
+    const unavailable = advisorySubagentUnavailableReason(ctx, work.phase, policy, workers, `Standard ${work.phase}`);
+    if (unavailable) {
+      rememberAdvisorySubagentDecision(ctx, work.phase, policy, "unavailable", unavailable, task, workers);
+      return;
+    }
+    const advisory = advisorySubagentPolicyDecision(work.phase, policy, task, work.kind);
+    rememberAdvisorySubagentDecision(ctx, work.phase, policy, advisory.outcome, advisory.reason, task, workers);
   };
 
   const priorSubagentUsageSatisfiesForced = (phase: SubagentPhase, snapshot: { count: number; names: Set<string> }, settings: ReturnType<typeof loadWorkflowSettings>, override?: SubagentPhasePolicyOverride): boolean => {
@@ -12134,11 +12226,12 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       }
     }
     const useBackground = settings.subagents.allowBackgroundSubagents === true && (phase === "Planning" || phase === "Review");
-    const tasks: WorkflowSubagentTask[] = names.map((agent, index) => ({ agent, task: forcedSubagentTaskText(phase, agent, index, required, context), cwd: ctx.cwd, background: useBackground, workflowPhase: phase }));
+    const routeFields = routedSubagentTaskFields(settings, phase);
+    const tasks: WorkflowSubagentTask[] = names.map((agent, index) => ({ agent, task: forcedSubagentTaskText(phase, agent, index, required, context), cwd: ctx.cwd, background: useBackground, workflowPhase: phase, ...routeFields }));
     stopStartupVisual(ctx);
     const startedAt = new Date().toISOString();
     const toolCallId = `forced-${phase.toLowerCase()}-${Date.now()}`;
-    activeSubagents = tasks.map((task, index) => ({ toolCallId, name: task.agent, instance: index + 1, startedAt, status: "running" as const, background: task.background }));
+    activeSubagents = tasks.map((task, index) => ({ toolCallId, name: task.agent, instance: index + 1, startedAt, status: "running" as const, background: task.background, model: task.model, thinkingLevel: task.thinkingLevel }));
     beginWorkflowPreflightUi(ctx, label, activeSubagents);
     renderWorkflowSubagentActivity(ctx);
     const limits = settings.subagents as typeof settings.subagents & { subagentTimeoutMinutes?: number; subagentStaleMinutes?: number };
@@ -12159,7 +12252,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
             traceWorkflowTracking(ctx, "background-subagent-stale-update", { phase, toolCallId, activeBackgroundSubagentRunId });
             return;
           }
-          activeSubagents = results.map((result, index) => ({ toolCallId, name: result.agent, instance: index + 1, startedAt, status: result.exitCode === -1 ? "running" as const : result.exitCode === 0 ? "completed" as const : "failed" as const, background: tasks[index]?.background }));
+          activeSubagents = results.map((result, index) => ({ toolCallId, name: result.agent, instance: index + 1, startedAt, status: result.exitCode === -1 ? "running" as const : result.exitCode === 0 ? "completed" as const : "failed" as const, background: tasks[index]?.background, model: result.model ?? tasks[index]?.model, thinkingLevel: result.thinkingLevel ?? tasks[index]?.thinkingLevel }));
           updateWorkflowPreflightUi(ctx, label, activeSubagents);
           renderWorkflowSubagentActivity(ctx);
           if (isBackground && !backgroundSettled && results.length > 0 && results.every((result) => result.exitCode !== -1)) {
@@ -12168,7 +12261,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
             recordSuccessfulSubagentEvidence(phase, succeeded.map((result, index) => ({ name: result.agent, key: `background-forced:${phase}:${toolCallId}:${index}:${result.agent}` })));
             phasePreflightBlocks[phase] = formatForcedSubagentPreflightBlock(label, results);
             const subagentTokens = results.reduce((sum, r) => sum + (r.usage?.input ?? 0) + (r.usage?.output ?? 0), 0);
-            if (subagentTokens > 0) accumulateModeTokens(subagentTokens);
+            if (subagentTokens > 0) accumulateModeTokens(subagentTokens, ctx);
             activeBackgroundSubagentRunId = undefined;
             endWorkflowPreflightUi(ctx);
             setTimeout(() => {
@@ -12206,7 +12299,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     recordSuccessfulSubagentEvidence(phase, succeeded.map((result, index) => ({ name: result.agent, key: `forced:${phase}:${toolCallId}:${index}:${result.agent}` })));
     // 4d: Feed sub-agent tokens into mode-level budget
     const subagentTokens = run.results.reduce((sum, r) => sum + (r.usage?.input ?? 0) + (r.usage?.output ?? 0), 0);
-    if (subagentTokens > 0) accumulateModeTokens(subagentTokens);
+    if (subagentTokens > 0) accumulateModeTokens(subagentTokens, ctx);
     activeSubagents = activeSubagents.filter(a => a.toolCallId !== toolCallId);
     renderWorkflowSubagentActivity(ctx);
     const block = formatForcedSubagentPreflightBlock(label, run.results);
@@ -12715,7 +12808,9 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     }, ctx);
   }
 
-  async function approveCurrentPlan(ctx: ExtensionContext, saveReason: string): Promise<boolean> {
+  type PlanApprovalContinuation = "configured" | "execute" | "review";
+
+  async function approveCurrentPlan(ctx: ExtensionContext, saveReason: string, continuation: PlanApprovalContinuation = "configured"): Promise<boolean> {
     const planText = state.draftPlan ?? state.approvedPlan;
     if (!planText?.trim()) {
       show(pi, "# No draft plan. Run `/plan <task>` first.");
@@ -12761,12 +12856,20 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     pi.setActiveTools(executionToolsFor(settings));
     let started = false;
     try {
-      started = await continueAfterPlanApproval(ctx, true);
+      if (continuation === "review") started = await beginReview(ctx, true);
+      else if (continuation === "execute") started = await beginExecution(ctx, true);
+      else started = await continueAfterPlanApproval(ctx, true);
     } catch (error) {
-      recoverPlanTransientHandoffFailure(ctx, "execution", transientFailureReason("Approved-plan handoff failed", error instanceof Error ? error.message : String(error)), { phase: "Execution" });
+      const phase = continuation === "review" ? "Review" : "Execution";
+      recoverPlanTransientHandoffFailure(ctx, continuation === "review" ? "review" : "execution", transientFailureReason(continuation === "review" ? "Approved-plan reviewer handoff failed" : "Approved-plan handoff failed", error instanceof Error ? error.message : String(error)), { phase });
       return true;
     }
-    if (!started) show(pi, "# Handoff Paused\n\nPlan was approved, but automatic continuation could not start. Use /plan continue after fixing the issue.");
+    if (!started) {
+      const next = continuation === "review"
+        ? "Plan was approved, but reviewer could not start. Configure reviewer or run /plan continue to execute without reviewer."
+        : "Plan was approved, but execution could not start. Use /plan continue after fixing the issue.";
+      show(pi, `# Handoff Paused\n\n${next}`);
+    }
     return true;
   }
 
@@ -12808,7 +12911,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       updateState({ mode: "plan_draft", activePlanId, draftPlan: "Planning blocked before the planner could run: forced planning sub-agent requirements are unavailable.", approvedPlan: undefined, lastReviewFailure: "Forced planning sub-agent requirements are unavailable.", executionSummary: undefined, validationReport: undefined, validationVerdict: undefined, reviewerReport: undefined, reviewerVerdict: undefined, currentReviewRetry: 0, workflowReviewRetryCount: 0, maxReviewRetriesPerPlan: undefined, maxReviewRetriesPerWorkflow: undefined, lastReviewAttempt: undefined, lastReviewRepairStatus: "none", reviewHistory: undefined, reviewRepairInProgress: undefined, repairRetryState: undefined, currentValidationRetry: 0, workflowValidationRetryCount: 0, lastRepairStatus: "none", planStepValidationIndex: undefined, planExecutionStepIndex: undefined, planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "validated", draftPlan: undefined, approvedPlan: undefined }, settings, { lifecycleStatus: "blocked", nextAction: "fix planning sub-agent policy or revise planning", steps: [] }, undefined) : undefined, lastCompletedPlanSummary: undefined }, ctx);
       return;
     }
-    const route = await applyModelForRole(pi, ctx, "planner", { cwd: ctx.cwd });
+    const route = await applyPlanModelForRole(pi, ctx, "planner", { cwd: ctx.cwd });
     if (!route) {
       updateState({ mode: "plan_draft", activePlanId, draftPlan: "Planning blocked before the planner could run: planner model is disabled, unavailable, or not configured.", approvedPlan: undefined, lastReviewFailure: "Planner model is disabled, unavailable, or not configured.", planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "validated", draftPlan: undefined, approvedPlan: undefined }, settings, { lifecycleStatus: "blocked", nextAction: "configure planner or revise planning", steps: [] }, undefined) : undefined }, ctx);
       return;
@@ -12901,7 +13004,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       queuePlanTerminalSummary(ctx, "blocked", "Plan execution blocked", { reason });
       return false;
     }
-    const route = isMissionWorkflowMode(state) ? await applyMissionModelForRole(pi, ctx, "executor", { cwd: ctx.cwd }) : await applyModelForRole(pi, ctx, "executor", { cwd: ctx.cwd });
+    const route = isMissionWorkflowMode(state) ? await applyMissionModelForRole(pi, ctx, "executor", { cwd: ctx.cwd }) : await applyPlanModelForRole(pi, ctx, "executor", { cwd: ctx.cwd });
     if (!route) {
       pi.setActiveTools(planToolsFor(settings));
       // Fix C2: include planProgress update when reverting mode so lifecycleStatus stays consistent.
@@ -12936,7 +13039,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       queuePlanTerminalSummary(ctx, "blocked", "Plan review blocked", { reason });
       return false;
     }
-    const route = isMissionWorkflowMode(state) ? await applyMissionModelForRole(pi, ctx, "reviewer", { cwd: ctx.cwd }) : await applyModelForRole(pi, ctx, "reviewer", { cwd: ctx.cwd });
+    const route = isMissionWorkflowMode(state) ? await applyMissionModelForRole(pi, ctx, "reviewer", { cwd: ctx.cwd }) : await applyPlanModelForRole(pi, ctx, "reviewer", { cwd: ctx.cwd });
     if (!route) {
       updateState({ mode: "plan_approved" }, ctx);
       show(pi, "# Reviewer Blocked\n\nReviewer is enabled but its model could not be applied. Check /workflow-settings list, provider availability, and credentials, then run /plan continue.");
@@ -12965,7 +13068,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       return false;
     }
     const settings = loadWorkflowSettings(ctx.cwd);
-    if (settings.models.reviewer.enabled && roleIsConfigured(settings.models.reviewer)) {
+    if (planModelAvailable(settings, "reviewer")) {
       if (settings.workflow.autoRunReviewerBeforeExecute === true
           && state.reviewerVerdict !== "PASS"
           && state.reviewerVerdict !== "NOTES") {
@@ -12978,7 +13081,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
         if (choice === "Run Reviewer") return await beginReview(ctx, false);
         if (choice === "Back") return false;
       }
-    } else if (settings.models.reviewer.enabled && !roleIsConfigured(settings.models.reviewer) && settings.workflow.autoRunReviewerBeforeExecute === true) {
+    } else if (planModelEnabled(settings, "reviewer") && !planModelAvailable(settings, "reviewer") && settings.workflow.autoRunReviewerBeforeExecute === true) {
       show(pi, "# Reviewer Not Configured\n\nReviewer is enabled but no reviewer model is configured. Configure reviewer, disable reviewer, or turn off reviewer auto-run.");
       return false;
     }
@@ -13010,7 +13113,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       show(pi, `# Plan Validation Refused\n\n${reason}\n\nUse /plan continue.`);
       return false;
     }
-    const route = await applyModelForRole(pi, ctx, "validator", { requireEnabled: false, cwd: ctx.cwd });
+    const route = await applyPlanModelForRole(pi, ctx, "validator", { requireEnabled: false, cwd: ctx.cwd });
     if (!route) {
       const reason = "Plan validator model is disabled, unavailable, or not configured.";
       updateState({ mode: "validated", lastWorkflowHandoff: undefined, validationReport: reason, validationVerdict: "UNKNOWN", lastRepairStatus: revalidate ? "blocked" : (state.lastRepairStatus ?? "none"), planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "validated", validationVerdict: "UNKNOWN", lastRepairStatus: revalidate ? "blocked" : (state.lastRepairStatus ?? "none") }, settings, { lifecycleStatus: "blocked", validationStatus: "unknown", repairStatus: revalidate ? "blocked" : (state.lastRepairStatus ?? "none"), nextAction: "configure validator then revalidate" }) : state.planProgress, lastRepairAttempt: revalidate ? reason : state.lastRepairAttempt }, ctx);
@@ -13240,7 +13343,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       showBlockedPlanRecoveryMenu(ctx);
       return;
     }
-    const route = await applyModelForRole(pi, ctx, "executor", { cwd: ctx.cwd });
+    const route = await applyPlanModelForRole(pi, ctx, "executor", { cwd: ctx.cwd });
     if (!route) {
       updateState({ mode: "validated", lastRepairStatus: "blocked", lastRepairAttempt: "Repair executor model unavailable.", lastValidationFailure: failure }, ctx);
       settleWorkflowRuntimeForUserWait(ctx, "plan repair executor unavailable");
@@ -13254,7 +13357,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       updateState({ mode: "validated", lastRepairStatus: "blocked", lastRepairAttempt: reason, lastValidationFailure: failure, planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "validated", lastRepairStatus: "blocked" }, settings, { lifecycleStatus: "blocked", repairStatus: "blocked", nextAction: reason }) : state.planProgress, repairHistory: appendWorkflowRepairHistory({ timestamp: new Date().toISOString(), retry: currentRetry, status: "blocked", validationFailure: compact(failure, 800), nextAction: reason }) }, ctx);
       settleWorkflowRuntimeForUserWait(ctx, "plan repair no concrete issue");
       queuePlanTerminalSummary(ctx, "blocked", "Plan repair blocked", { validationText: failure, reason });
-      show(pi, `# Plan Repair Blocked\n\n${reason}\n\nNo repair retry was consumed. Perform manual verification, then use:\n- /plan revalidate\n- /plan repair (manual override)\n- /plan revise <feedback>`);
+      show(pi, `# Plan Repair Blocked\n\n${reason}\n\nNo repair retry was consumed. Perform manual verification, then use:\n- /plan revalidate\n- /plan revise <feedback>`);
       showBlockedPlanRecoveryMenu(ctx);
       return;
     }
@@ -13594,7 +13697,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
   async function resumeInterruptedPlanRepair(ctx: ExtensionContext, title: string): Promise<boolean> {
     const reason = planActiveRuntimeStaleReason(ctx);
     const settings = loadWorkflowSettings(ctx.cwd);
-    const route = await applyModelForRole(pi, ctx, "executor", { cwd: ctx.cwd });
+    const route = await applyPlanModelForRole(pi, ctx, "executor", { cwd: ctx.cwd });
     if (!route) {
       show(pi, `# ${title}\n\nRecovered interrupted Plan repair runtime, but the executor model could not be applied. Configure executor, then run /plan repair or /plan retry.\n\n${workflowDisplayText(reason)}`);
       return true;
@@ -13928,7 +14031,14 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       const canContinueCurrent = planResumeCanContinueCurrent(state);
       const reviewRepairAvailable = planReviewRepairRecoveryAvailable(state);
       const validationBoundaryReached = planValidationBoundaryReached(state, settings);
-      const validationRepairAvailable = validationBoundaryReached && Boolean(state.lastValidationFailure || state.validationReport || state.validationVerdict === "FAIL" || state.validationVerdict === "PARTIAL PASS");
+      const validationRepairClass = state.validationVerdict
+        ? classifyValidationFailure(state.validationVerdict, state.validationReport ?? state.lastValidationFailure ?? "", {
+          concreteRepairableIssue: state.concreteRepairableIssue,
+          manualVerificationRequired: state.manualVerificationRequired,
+        })
+        : undefined;
+      const validationRepairAvailable = validationBoundaryReached && Boolean(state.lastValidationFailure || state.validationReport || state.validationVerdict === "FAIL" || state.validationVerdict === "PARTIAL PASS")
+        && (state.validationVerdict === "FAIL" || state.validationVerdict === "UNKNOWN" || validationRepairClass === "repairable" || (!state.validationVerdict && state.concreteRepairableIssue !== false));
       const choice = await ctx.ui.select("Plan Resume", [
         ...(reviewRepairAvailable ? ["Review Repair / Recover Notes"] : []),
         ...(state.approvedPlan && validationRepairAvailable ? ["Repair / Retry"] : []),
@@ -14216,7 +14326,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       updateState({ mode: "validated", validationReport: validationText, validationVerdict: verdict, lastValidationCompletedAt: new Date().toISOString(), lastPlanStopSummary: buildPlanStopSummary(ctx, "blocked", "Plan validation needs manual verification", { validationText, verdict, reason }), lastValidationFailure: failure, lastRepairStatus: "none", lastRepairAttempt: reason, maxValidationRetriesPerPlan: maxRetries, maxValidationRetriesPerWorkflow: maxWorkflowRetries, repairRetryState: { ...(state.repairRetryState ?? {}), validation: { currentRetry: retry, workflowRetryCount: workflowRetry, maxRetriesPerItem: maxRetries, maxRetriesPerWorkflow: maxWorkflowRetries, lastFailure: failure, lastAttempt: reason, status: "blocked", inProgress: false, history: state.repairRetryState?.validation?.history } }, planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "validated", validationVerdict: verdict }, settings, { lifecycleStatus: "blocked", validationStatus, lastValidationStatus: validationStatus, repairStatus: "none", nextAction: "manual verification, revalidate, or revise" }) : state.planProgress }, ctx);
       settleWorkflowRuntimeForUserWait(ctx, "plan validation manual-only");
       queuePlanTerminalSummary(ctx, "blocked", "Plan validation needs manual verification", { validationText, verdict, reason });
-      show(pi, `# Plan Validation - Manual Verification Required\n\nVerdict: ${verdict}\nReason: ${reason}\n\nNo repair retry was consumed. The implementation is code-complete but requires manual browser QA.\n\nChoose from the action menu, or use:\n- /plan complete (accept as done)\n- /plan revalidate\n- /plan revise <feedback>\n- /plan repair (manual override)`);
+      show(pi, `# Plan Validation - Manual Verification Required\n\nVerdict: ${verdict}\nReason: ${reason}\n\nNo repair retry was consumed. The implementation is code-complete but requires manual browser QA.\n\nChoose from the action menu, or use:\n- /plan complete (accept as done)\n- /plan revalidate\n- /plan revise <feedback>`);
       deferWorkflowMenuAction(pi, "show plan resume after manual-only validation", () => handlePlanResume(ctx));
       return;
     }
@@ -14232,7 +14342,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     const validationStatus = planValidationStatusForVerdict(verdict);
     const decision = resolveRepairRetryDecision({ gate: "validation", verdict: verdict ?? "UNKNOWN", report: failure, settings, state, itemRetry: retry, workflowRetry, requiredContextAvailable: Boolean(state.approvedPlan) });
     updateState({ mode: "validated", validationReport: validationText, validationVerdict: verdict, lastPlanStopSummary: buildPlanStopSummary(ctx, "blocked", "Plan validation blocked", { validationText, verdict, reason: failure }), lastValidationFailure: failure, maxValidationRetriesPerPlan: maxRetries, maxValidationRetriesPerWorkflow: maxWorkflowRetries, repairRetryState: { ...(state.repairRetryState ?? {}), validation: { currentRetry: retry, workflowRetryCount: workflowRetry, maxRetriesPerItem: decision.maxRetriesPerItem, maxRetriesPerWorkflow: decision.maxRetriesPerWorkflow, lastFailure: failure, lastAttempt: decision.reason, status: decision.allowed ? "none" : "blocked", inProgress: false, history: state.repairRetryState?.validation?.history } }, planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "validated", validationVerdict: verdict }, settings, { lifecycleStatus: "blocked", validationStatus, lastValidationStatus: validationStatus, nextAction: "repair/revalidate or revise" }) : state.planProgress }, ctx);
-    show(pi, `# Plan Validation Result\n\nVerdict: ${verdict}\n${verdict === "PARTIAL PASS" ? "No concrete repairable issue was found. Validation gaps are limited to manual/browser verification." : `Repair policy: ${decision.allowed ? "auto-repair starting" : decision.reason ?? "repair blocked"}.`}\n\n${compact(validationText, 800)}`);
+    show(pi, `# Plan Validation Result\n\nVerdict: ${verdict}\n${verdict === "PARTIAL PASS" ? `Concrete repairable issue found. Repair policy: ${decision.allowed ? "auto-repair starting" : decision.reason ?? "repair blocked"}.` : `Repair policy: ${decision.allowed ? "auto-repair starting" : decision.reason ?? "repair blocked"}.`}\n\n${compact(validationText, 800)}`);
     if (!decision.allowed) {
       const reason = decision.reason ?? "repair requires approval or safety gate.";
       updateState({ mode: "validated", lastPlanStopSummary: buildPlanStopSummary(ctx, "blocked", "Plan repair blocked", { validationText, verdict, reason }), lastRepairStatus: "blocked", planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "validated", lastRepairStatus: "blocked" }, settings, { lifecycleStatus: "blocked", validationStatus, repairStatus: "blocked", nextAction: reason }) : state.planProgress, lastRepairAttempt: reason, lastValidationFailure: failure }, ctx);
@@ -14744,9 +14854,13 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     show(pi, `# Mission Clarification Needed\n\n${reason}\n\nUse one of:\n- \`/mission clarify\`\n- \`/mission clarify answer 1A 2C\`\n- \`/mission clarify answer 1D: your text\`\n- reply with shorthand like \`1A, 2C\` or \`1D: your answer\``);
   }
 
-  function missionHandoffCompatible(snapshot: WorkflowHandoffSnapshot): boolean {
+  function missionHandoffCompatible(snapshot: WorkflowHandoffSnapshot, currentMission?: MissionState): boolean {
     if (snapshot.expectedMode && state.mode !== snapshot.expectedMode) return false;
     if (snapshot.activeMissionId && state.activeMissionId && state.activeMissionId !== snapshot.activeMissionId) return false;
+    const mission = currentMission ?? (snapshot.activeMissionId ? loadMissionState(snapshot.activeMissionId) : undefined);
+    if (snapshot.activeMissionId && !mission) return false;
+    if (snapshot.missionUpdatedAt && mission?.updatedAt !== snapshot.missionUpdatedAt) return false;
+    if (snapshot.missionPlanFingerprint && mission && missionPlanMenuFingerprint(mission) !== snapshot.missionPlanFingerprint) return false;
     return true;
   }
 
@@ -14803,10 +14917,13 @@ ${renderMissionStatus(activeMission ?? paused)}`);
   async function showMissionPlanMenu(ctx: ExtensionContext, mission: MissionState, snapshot?: WorkflowHandoffSnapshot) {
     stopStartupVisual(ctx);
     const handoffSnapshot = snapshot ?? { kind: "mission_plan_menu" as const, expectedMode: "mission_plan_ready", activeMissionId: mission.id, fallback: "Mission plan is ready, but the interactive menu is unavailable." };
-    if (!missionHandoffCompatible(handoffSnapshot)) {
+    const currentMission = handoffSnapshot.activeMissionId ? loadMissionState(handoffSnapshot.activeMissionId) : undefined;
+    if (!missionHandoffCompatible(handoffSnapshot, currentMission)) {
       showMissionPlanMenuFallback("Mission plan menu was skipped because the active mission state changed.");
       return;
     }
+    const menuMission = currentMission ?? mission;
+    mission = menuMission;
     showMissionPlanReadyCard(mission);
     if (!ctx.hasUI) return;
     const reviewChoice = ["PASS", "NOTES"].includes(mission.reviewerVerdict ?? "") ? [] : ["Review Mission Plan"];
@@ -14931,10 +15048,15 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     }
     showPlanReadyForApprovalCard(snapshot);
     const settings = loadWorkflowSettings(ctx.cwd);
-    const approveLabel = settings.models.reviewer.enabled ? "Approve and Run Workflow" : "Approve and Execute";
+    const reviewerChoiceAvailable = settings.workflow.offerReviewerBeforeExecute === true && planModelAvailable(settings, "reviewer");
+    const autoReviewerWillRun = !reviewerChoiceAvailable && planModelAvailable(settings, "reviewer") && settings.workflow.autoRunReviewerBeforeExecute === true;
+    const approveLabel = autoReviewerWillRun ? "Approve and Run Workflow" : "Approve and Execute";
+    const choices = reviewerChoiceAvailable
+      ? ["Approve and Execute", "Run Reviewer", "Revise Plan", "Cancel"]
+      : [approveLabel, "Revise Plan", "Cancel"];
     let menuChoice: string | undefined;
     try {
-      menuChoice = await ctx.ui.select("Plan ready. Choose next action:", [approveLabel, "Revise Plan", "Cancel"]);
+      menuChoice = await ctx.ui.select("Plan ready. Choose next action:", choices);
     } catch (error) {
       showPlanMenuCommandFallback(`Interactive approval menu failed to open: ${error instanceof Error ? error.message : String(error)}`);
       return;
@@ -14944,8 +15066,12 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       showPlanMenuCommandFallback("Plan approval menu was dismissed. The plan remains ready for approval.");
       return;
     }
-    if (menuChoice === "Approve and Execute" || menuChoice === "Approve and Run Workflow") {
+    if (menuChoice === "Approve and Execute") {
+      await approveCurrentPlan(ctx, "plan approved by user", reviewerChoiceAvailable ? "execute" : "configured");
+    } else if (menuChoice === "Approve and Run Workflow") {
       await approveCurrentPlan(ctx, "plan approved by user");
+    } else if (menuChoice === "Run Reviewer") {
+      await approveCurrentPlan(ctx, "plan approved by user for review", "review");
     } else if (menuChoice === "Revise Plan") {
       const feedback = await ctx.ui.editor("Revision feedback:", "");
       if (feedback?.trim()) await beginPlanning(ctx, snapshot.task ?? state.task ?? "Revise plan", snapshot.draftPlan ?? state.draftPlan ?? state.approvedPlan, feedback.trim());
@@ -15037,11 +15163,12 @@ ${renderMissionStatus(activeMission ?? paused)}`);
 
   async function showPostExecutionMenu(ctx: ExtensionContext, validationAvailable = false) {
     if (!ctx.hasUI) return;
-    const choices = validationAvailable ? ["Run Validation", "List Summary", "Start New Plan"] : ["List Summary", "Start New Plan"];
+    const choices = validationAvailable ? ["Run Validation", "List Summary", "Start New Plan", "End"] : ["List Summary", "Start New Plan", "End"];
     const choice = await ctx.ui.select("Execution complete. Choose next action:", choices);
     if (choice === "Run Validation") await beginValidation(ctx, true);
     else if (choice === "List Summary") show(pi, renderWorkflowSummary(state, ctx.cwd));
     else if (choice === "Start New Plan") await enterPlanModeAwaitingInput(ctx);
+    else if (choice === "End") recordWorkflowInternalEvent(ctx, "Plan post-execution validation menu ended by user.");
   }
 
   async function showFinalMenu(ctx: ExtensionContext) {
@@ -15056,21 +15183,23 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     const title = repairablePartial ? "Validation found repairable issues. Choose next action:" : partial ? "Validation needs manual verification. Choose next action:" : failed ? "Validation failed. Choose next action:" : "Validation complete. Choose next action:";
     const choices = [
       ...(failed || repairablePartial ? ["Run Safe Repair"] : []),
-      ...(partial && !repairablePartial ? ["Repair / Retry"] : []),
       ...(!passed ? ["Revalidate"] : []),
       "List Summary",
       partial && !repairablePartial ? "Revise / Add Manual Verification Feedback" : "Revise / Fix Issues",
       ...(passed && returnToPlan ? ["Start New Plan"] : []),
-      ...(passed && !returnToPlan ? ["Finish"] : []),
+      "End",
       ...(!passed ? ["Cancel"] : []),
     ];
     const choice = await ctx.ui.select(title, choices);
-    if (choice === "Run Safe Repair" || choice === "Repair / Retry") await startWorkflowRepair(ctx, "user");
+    if (!choice) return;
+    if (choice === "Run Safe Repair") await startWorkflowRepair(ctx, "user");
     else if (choice === "Revalidate") await beginValidation(ctx, true, true);
     else if (choice === "List Summary") show(pi, renderWorkflowSummary(state, ctx.cwd));
     else if (choice === "Revise / Fix Issues" || choice === "Revise / Add Manual Verification Feedback") {
       const feedback = await ctx.ui.editor(choice === "Revise / Add Manual Verification Feedback" ? "Manual verification feedback or scope change?" : "What needs to change?", "");
       if (feedback?.trim()) await beginPlanning(ctx, state.task ?? "Revise/fix after validation", state.approvedPlan, feedback.trim());
+    } else if (choice === "End" || choice === "Finish") {
+      recordWorkflowInternalEvent(ctx, "Plan final menu ended by user.");
     } else if (choice === "Start New Plan" || (passed && returnToPlan)) {
       await enterPlanModeAwaitingInput(ctx);
     }
@@ -15099,6 +15228,14 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     workflowUiNotify(ctx, `standard ${role} model set to ${selected.provider}/${selected.model} in ${result.file}`, "info");
   }
 
+  async function configurePlanRoleModel(ctx: ExtensionContext, role: WorkflowRole) {
+    const selected = await selectProviderAndModel(ctx, `Plan ${role} model`);
+    if (!selected) return;
+    const result = setPlanModelForRole(role, selected.provider, selected.model, ctx.cwd);
+    await reapplyPlannerRouteIfPlanMode(ctx, true);
+    workflowUiNotify(ctx, `plan ${role} model set to ${selected.provider}/${selected.model} in ${result.file}`, "info");
+  }
+
   async function configureMissionRoleModel(ctx: ExtensionContext, role: MissionModelRole) {
     const selected = await selectProviderAndModel(ctx, `Mission ${role} model`);
     if (!selected) return;
@@ -15114,6 +15251,16 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     const result = setStandardThinkingForRole(role, level, ctx.cwd);
     await reapplyStandardRouteIfStandardMode(ctx, true);
     workflowUiNotify(ctx, `standard ${role} thinking set to ${level} in ${result.file}`, "info");
+  }
+
+  async function configurePlanThinking(ctx: ExtensionContext) {
+    const role = parseRole((await ctx.ui.select("Select plan role:", ["planner", "executor", "reviewer", "validator"])) ?? "");
+    if (!role) return;
+    const level = parseThinkingLevel((await ctx.ui.select("Select plan thinking level:", ["off", "minimal", "low", "medium", "high", "xhigh"])) ?? "");
+    if (!level) return;
+    const result = setPlanThinkingForRole(role, level, ctx.cwd);
+    await reapplyPlannerRouteIfPlanMode(ctx, true);
+    workflowUiNotify(ctx, `plan ${role} thinking set to ${level} in ${result.file}`, "info");
   }
 
   async function configureMissionThinking(ctx: ExtensionContext) {
@@ -15384,7 +15531,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
   async function showStandardSubagentWorkerSettingsMenu(ctx: ExtensionContext) {
     if (!ctx.hasUI) return show(pi, renderFullWorkflowSettings(loadWorkflowSettings(ctx.cwd)));
     while (ctx.hasUI) {
-      const choice = await ctx.ui.select("Standard Sub-agents / Workers", ["Enable / Disable Standard Sub-agents", "Standard Planning / Research Policy / Workers", "Standard Execution Policy / Workers", "Standard Repair Policy / Workers", "Standard Review Policy / Workers", "Standard Validation Policy / Workers", "Agent Scope", "Auto-use Toggles", "Parallel Agent Settings", "Activity Indicator", "List Current Settings", "Back"]);
+      const choice = await ctx.ui.select("Standard Sub-agents / Workers", ["Enable / Disable Standard Sub-agents", "Standard Planning / Research Policy / Workers", "Standard Execution Policy / Workers", "Standard Repair Policy / Workers", "Standard Review Policy / Workers", "Standard Validation Policy / Workers", "Standard Sub-agent Models", "Agent Scope", "Auto-use Toggles", "Parallel Agent Settings", "Activity Indicator", "List Current Settings", "Back"]);
       if (!choice || choice === "Back") return;
       if (choice === "Enable / Disable Standard Sub-agents") {
         const enabled = await chooseBool(ctx, "standard.allowSubagents?");
@@ -15394,6 +15541,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       else if (choice === "Standard Repair Policy / Workers") await showStandardSubagentPhaseSettingsMenu(ctx, "Repair", "Standard Repair");
       else if (choice === "Standard Review Policy / Workers") await showStandardSubagentPhaseSettingsMenu(ctx, "Review", "Standard Review");
       else if (choice === "Standard Validation Policy / Workers") await showStandardSubagentPhaseSettingsMenu(ctx, "Validation", "Standard Validation");
+      else if (choice === "Standard Sub-agent Models") await showSubagentModelRoutingMenu(ctx, "standard");
       else if (choice === "Agent Scope") {
         const scope = parseWorkflowAgentScope((await ctx.ui.select("Standard agent scope", ["user", "project", "both"])) ?? "");
         if (scope) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.standard.subagentScope = scope; }); workflowUiNotify(ctx, `standard.subagentScope set to ${scope} in ${r.file}`, "info"); }
@@ -15404,7 +15552,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.activityIndicatorEnabled = enabled; }); workflowUiNotify(ctx, `subagents.activityIndicatorEnabled set to ${enabled} in ${r.file}`, "info"); renderWorkflowSubagentActivity(ctx); }
       } else if (choice === "List Current Settings") {
         const s = loadWorkflowSettings(ctx.cwd);
-        show(pi, `# Standard Sub-agents / Workers\n\nSub-agents: ${s.standard.allowSubagents !== false ? "enabled" : "disabled"}\nAgent Scope: ${s.standard.subagentScope ?? "user"}\nActivity Indicator: ${s.subagents.activityIndicatorEnabled !== false ? "enabled" : "disabled"}\nAuto-use Planning: ${s.standard.subagents?.autoUseDuringPlanning !== false ? "on" : "off"}\nAuto-use Execution: ${s.standard.subagents?.autoUseDuringExecution !== false ? "on" : "off"}\nAuto-use Repair: ${s.standard.subagents?.autoUseDuringRepair !== false ? "on" : "off"}\nAuto-use Review: ${s.standard.subagents?.autoUseDuringReview !== false ? "on" : "off"}\nAuto-use Validation: ${s.standard.subagents?.autoUseDuringValidation !== false ? "on" : "off"}`);
+        show(pi, `# Standard Sub-agents / Workers\n\nSub-agents: ${s.standard.allowSubagents !== false ? "enabled" : "disabled"}\nAgent Scope: ${s.standard.subagentScope ?? "user"}\nActivity Indicator: ${s.subagents.activityIndicatorEnabled !== false ? "enabled" : "disabled"}\nAuto-use Planning: ${s.standard.subagents?.autoUseDuringPlanning !== false ? "on" : "off"}\nAuto-use Execution: ${s.standard.subagents?.autoUseDuringExecution !== false ? "on" : "off"}\nAuto-use Repair: ${s.standard.subagents?.autoUseDuringRepair !== false ? "on" : "off"}\nAuto-use Review: ${s.standard.subagents?.autoUseDuringReview !== false ? "on" : "off"}\nAuto-use Validation: ${s.standard.subagents?.autoUseDuringValidation !== false ? "on" : "off"}\n\n${renderSubagentModelRouting(s, "standard")}`);
       }
     }
   }
@@ -15440,7 +15588,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
   async function showSubagentSettingsMenu(ctx: ExtensionContext) {
     if (!ctx.hasUI) return show(pi, renderFullWorkflowSettings(loadWorkflowSettings(ctx.cwd)));
     while (ctx.hasUI) {
-      const choice = await ctx.ui.select("Shared Sub-agents / Workers", ["Enable / Disable Sub-agents", "Planning Policy / Workers", "Execution Policy / Workers", "Repair Policy / Workers", "Review Policy / Workers", "Validation Policy / Workers", "Auto-use Toggles", "Parallel Agent Settings", "Background Sub-agents", "Activity Indicator", "List Current Settings", "Back"]);
+      const choice = await ctx.ui.select("Shared Sub-agents / Workers", ["Enable / Disable Sub-agents", "Planning Policy / Workers", "Execution Policy / Workers", "Repair Policy / Workers", "Review Policy / Workers", "Validation Policy / Workers", "Shared Sub-agent Models", "Auto-use Toggles", "Parallel Agent Settings", "Background Sub-agents", "Activity Indicator", "List Current Settings", "Back"]);
       if (!choice || choice === "Back") return;
       if (choice === "Enable / Disable Sub-agents") {
         const enabled = await chooseBool(ctx, "subagents.enabled?");
@@ -15450,6 +15598,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       else if (choice === "Repair Policy / Workers") await showSubagentPhaseSettingsMenu(ctx, "Repair", "Shared Repair");
       else if (choice === "Review Policy / Workers") await showSubagentPhaseSettingsMenu(ctx, "Review", "Shared Review");
       else if (choice === "Validation Policy / Workers") await showSubagentPhaseSettingsMenu(ctx, "Validation", "Shared Validation");
+      else if (choice === "Shared Sub-agent Models") await showSubagentModelRoutingMenu(ctx, "shared");
       else if (choice === "Auto-use Toggles") await showSubagentAutoUseMenu(ctx);
       else if (choice === "Parallel Agent Settings") await showParallelismSettingsMenu(ctx);
       else if (choice === "Background Sub-agents") {
@@ -15460,7 +15609,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         if (enabled !== undefined) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.subagents.activityIndicatorEnabled = enabled; }); workflowUiNotify(ctx, `subagents.activityIndicatorEnabled set to ${enabled} in ${r.file}`, "info"); renderWorkflowSubagentActivity(ctx); }
       } else if (choice === "List Current Settings") {
         const s = loadWorkflowSettings(ctx.cwd);
-        show(pi, `# Shared Sub-agents / Workers\n\nSub-agents: ${s.subagents.enabled !== false ? "enabled" : "disabled"}\nBackground Sub-agents: ${s.subagents.allowBackgroundSubagents === true ? "enabled" : "disabled"}\nActivity Indicator: ${s.subagents.activityIndicatorEnabled !== false ? "enabled" : "disabled"}\nAuto-use Planning: ${s.subagents.autoUseDuringPlanning !== false ? "on" : "off"}\nAuto-use Execution: ${s.subagents.autoUseDuringExecution !== false ? "on" : "off"}\nAuto-use Repair: ${s.subagents.autoUseDuringRepair !== false ? "on" : "off"}\nAuto-use Review: ${s.subagents.autoUseDuringReview !== false ? "on" : "off"}\nAuto-use Validation: ${s.subagents.autoUseDuringValidation !== false ? "on" : "off"}`);
+        show(pi, `# Shared Sub-agents / Workers\n\nSub-agents: ${s.subagents.enabled !== false ? "enabled" : "disabled"}\nBackground Sub-agents: ${s.subagents.allowBackgroundSubagents === true ? "enabled" : "disabled"}\nActivity Indicator: ${s.subagents.activityIndicatorEnabled !== false ? "enabled" : "disabled"}\nAuto-use Planning: ${s.subagents.autoUseDuringPlanning !== false ? "on" : "off"}\nAuto-use Execution: ${s.subagents.autoUseDuringExecution !== false ? "on" : "off"}\nAuto-use Repair: ${s.subagents.autoUseDuringRepair !== false ? "on" : "off"}\nAuto-use Review: ${s.subagents.autoUseDuringReview !== false ? "on" : "off"}\nAuto-use Validation: ${s.subagents.autoUseDuringValidation !== false ? "on" : "off"}\n\n${renderSubagentModelRouting(s, "shared")}`);
       }
     }
   }
@@ -15468,7 +15617,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
   async function showPlanSubagentWorkerSettingsMenu(ctx: ExtensionContext) {
     if (!ctx.hasUI) return show(pi, renderFullWorkflowSettings(loadWorkflowSettings(ctx.cwd)));
     while (ctx.hasUI) {
-      const choice = await ctx.ui.select("Plan Sub-agents / Workers", ["Enable / Disable Sub-agents", "Plan Planning Policy / Workers", "Plan Execution Policy / Workers", "Plan Repair Policy / Workers", "Plan Review Policy / Workers", "Plan Validation Policy / Workers", "Auto-use Toggles", "Parallel Agent Settings", "Activity Indicator", "List Current Settings", "Back"]);
+      const choice = await ctx.ui.select("Plan Sub-agents / Workers", ["Enable / Disable Sub-agents", "Plan Planning Policy / Workers", "Plan Execution Policy / Workers", "Plan Repair Policy / Workers", "Plan Review Policy / Workers", "Plan Validation Policy / Workers", "Plan Sub-agent Models", "Auto-use Toggles", "Parallel Agent Settings", "Activity Indicator", "List Current Settings", "Back"]);
       if (!choice || choice === "Back") return;
       if (choice === "Enable / Disable Sub-agents") {
         const enabled = await chooseBool(ctx, "subagents.enabled?");
@@ -15478,6 +15627,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       else if (choice === "Plan Repair Policy / Workers") await showSubagentPhaseSettingsMenu(ctx, "Repair", "Plan Repair");
       else if (choice === "Plan Review Policy / Workers") await showSubagentPhaseSettingsMenu(ctx, "Review", "Plan Review");
       else if (choice === "Plan Validation Policy / Workers") await showSubagentPhaseSettingsMenu(ctx, "Validation", "Plan Validation");
+      else if (choice === "Plan Sub-agent Models") await showSubagentModelRoutingMenu(ctx, "plan");
       else if (choice === "Auto-use Toggles") await showSubagentAutoUseMenu(ctx);
       else if (choice === "Parallel Agent Settings") await showParallelismSettingsMenu(ctx);
       else if (choice === "Activity Indicator") {
@@ -15493,7 +15643,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
   async function showMissionSubagentWorkerSettingsMenu(ctx: ExtensionContext) {
     if (!ctx.hasUI) return show(pi, renderFullWorkflowSettings(loadWorkflowSettings(ctx.cwd)));
     while (ctx.hasUI) {
-      const choice = await ctx.ui.select("Mission Sub-agents / Workers", ["Enable / Disable Sub-agents", "Mission Planning Policy / Workers", "Mission Execution Policy / Workers", "Mission Repair Policy / Workers", "Mission Review Policy / Workers", "Mission Validation Policy / Workers", "Auto-use Toggles", "Parallel Agent Settings", "Activity Indicator", "List Current Settings", "Back"]);
+      const choice = await ctx.ui.select("Mission Sub-agents / Workers", ["Enable / Disable Sub-agents", "Mission Planning Policy / Workers", "Mission Execution Policy / Workers", "Mission Repair Policy / Workers", "Mission Review Policy / Workers", "Mission Validation Policy / Workers", "Mission Sub-agent Models", "Auto-use Toggles", "Parallel Agent Settings", "Activity Indicator", "List Current Settings", "Back"]);
       if (!choice || choice === "Back") return;
       if (choice === "Enable / Disable Sub-agents") {
         const enabled = await chooseBool(ctx, "subagents.enabled?");
@@ -15503,6 +15653,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       else if (choice === "Mission Repair Policy / Workers") await showSubagentPhaseSettingsMenu(ctx, "Repair", "Mission Repair");
       else if (choice === "Mission Review Policy / Workers") await showSubagentPhaseSettingsMenu(ctx, "Review", "Mission Review");
       else if (choice === "Mission Validation Policy / Workers") await showSubagentPhaseSettingsMenu(ctx, "Validation", "Mission Validation");
+      else if (choice === "Mission Sub-agent Models") await showSubagentModelRoutingMenu(ctx, "mission");
       else if (choice === "Auto-use Toggles") await showSubagentAutoUseMenu(ctx);
       else if (choice === "Parallel Agent Settings") await showParallelismSettingsMenu(ctx);
       else if (choice === "Activity Indicator") {
@@ -15769,6 +15920,91 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     }
   }
 
+  async function showPlanModelBehaviorMenu(ctx: ExtensionContext) {
+    if (!ctx.hasUI) return show(pi, `# Effective Plan Models\n\n${renderPlanModelSettings(loadWorkflowSettings(ctx.cwd))}`);
+    while (ctx.hasUI) {
+      const settings = loadWorkflowSettings(ctx.cwd);
+      const choices = settings.planning.usePlanSpecificModels
+        ? ["Model Source", "Configure Plan Planner", "Configure Plan Executor", "Configure Plan Reviewer", "Configure Plan Validator", "Plan Thinking Levels", "List Effective Plan Models", "Back"]
+        : ["Model Source", "List Effective Plan Models", "Back"];
+      const choice = await ctx.ui.select("Plan Models", choices);
+      if (!choice || choice === "Back") return;
+      if (choice === "Model Source") {
+        const source = await ctx.ui.select("Plan model source", ["Shared Workflow Models", "Plan-Specific Models"]);
+        if (!source) continue;
+        const enabled = source === "Plan-Specific Models";
+        const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.usePlanSpecificModels = enabled; });
+        await reapplyPlannerRouteIfPlanMode(ctx, true);
+        workflowUiNotify(ctx, `planning.usePlanSpecificModels set to ${enabled} in ${r.file}`, "info");
+      } else if (choice === "Configure Plan Planner") await configurePlanRoleModel(ctx, "planner");
+      else if (choice === "Configure Plan Executor") await configurePlanRoleModel(ctx, "executor");
+      else if (choice === "Configure Plan Reviewer") await configurePlanRoleModel(ctx, "reviewer");
+      else if (choice === "Configure Plan Validator") await configurePlanRoleModel(ctx, "validator");
+      else if (choice === "Plan Thinking Levels") await configurePlanThinking(ctx);
+      else if (choice === "List Effective Plan Models") show(pi, `# Effective Plan Models\n\n${renderPlanModelSettings(loadWorkflowSettings(ctx.cwd))}`);
+    }
+  }
+
+  function subagentModelScopeLabel(scope: WorkflowSubagentModelMode | "shared"): string {
+    if (scope === "shared") return "Shared";
+    if (scope === "plan") return "Plan";
+    if (scope === "standard") return "Standard";
+    return "Mission";
+  }
+
+  async function chooseSubagentBucket(ctx: ExtensionContext): Promise<WorkflowSubagentModelBucket | undefined> {
+    return parseSubagentModelBucket((await ctx.ui.select("Sub-agent phase", ["planning", "execution", "repair", "review", "validation"])) ?? "");
+  }
+
+  async function configureSubagentBucketModel(ctx: ExtensionContext, scopeName: WorkflowSubagentModelMode | "shared") {
+    const bucket = await chooseSubagentBucket(ctx);
+    if (!bucket) return;
+    const selected = await selectProviderAndModel(ctx, `${subagentModelScopeLabel(scopeName)} ${bucket} sub-agent model`);
+    if (!selected) return;
+    const result = setSubagentModelForBucket(scopeName, bucket, selected.provider, selected.model, ctx.cwd);
+    workflowUiNotify(ctx, `${subagentModelScopeLabel(scopeName).toLowerCase()} ${bucket} sub-agent model set to ${selected.provider}/${selected.model} in ${result.file}`, "info");
+  }
+
+  async function configureSubagentBucketThinking(ctx: ExtensionContext, scopeName: WorkflowSubagentModelMode | "shared") {
+    const bucket = await chooseSubagentBucket(ctx);
+    if (!bucket) return;
+    const level = parseThinkingLevel((await ctx.ui.select("Sub-agent thinking level", ["off", "minimal", "low", "medium", "high", "xhigh"])) ?? "");
+    if (!level) return;
+    const result = setSubagentThinkingForBucket(scopeName, bucket, level, ctx.cwd);
+    workflowUiNotify(ctx, `${subagentModelScopeLabel(scopeName).toLowerCase()} ${bucket} sub-agent thinking set to ${level} in ${result.file}`, "info");
+  }
+
+  async function inheritSubagentBucketModel(ctx: ExtensionContext, scopeName: WorkflowSubagentModelMode | "shared") {
+    const bucket = await chooseSubagentBucket(ctx);
+    if (!bucket) return;
+    const result = clearSubagentModelForBucket(scopeName, bucket, ctx.cwd);
+    workflowUiNotify(ctx, `${subagentModelScopeLabel(scopeName).toLowerCase()} ${bucket} sub-agent model set to inherit in ${result.file}`, "info");
+  }
+
+  async function showSubagentModelRoutingMenu(ctx: ExtensionContext, scopeName: WorkflowSubagentModelMode | "shared") {
+    if (!ctx.hasUI) return show(pi, `# ${subagentModelScopeLabel(scopeName)} Sub-agent Models\n\n${renderSubagentModelRouting(loadWorkflowSettings(ctx.cwd), scopeName)}`);
+    while (ctx.hasUI) {
+      const label = subagentModelScopeLabel(scopeName);
+      const choices = ["Enable / Disable Routing", "Configure Phase Model", "Configure Phase Thinking", "Inherit Phase Model", "List Effective Sub-agent Models", "Back"];
+      const choice = await ctx.ui.select(`${label} Sub-agent Models`, choices);
+      if (!choice || choice === "Back") return;
+      if (choice === "Enable / Disable Routing") {
+        const enabled = await chooseBool(ctx, `${label} sub-agent model routing?`);
+        if (enabled === undefined) continue;
+        const result = updateSettings(ctx.cwd, undefined, (s) => {
+          if (scopeName === "shared") s.subagents.modelRouting = { ...(s.subagents.modelRouting ?? {}), enabled };
+          else if (scopeName === "plan") s.planning.subagentModelRouting = { ...(s.planning.subagentModelRouting ?? {}), enabled };
+          else if (scopeName === "standard") s.standard.subagentModelRouting = { ...(s.standard.subagentModelRouting ?? {}), enabled };
+          else s.missions.subagentModelRouting = { ...(s.missions.subagentModelRouting ?? {}), enabled };
+        });
+        workflowUiNotify(ctx, `${label} sub-agent model routing set to ${enabled} in ${result.file}`, "info");
+      } else if (choice === "Configure Phase Model") await configureSubagentBucketModel(ctx, scopeName);
+      else if (choice === "Configure Phase Thinking") await configureSubagentBucketThinking(ctx, scopeName);
+      else if (choice === "Inherit Phase Model") await inheritSubagentBucketModel(ctx, scopeName);
+      else if (choice === "List Effective Sub-agent Models") show(pi, `# ${label} Sub-agent Models\n\n${renderSubagentModelRouting(loadWorkflowSettings(ctx.cwd), scopeName)}`);
+    }
+  }
+
   async function showWorkflowRepairRetrySettingsMenu(ctx: ExtensionContext) {
     if (!ctx.hasUI) return show(pi, renderFullWorkflowSettings(loadWorkflowSettings(ctx.cwd)));
     while (ctx.hasUI) {
@@ -15804,7 +16040,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
       const choice = await ctx.ui.select("Plan Mode Settings", ["Plan Models", "Planning Depth", "Plan Clarification", "Plan Sub-agents / Workers", "Review / Validation Behavior", "Repair / Validation Retry", "Plan Progress / Runtime", "Plan History", "List Current Settings", "Back"]);
       if (!choice || choice === "Back") return;
       if (choice === "Plan Models") {
-        await showModelSettingsMenu(ctx);
+        await showPlanModelBehaviorMenu(ctx);
       } else if (choice === "Planning Depth") {
         const depth = parsePlanningDepth((await ctx.ui.select("Planning depth", ["fast", "standard", "deep", "maximum"])) ?? "");
         if (depth) { const r = updateSettings(ctx.cwd, undefined, (s) => { s.planning.depth = depth; }); workflowUiNotify(ctx, `planning.depth set to ${depth} in ${r.file}`, "info"); }
@@ -15835,10 +16071,16 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         if (!setting || setting === "Back") continue;
         const enabled = await chooseBool(ctx, `${setting}?`);
         if (enabled === undefined) continue;
-        if (setting === "Reviewer Enabled") { const r = setRoleEnabled("reviewer", enabled, ctx.cwd); workflowUiNotify(ctx, `reviewer.enabled set to ${enabled} in ${r.file}`, "info"); }
-        else if (setting === "Validator Enabled") { const r = setRoleEnabled("validator", enabled, ctx.cwd); workflowUiNotify(ctx, `validator.enabled set to ${enabled} in ${r.file}`, "info"); }
+        if (setting === "Reviewer Enabled") {
+          if (loadWorkflowSettings(ctx.cwd).planning.usePlanSpecificModels) { const r = updateSettings(ctx.cwd, undefined, (s) => { setPlanRoleEnabled(s, "reviewer", enabled); }); workflowUiNotify(ctx, `planning.models.reviewer.enabled set to ${enabled} in ${r.file}`, "info"); }
+          else { const r = setRoleEnabled("reviewer", enabled, ctx.cwd); workflowUiNotify(ctx, `reviewer.enabled set to ${enabled} in ${r.file}`, "info"); }
+        }
+        else if (setting === "Validator Enabled") {
+          if (loadWorkflowSettings(ctx.cwd).planning.usePlanSpecificModels) { const r = updateSettings(ctx.cwd, undefined, (s) => { setPlanRoleEnabled(s, "validator", enabled); }); workflowUiNotify(ctx, `planning.models.validator.enabled set to ${enabled} in ${r.file}`, "info"); }
+          else { const r = setRoleEnabled("validator", enabled, ctx.cwd); workflowUiNotify(ctx, `validator.enabled set to ${enabled} in ${r.file}`, "info"); }
+        }
         else if (setting === "Auto Run Reviewer") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.autoRunReviewerBeforeExecute = enabled; }); workflowUiNotify(ctx, `workflow.autoRunReviewerBeforeExecute set to ${enabled} in ${r.file}`, "info"); }
-        else if (setting === "Auto Run Validation") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.autoRunValidationAfterExecute = enabled; }); workflowUiNotify(ctx, `workflow.autoRunValidationAfterExecute set to ${enabled} in ${r.file}`, "info"); }
+        else if (setting === "Auto Run Validation") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.autoRunValidationAfterExecute = enabled; s.workflow.validateAfterExecution = enabled; }); workflowUiNotify(ctx, `workflow.autoRunValidationAfterExecute and workflow.validateAfterExecution set to ${enabled} in ${r.file}`, "info"); }
         else if (setting === "Auto Repair Review Failures") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.autoRepairReviewFailures = enabled; }); workflowUiNotify(ctx, `workflow.autoRepairReviewFailures set to ${enabled} in ${r.file}`, "info"); }
         else if (setting === "Pause After Review Failure") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.pauseAfterReviewFailure = enabled; }); workflowUiNotify(ctx, `workflow.pauseAfterReviewFailure set to ${enabled} in ${r.file}`, "info"); }
         else if (setting === "Approval Before Execution") { const r = updateSettings(ctx.cwd, undefined, (s) => { s.workflow.requireApprovalBeforeExecution = enabled; s.workflow.requirePlanApprovalBeforeExecute = enabled; }); workflowUiNotify(ctx, `workflow.requireApprovalBeforeExecution set to ${enabled} in ${r.file}`, "info"); }
@@ -15897,7 +16139,9 @@ ${renderMissionStatus(activeMission ?? paused)}`);
         }
       } else if (choice === "List Current Settings") {
         const s = loadWorkflowSettings(ctx.cwd);
-        show(pi, `# Plan Mode Settings\n\n## Plan Models\n${renderPlanModelSettings(s)}\n\n## Plan Mode Flow\nPlanning Depth: ${s.planning.depth}\nProgress Tracking: ${s.workflow.planProgressEnabled !== false ? "enabled" : "disabled"}\nShow Runtime Timer: ${s.workflow.planRuntimeEnabled !== false ? "enabled" : "disabled"}\nProgress Bar Display: ${s.workflow.planShowProgressBar !== false ? "graphical" : "numeric"}\nRuntime Budget: ${(s.planning.maxRuntimeHours ?? 0) === 0 ? "unlimited" : `${s.planning.maxRuntimeHours ?? 0} hours`}\nToken Budget: ${(s.planning.maxTokens ?? 0) === 0 ? "unlimited" : (s.planning.maxTokens ?? 0).toLocaleString()}\nRequire Approval Before Execution: ${s.workflow.requireApprovalBeforeExecution !== false ? "enabled" : "disabled"}\nRequire Approval Per Step: ${s.workflow.requireApprovalPerStep === true ? "enabled" : "disabled"}\nValidate After Each Step: ${s.workflow.validateAfterEachStep !== false ? "enabled" : "disabled"}\nValidate After Full Execution: ${s.workflow.validateAfterExecution !== false ? "enabled" : "disabled"}\n\n## Plan Sub-agents\n${renderPlanSubagentWorkerSettings(s)}\n\n## Plan Clarification\nClarification Mode: ${s.planning.clarificationMode}\nInteractive: ${s.planning.interactiveClarificationEnabled !== false ? "enabled" : "disabled"}\nMax Questions: ${s.planning.maxClarificationQuestions}\n\n## Plan Review / Validation\nReviewer: ${s.models.reviewer.enabled !== false ? "enabled" : "disabled"}\nValidator: ${s.models.validator.enabled !== false ? "enabled" : "disabled"}\nAuto Run Reviewer: ${s.workflow.autoRunReviewerBeforeExecute !== false ? "enabled" : "disabled"}\nAuto Run Validation: ${s.workflow.autoRunValidationAfterExecute !== false ? "enabled" : "disabled"}\nAuto Repair Review Failures: ${s.workflow.autoRepairReviewFailures === true ? "enabled" : "disabled"}\nRepair / Retry Master Toggle: ${s.workflow.repairRetry?.enabled !== false ? "enabled" : "disabled"}\nMax Total Retries: ${s.workflow.repairRetry?.maxTotalRetries ?? "unlimited"}\n\n## Plan History\nSave Plans: ${(s.workflow as Record<string, unknown>).savePlans !== false ? "enabled" : "disabled"}\nSave Plan History: ${(s.workflow as Record<string, unknown>).savePlanHistory !== false ? "enabled" : "disabled"}\nPlan History Limit: ${(s.workflow as Record<string, unknown>).planHistoryLimit ?? 50}`);
+        const planReviewerEnabled = planModelEnabled(s, "reviewer");
+        const planValidatorEnabled = planModelEnabled(s, "validator");
+        show(pi, `# Plan Mode Settings\n\n## Plan Models\n${renderPlanModelSettings(s)}\n\n## Plan Mode Flow\nPlanning Depth: ${s.planning.depth}\nProgress Tracking: ${s.workflow.planProgressEnabled !== false ? "enabled" : "disabled"}\nShow Runtime Timer: ${s.workflow.planRuntimeEnabled !== false ? "enabled" : "disabled"}\nProgress Bar Display: ${s.workflow.planShowProgressBar !== false ? "graphical" : "numeric"}\nRuntime Budget: ${(s.planning.maxRuntimeHours ?? 0) === 0 ? "unlimited" : `${s.planning.maxRuntimeHours ?? 0} hours`}\nToken Budget: ${(s.planning.maxTokens ?? 0) === 0 ? "unlimited" : (s.planning.maxTokens ?? 0).toLocaleString()}\nRequire Approval Before Execution: ${s.workflow.requireApprovalBeforeExecution !== false ? "enabled" : "disabled"}\nRequire Approval Per Step: ${s.workflow.requireApprovalPerStep === true ? "enabled" : "disabled"}\nValidate After Each Step: ${s.workflow.validateAfterEachStep !== false ? "enabled" : "disabled"}\nValidate After Full Execution: ${s.workflow.validateAfterExecution !== false ? "enabled" : "disabled"}\n\n## Plan Sub-agents\n${renderPlanSubagentWorkerSettings(s)}\n\n## Plan Clarification\nClarification Mode: ${s.planning.clarificationMode}\nInteractive: ${s.planning.interactiveClarificationEnabled !== false ? "enabled" : "disabled"}\nMax Questions: ${s.planning.maxClarificationQuestions}\n\n## Plan Review / Validation\nReviewer: ${planReviewerEnabled ? "enabled" : "disabled"}\nValidator: ${planValidatorEnabled ? "enabled" : "disabled"}\nAuto Run Reviewer: ${s.workflow.autoRunReviewerBeforeExecute !== false ? "enabled" : "disabled"}\nAuto Run Validation: ${s.workflow.autoRunValidationAfterExecute !== false ? "enabled" : "disabled"}\nAuto Repair Review Failures: ${s.workflow.autoRepairReviewFailures === true ? "enabled" : "disabled"}\nRepair / Retry Master Toggle: ${s.workflow.repairRetry?.enabled !== false ? "enabled" : "disabled"}\nMax Total Retries: ${s.workflow.repairRetry?.maxTotalRetries ?? "unlimited"}\n\n## Plan History\nSave Plans: ${(s.workflow as Record<string, unknown>).savePlans !== false ? "enabled" : "disabled"}\nSave Plan History: ${(s.workflow as Record<string, unknown>).savePlanHistory !== false ? "enabled" : "disabled"}\nPlan History Limit: ${(s.workflow as Record<string, unknown>).planHistoryLimit ?? 50}`);
       }
     }
   }
@@ -16374,7 +16618,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
   }
 
   function presetUsage(): string {
-    return `# Workflow Presets\n\nQuick use:\n- /workflow presets opens the selector\n- ${workflowPresetCycleShortcutLabel()} cycles saved presets from the footer only while Plan/Mission/Standard Mode is active\n- /workflow presets list\n- /workflow presets apply <name>\n- /workflow presets next\n- /workflow presets prev\n- /workflow presets save <name>\n- /workflow presets create <name> from simple|standard|deep|maximum\n- /workflow presets edit <name>\n- /workflow presets rename <old> to <new>\n- /workflow presets delete <name>`;
+    return `# Workflow Presets\n\nQuick use:\n- /workflow presets opens the selector\n- ${workflowPresetCycleShortcutLabel()} cycles saved presets from the footer only while Plan/Mission/Standard Mode is active\n- /workflow presets list\n- /workflow presets apply none\n- /workflow presets apply <name>\n- /workflow presets next\n- /workflow presets prev\n- /workflow presets save <name>\n- /workflow presets create <name> from simple|standard|deep|maximum\n- /workflow presets edit <name>\n- /workflow presets rename <old> to <new>\n- /workflow presets delete <name>`;
   }
 
   function presetActionMessage(title: string, name: string, resultFile?: string, scope?: string): string {
@@ -16395,7 +16639,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
 
   function presetDisplayOptions(settings: ReturnType<typeof loadWorkflowSettings>): { names: string[]; options: string[] } {
     const catalog = workflowPresetCatalog(settings);
-    const active = settings.presets?.activePreset ?? WORKFLOW_CUSTOM_PRESET_MARKER;
+    const active = activePresetName(settings);
     const names = workflowPresetNames(settings);
     const options = names.map((name) => `${name === active ? "●" : "○"} ${workflowPresetPickerLabel(name, catalog[name])}`);
     return { names, options };
@@ -16434,7 +16678,7 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     const settings = loadWorkflowSettings(ctx.cwd);
     const cycle = workflowPresetNames(settings);
     if (!cycle.length) return markWorkflowPresetCustom(ctx);
-    const active = settings.presets?.activePreset ?? WORKFLOW_CUSTOM_PRESET_MARKER;
+    const active = activePresetName(settings);
     const currentIndex = cycle.indexOf(active);
     const nextIndex = currentIndex === -1 ? (direction === 1 ? 0 : cycle.length - 1) : (currentIndex + direction + cycle.length) % cycle.length;
     await applyWorkflowPresetByName(ctx, cycle[nextIndex], true);
@@ -17101,8 +17345,8 @@ Pi Version: v${VERSION}
         }
       }
       finishSubagentActivity(event.toolCallId, Boolean(event.isError), ctx);
-      const subagentTokens = (event.result?.usage?.input ?? 0) + (event.result?.usage?.output ?? 0);
-      if (subagentTokens > 0) accumulateModeTokens(subagentTokens);
+      const subagentTokens = subagentUsageTokensFromResult(event.result);
+      if (subagentTokens > 0) accumulateModeTokens(subagentTokens, ctx);
     }
     syncWorkflowRuntimeForActivity(ctx, "tool execution ended");
     maybeRunWorkflowAutoCompaction(ctx, "tool");
@@ -17774,7 +18018,7 @@ Pi Version: v${VERSION}
       if ((subject === "validation" || subject === "reviewer") && key === "auto") {
         if (bool === undefined) return show(pi, "# Error\n\nUsage: `/workflow-settings set <validation|reviewer> auto <true|false>`");
         const result = updateSettings(ctx.cwd, scope, (s) => {
-          if (subject === "validation") s.workflow.autoRunValidationAfterExecute = bool;
+          if (subject === "validation") { s.workflow.autoRunValidationAfterExecute = bool; s.workflow.validateAfterExecution = bool; }
           else s.workflow.autoRunReviewerBeforeExecute = bool;
         });
         return show(pi, updatedMessage(result.scope, result.file, `${subject}.auto`, String(bool)));
@@ -17819,6 +18063,13 @@ Pi Version: v${VERSION}
         if (count === undefined || count < 0) return show(pi, "# Error\n\nUsage: `/workflow-settings set planning maxRuntimeHours <0 = unlimited | positive integer>`");
         const result = updateSettings(ctx.cwd, scope, (s) => { s.planning.maxRuntimeHours = count; });
         return show(pi, updatedMessage(result.scope, result.file, "planning.maxRuntimeHours", count === 0 ? "unlimited" : String(count) + " hours"));
+      }
+      if (subject === "planning" && key === "usePlanSpecificModels") {
+        if (bool === undefined) return show(pi, "# Error\n\nUsage: `/workflow-settings set planning usePlanSpecificModels <true|false>`");
+        const result = updateSettings(ctx.cwd, scope, (s) => { s.planning.usePlanSpecificModels = bool; });
+        const reapplied = await reapplyPlannerRouteIfPlanMode(ctx, true);
+        const activeNote = reapplied ? `\n\n${activeModelDiagnostic(ctx)}` : "";
+        return show(pi, updatedMessage(result.scope, result.file, "planning.usePlanSpecificModels", String(bool)) + activeNote + `\n\n${renderPlanModelStrategy(loadWorkflowSettings(ctx.cwd))}`);
       }
       if (subject === "standard" && (key === "enabled" || key === "autoTodoEnabled" || key === "todoProgressVisible" || key === "clarificationEnabled" || key === "interactiveClarificationEnabled" || key === "clarificationQualityGate" || key === "allowClarificationWithoutAnalysis" || key === "useSubagentsBeforeClarification" || key === "allowSubagents" || key === "statusWidgetVisible" || key === "useSharedExecutorModel" || key === "useStandardSpecificModels")) {
         if (bool === undefined) return show(pi, `# Error\n\nUsage: \`/workflow-settings set standard ${key} <true|false>\``);
@@ -17883,6 +18134,28 @@ Pi Version: v${VERSION}
         const result = updateSettings(ctx.cwd, scope, (s) => { s.standard.subagentScope = agentScope; });
         return show(pi, updatedMessage(result.scope, result.file, "standard.subagentScope", agentScope));
       }
+      if (subject === "plan-models") {
+        const role = parseRole(key ?? "");
+        if (!role) return show(pi, "# Error\n\nUsage:\n- `/workflow-settings set plan-models <planner|executor|reviewer|validator> <provider> <model>`\n- `/workflow-settings set plan-models <planner|executor|reviewer|validator> thinking <off|minimal|low|medium|high|xhigh>`");
+        if (value === "thinking" || value === "thinkingLevel") {
+          const level = parseThinkingLevel(parts[offset + 3] ?? "");
+          if (!level) return show(pi, "# Error\n\nUsage: `/workflow-settings set plan-models <planner|executor|reviewer|validator> thinking <off|minimal|low|medium|high|xhigh>`");
+          const result = setPlanThinkingForRole(role, level, ctx.cwd, scope);
+          const reapplied = await reapplyPlannerRouteIfPlanMode(ctx, true);
+          const activeNote = reapplied ? `\n\n${activeModelDiagnostic(ctx)}` : "";
+          return show(pi, updatedMessage(result.scope, result.file, `planning.models.${role}.thinkingLevel`, level) + activeNote + `\n\n${renderPlanModelStrategy(loadWorkflowSettings(ctx.cwd))}`);
+        }
+        let provider = value ?? "";
+        let model = parts[offset + 3] ?? "";
+        const slash = provider.indexOf("/");
+        if (slash > 0 && slash < provider.length - 1 && !model) { model = provider.slice(slash + 1); provider = provider.slice(0, slash); }
+        if (!provider || !model) return show(pi, "# Error\n\nUsage: `/workflow-settings set plan-models <planner|executor|reviewer|validator> <provider> <model>`");
+        if (!ctx.modelRegistry.find(provider, model)) return show(pi, `# Error\n\nModel not found: ${provider}/${model}`);
+        const result = setPlanModelForRole(role, provider, model, ctx.cwd, scope);
+        const reapplied = await reapplyPlannerRouteIfPlanMode(ctx, true);
+        const activeNote = reapplied ? `\n\n${activeModelDiagnostic(ctx)}` : "";
+        return show(pi, updatedMessage(result.scope, result.file, `planning.models.${role}.model`, `${provider}/${model}`) + activeNote + `\n\n${renderPlanModelStrategy(loadWorkflowSettings(ctx.cwd))}`);
+      }
       if (subject === "standard-models") {
         const role = parseRole(key ?? "");
         if (!role) return show(pi, "# Error\n\nUsage:\n- `/workflow-settings set standard-models <planner|executor|reviewer|validator> <provider> <model>`\n- `/workflow-settings set standard-models <planner|executor|reviewer|validator> thinking <off|minimal|low|medium|high|xhigh>`");
@@ -17904,6 +18177,30 @@ Pi Version: v${VERSION}
         const reapplied = await reapplyStandardRouteIfStandardMode(ctx, true);
         const activeNote = reapplied ? `\n\n${activeModelDiagnostic(ctx)}` : "";
         return show(pi, updatedMessage(result.scope, result.file, `standard.models.${role}.model`, `${provider}/${model}`) + activeNote + `\n\n${renderStandardModelStrategy(loadWorkflowSettings(ctx.cwd))}`);
+      }
+      if (subject === "subagent-models") {
+        const routeScope = key === "shared" || key === "plan" || key === "standard" || key === "mission" ? key : undefined;
+        const bucket = parseSubagentModelBucket(value ?? "");
+        if (!routeScope || !bucket) return show(pi, "# Error\n\nUsage:\n- `/workflow-settings set subagent-models <shared|plan|standard|mission> <planning|execution|repair|review|validation> <provider> <model>`\n- `/workflow-settings set subagent-models <shared|plan|standard|mission> <phase> thinking <off|minimal|low|medium|high|xhigh>`\n- `/workflow-settings set subagent-models <shared|plan|standard|mission> <phase> inherit`");
+        const next = parts[offset + 3] ?? "";
+        if (next === "inherit" || next === "default") {
+          const result = clearSubagentModelForBucket(routeScope, bucket, ctx.cwd, scope);
+          return show(pi, updatedMessage(result.scope, result.file, `${routeScope}.subagentModelRouting.${bucket}`, "inherit") + `\n\n${renderSubagentModelRouting(loadWorkflowSettings(ctx.cwd), routeScope)}`);
+        }
+        if (next === "thinking" || next === "thinkingLevel") {
+          const level = parseThinkingLevel(parts[offset + 4] ?? "");
+          if (!level) return show(pi, "# Error\n\nUsage: `/workflow-settings set subagent-models <shared|plan|standard|mission> <phase> thinking <off|minimal|low|medium|high|xhigh>`");
+          const result = setSubagentThinkingForBucket(routeScope, bucket, level, ctx.cwd, scope);
+          return show(pi, updatedMessage(result.scope, result.file, `${routeScope}.subagentModelRouting.${bucket}.thinkingLevel`, level) + `\n\n${renderSubagentModelRouting(loadWorkflowSettings(ctx.cwd), routeScope)}`);
+        }
+        let provider = next;
+        let model = parts[offset + 4] ?? "";
+        const slash = provider.indexOf("/");
+        if (slash > 0 && slash < provider.length - 1 && !model) { model = provider.slice(slash + 1); provider = provider.slice(0, slash); }
+        if (!provider || !model) return show(pi, "# Error\n\nUsage: `/workflow-settings set subagent-models <shared|plan|standard|mission> <phase> <provider> <model>`");
+        if (!ctx.modelRegistry.find(provider, model)) return show(pi, `# Error\n\nModel not found: ${provider}/${model}`);
+        const result = setSubagentModelForBucket(routeScope, bucket, provider, model, ctx.cwd, scope);
+        return show(pi, updatedMessage(result.scope, result.file, `${routeScope}.subagentModelRouting.${bucket}.model`, `${provider}/${model}`) + `\n\n${renderSubagentModelRouting(loadWorkflowSettings(ctx.cwd), routeScope)}`);
       }
       if (subject === "standard-subagents" && (key === "autoUseDuringPlanning" || key === "autoUseDuringExecution" || key === "autoUseDuringRepair" || key === "autoUseDuringReview" || key === "autoUseDuringValidation" || key === "allowParallelPlanning" || key === "allowParallelExecution" || key === "allowParallelRepair" || key === "allowParallelReview" || key === "allowParallelValidation")) {
         if (bool === undefined) return show(pi, `# Error\n\nUsage: \`/workflow-settings set standard-subagents ${key} <true|false>\``);
@@ -18492,11 +18789,21 @@ Public workflow commands:
   });
 
   // ── Token budget accumulation helper (4a/4d) ────────────────────
-  const accumulateModeTokens = (amount: number): void => {
-    if (amount <= 0) return;
-    if (state.mode === "standard") state.standardTokensUsed = (state.standardTokensUsed ?? 0) + amount;
-    else if (isMissionWorkflowMode(state)) state.missionTokensUsed = (state.missionTokensUsed ?? 0) + amount;
-    else if (isPlanWorkflowUiMode(state)) state.planTokensUsed = (state.planTokensUsed ?? 0) + amount;
+  const accumulateModeTokens = (amount: number, ctx?: ExtensionContext): void => {
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    if (state.mode === "standard") {
+      const standardTokensUsed = (state.standardTokensUsed ?? 0) + amount;
+      if (ctx) updateState({ standardTokensUsed }, ctx);
+      else state.standardTokensUsed = standardTokensUsed;
+    } else if (isMissionWorkflowMode(state)) {
+      const missionTokensUsed = (state.missionTokensUsed ?? 0) + amount;
+      if (ctx) updateState({ missionTokensUsed }, ctx);
+      else state.missionTokensUsed = missionTokensUsed;
+    } else if (isPlanWorkflowUiMode(state)) {
+      const planTokensUsed = (state.planTokensUsed ?? 0) + amount;
+      if (ctx) updateState({ planTokensUsed }, ctx);
+      else state.planTokensUsed = planTokensUsed;
+    }
   };
 
   // ── before_agent_start: inject mode prompts ────────────────────
@@ -18565,6 +18872,7 @@ Public workflow commands:
         }
       }
       const standardTodoMustInitialize = standardRequiredTodoMissing(state, settings, task);
+      if (task) rememberStandardAdvisorySubagentDecisionForWork(ctx, settings, standardWork, task);
       if (task && !standardTodoMustInitialize && (standardWork.phase === "Execution" || standardWork.phase === "Repair")) {
         const override = standardForcedSubagentOverride(settings, standardWork.phase);
         if (!beginForcedSubagentPhase(ctx, standardWork.phase, settings, override)) {
@@ -18580,7 +18888,7 @@ Public workflow commands:
     // Plan Mode: intercept user message as planning task
     if (state.mode === "awaiting_plan_input") {
       const settings = loadWorkflowSettings(ctx.cwd);
-      const route = await applyModelForRole(pi, ctx, "planner", { cwd: ctx.cwd });
+      const route = await applyPlanModelForRole(pi, ctx, "planner", { cwd: ctx.cwd });
       if (!route) return { systemPrompt: `${event.systemPrompt}\n\nPI WORKFLOW PLAN MODE ROUTING FAILED: the configured planner model is unavailable. Do not execute the user request; explain the routing error and ask the user to check /workflow-settings list.` };
       const task = event.prompt || "Create an implementation plan for the user's requested task.";
       const gate = clarificationGate(task, settings, false, false);
@@ -18710,7 +19018,7 @@ Public workflow commands:
 
     // Clarification mode: intercept user message as clarification answer
     if (state.mode === "awaiting_clarification") {
-      const route = await applyModelForRole(pi, ctx, "planner", { cwd: ctx.cwd });
+      const route = await applyPlanModelForRole(pi, ctx, "planner", { cwd: ctx.cwd });
       if (!route) return { systemPrompt: `${event.systemPrompt}\n\nPI WORKFLOW PLAN MODE ROUTING FAILED: the configured planner model is unavailable. Do not execute the user request; explain the routing error and ask the user to check /workflow-settings list.` };
       const input = event.prompt?.trim() ?? "";
       // Try to parse as shorthand answer like "1A, 2C, 3B"
@@ -19121,6 +19429,7 @@ Public workflow commands:
       } else {
         recordWorkflowInternalEvent(ctx, "Execution complete.");
       }
+      updateState({ lastWorkflowHandoff: undefined }, ctx);
       return;
     }
 
@@ -19689,7 +19998,13 @@ Public workflow commands:
       updateState({ mode: "reviewed", reviewerReport: planReview.report, reviewerVerdict: planReview.verdict, currentReviewRetry: 0, lastReviewFailure: "", lastReviewAttempt: planReview.downgraded ? planReview.reason : planReview.verdict, lastReviewRepairStatus: state.lastReviewRepairStatus === "running" ? "completed" : (state.lastReviewRepairStatus ?? "none"), reviewRepairInProgress: false, repairRetryState: { ...(state.repairRetryState ?? {}), review: state.repairRetryState?.review ? { ...state.repairRetryState.review, currentRetry: 0, status: state.repairRetryState.review.status === "running" ? "completed" : state.repairRetryState.review.status, inProgress: false, lastAttempt: planReview.downgraded ? planReview.reason : planReview.verdict } : undefined }, planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "reviewed" }, settings, { lifecycleStatus: "reviewed", nextAction: "executor" }) : state.planProgress }, ctx);
       setPendingWorkflowToolPhase(ctx, "Execution", "reviewer accepted");
       traceWorkflowTracking(ctx, "reviewer-to-executor-handoff", { source: "agent_end_review_text", mode: "reviewed", lifecycleStatus: "reviewed", nextAction: "execution queued", toolsArmed: true, hasApprovedPlan: Boolean(state.approvedPlan), stepCount: state.planProgress?.steps?.length ?? 0, verdict: planReview.verdict, originalVerdict: planReview.originalVerdict, normalized: planReview.downgraded });
-      deferWorkflowAction(pi, "begin execution after reviewer", async () => { await beginExecution(ctx, true); }, { onFailure: (error) => recoverPlanTransientHandoffFailure(ctx, "execution", transientFailureReason("Reviewer passed but execution handoff failed", error instanceof Error ? error.message : String(error)), { phase: "Execution" }) });
+      deferWorkflowAction(pi, "begin execution after reviewer", async () => {
+        const started = await beginExecution(ctx, true);
+        if (!started) {
+          clearPendingWorkflowToolPhase(ctx, "Execution", "reviewer accepted but execution did not start");
+          recoverPlanTransientHandoffFailure(ctx, "execution", "Reviewer passed but execution handoff did not start.", { phase: "Execution" });
+        }
+      }, { onFailure: (error) => recoverPlanTransientHandoffFailure(ctx, "execution", transientFailureReason("Reviewer passed but execution handoff failed", error instanceof Error ? error.message : String(error)), { phase: "Execution" }) });
       return;
     }
 

@@ -12,7 +12,7 @@ import * as path from "node:path";
 import * as crypto from "node:crypto";
 import type { Message } from "@earendil-works/pi-ai";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
-import { loadWorkflowSettings } from "../workflow-model-router.js";
+import { loadWorkflowSettings, type ThinkingLevel } from "../workflow-model-router.js";
 import { type AgentConfig, type AgentScope, type AgentSource, discoverAgents } from "./agents.js";
 
 export interface WorkflowSubagentTask {
@@ -22,6 +22,7 @@ export interface WorkflowSubagentTask {
   schema?: Record<string, unknown>;
   background?: boolean;
   model?: string;
+  thinkingLevel?: ThinkingLevel;
   skills?: string;
   output?: string;
   workflowPhase?: string;
@@ -47,6 +48,7 @@ export interface WorkflowSubagentResult {
   stderr: string;
   usage: WorkflowSubagentUsage;
   model?: string;
+  thinkingLevel?: ThinkingLevel;
   stopReason?: string;
   errorMessage?: string;
   parsedOutput?: unknown;
@@ -103,8 +105,8 @@ if (typeof process.on === "function") {
 // ── Result caching (#6) ─────────────────────────────────────
 const resultCache = new Map<string, WorkflowSubagentResult>();
 
-function cacheKey(agent: string, task: string, cwd: string): string {
-  return crypto.createHash("sha256").update(`${agent}\n${task}\n${cwd}`).digest("hex");
+function cacheKey(agent: string, task: string, cwd: string, model?: string, thinkingLevel?: string): string {
+  return crypto.createHash("sha256").update(`${agent}\n${task}\n${cwd}\n${model ?? ""}\n${thinkingLevel ?? ""}`).digest("hex");
 }
 
 export function clearSubagentResultCache(): void {
@@ -226,9 +228,11 @@ async function runSingleWorkflowSubagent(
 
   const lockRoot = repoLockRootForSubagent(defaultCwd);
   const effectiveCwd = resolveSubagentCwd(task.cwd, defaultCwd);
+  const effectiveModel = task.model || agent.model;
+  const effectiveThinking = task.thinkingLevel;
 
   // ── Result caching (#6): check cache before spawning ──
-  const key = cacheKey(agent.name, task.task, effectiveCwd);
+  const key = cacheKey(agent.name, task.task, effectiveCwd, effectiveModel, effectiveThinking);
   const cached = signal?.aborted ? undefined : resultCache.get(key);
   if (cached) return { ...cached, output: `${cached.output}\n\n[cached]` };
 
@@ -246,7 +250,8 @@ async function runSingleWorkflowSubagent(
   }
 
   const args: string[] = ["--no-extensions", "--extension", REPOLOCK_GUARD_EXTENSION, "--mode", "json", "-p", "--no-session"];
-  if (agent.model) args.push("--model", agent.model);
+  if (effectiveModel) args.push("--model", effectiveModel);
+  if (effectiveThinking) args.push("--thinking", effectiveThinking);
   if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
 
   let tmpPromptDir: string | null = null;
@@ -254,7 +259,7 @@ async function runSingleWorkflowSubagent(
   const messages: Message[] = [];
   const usage: WorkflowSubagentUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 };
   let stderr = "";
-  let model = task.model || agent.model;
+  let model = effectiveModel;
   let stopReason: string | undefined;
   let errorMessage: string | undefined;
 
@@ -392,6 +397,7 @@ async function runSingleWorkflowSubagent(
       stderr,
       usage,
       model,
+      thinkingLevel: effectiveThinking,
       stopReason: wasAborted ? "aborted" : stopReason,
       errorMessage: wasAborted ? (timeoutReason || "Subagent was aborted") : errorMessage,
       parsedOutput,

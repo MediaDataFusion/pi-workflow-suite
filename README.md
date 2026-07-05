@@ -11,11 +11,11 @@
   <a href="#settings-reference"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.3/docs/assets/readme-link-settings.svg" alt="Settings" /></a>
 </p>
 
-**Workflow Suite Version:** `v0.0.23`
+**Workflow Suite Version:** `v0.0.24`
 
 ## Overview
 
-Pi Workflow Suite is a structured workflow orchestration suite for [Pi](https://pi.dev/). It adds four workflow states: Idle, Standard, Plan, and Mission. Its core philosophy is using the right model for the right job: a planner can use one provider/model and reasoning level, an executor can use another, a reviewer can provide a second opinion, a validator can independently check completed work, Mission Mode can use mission-specific role overrides, and compaction can use a purpose-selected summarization model. Around that role-specific model control it provides dynamic clarification, sub-agent coordination, integrated web research, interactive Mermaid diagrams, workflow settings, progress widgets, presets, visual themes, startup visuals, startup logos, validation gates, repair/retry loops, Repo Lock safety controls, and safe install/recovery tooling.
+Pi Workflow Suite is a structured workflow orchestration suite for [Pi](https://pi.dev/). It adds four workflow states: Idle, Standard, Plan, and Mission. Its core philosophy is using the right model for the right job: a planner can use one provider/model and reasoning level, an executor can use another, a reviewer can provide a second opinion, a validator can independently check completed work, Plan and Mission Mode can use mode-specific role overrides, and compaction can use a purpose-selected summarization model. Around that role-specific model control it provides dynamic clarification, sub-agent coordination, integrated web research, interactive Mermaid diagrams, workflow settings, progress widgets, presets, visual themes, startup visuals, startup logos, validation gates, repair/retry loops, Repo Lock safety controls, and safe install/recovery tooling.
 
 Pi itself is intentionally minimal and extensible. Pi Workflow Suite layers an opinionated workflow system on top of Pi without modifying Pi core. It is designed to run from user-level Pi resources under `~/.pi/agent`, while keeping runtime state, credentials, sessions, logs, backups, and local/private configuration out of the package.
 
@@ -58,6 +58,7 @@ https://github.com/user-attachments/assets/77ba0456-1a44-477a-ad9e-d389fedfc753
 - [Mission Mode](#mission-mode)
 - [Dynamic Clarification System](#dynamic-clarification-system)
 - [Workflow Roles And Model Selection](#workflow-roles-and-model-selection)
+- [Sub-Agent Worker Model Routes](#sub-agent-worker-model-routes)
 - [Workflow Settings UI](#workflow-settings-ui)
 - [Workflow Presets](#workflow-presets)
 - [Workflow Widgets And Editor Hints](#workflow-widgets-and-editor-hints)
@@ -112,6 +113,7 @@ Examples:
 - use a different Reviewer model before execution to catch missing requirements, unsafe steps, or weak plans,
 - use an independent Validator model after execution to reduce shared blind spots from the executor,
 - use Mission-specific model overrides for long-running milestone work that needs different planning or validation rigor,
+- use lower-cost or specialized sub-agent worker models for planning, execution, repair, review, and validation support without changing the parent role model,
 - use a separate compaction model and token budget for summarizing context instead of spending the main execution model on compaction.
 
 The same model can still be reused across roles for simpler setups. The important control is that the user can choose when roles should share one model and when they should diverge.
@@ -133,7 +135,7 @@ Pi Workflow Suite turns Pi into a guided workflow environment:
 | Compaction | Shared compaction controls for Pi default or custom summary model selection, Pi default or custom trigger thresholds, idle-boundary proactive checks, custom token tuning, adaptive fitting, status reporting, and safe fallback. |
 | Token Budgets | Optional per-mode token and runtime caps (`maxTokens`, `maxRuntimeHours`) for Plan, Mission, and Standard Mode. Off by default (unlimited). When enabled, Workflow Suite tracks cumulative usage and blocks further agent turns when the budget is exceeded. |
 | Workflow Roles | Planner, Executor, Reviewer, Validator, Mission, and compaction responsibilities are separated by phase so each job has clear boundaries and can be matched to the right model. |
-| Model Selection | Configure which provider/model and thinking level powers each workflow role, with shared defaults plus Standard-specific and Mission-specific overrides for simpler or higher-rigor setups. |
+| Model Selection | Configure which provider/model and thinking level powers each workflow role, with shared defaults plus Plan, Standard, Mission, and sub-agent worker route controls. |
 | Presets | Built-in and custom workflow profiles with selector commands and platform-aware cycling shortcuts while active modes are running: macOS `Ctrl+Shift+U`, Windows/Linux `F4`. |
 | Settings | Interactive grouped settings UI plus direct commands for Standard, Plan, Mission, model selection, sub-agents, widgets, compaction, themes, and safety. |
 | Sub-agents And Skills | Bundled workflow agents and skills for discovery, planning, safe execution, validation, git-safe summaries, and project-rule audits, with clear capability boundaries. |
@@ -156,7 +158,7 @@ Pi Workflow Suite turns Pi into a guided workflow environment:
 - Integrated `workflow_web_search`, `workflow_web_fetch`, and `workflow_browser_check` tools for current public evidence, source-backed URL reading, and headless browser verification of web app runtime behavior.
 - Interactive `workflow_diagram` Mermaid rendering with terminal preview, clickable SVG artifacts, and PNG/runtime rendering support.
 - Repo Lock for project-scoped path safety around repository work, protected project configuration, and sub-agent inheritance.
-- Role-aware model selection so planning, execution, review, validation, Mission work, and compaction can each use the provider/model and thinking level that fits the job.
+- Role-aware model selection so planning, execution, review, validation, Mission work, sub-agent workers, and compaction can each use the provider/model and thinking level that fits the job.
 - Optional per-mode token and runtime budgets (`maxTokens`, `maxRuntimeHours`) to cap usage in Plan, Mission, and Standard Mode. Off by default; enable when you need predictable cost or time limits.
 - Sub-agent usage policies for planning, execution, repair, review, and validation, with explicit documentation that these are orchestration settings, not a universal permission manager.
 - Safe install, backup, audit, quarantine, verification, and package validation scripts.
@@ -269,6 +271,7 @@ Core behavior:
 - Plan history saves draft, revised, approved, completed, and archived plan records.
 - `/plan resume` or `/p resume` restores current or recoverable Plan state and shows the next action or resume menu; it does not auto-run workflow gates.
 - `/plan continue` or `/p continue` advances the current or recovered Plan through the next configured gate, such as review, execution, validation, repair, or final completion.
+- After Plan execution, built-in presets offer manual validation when a validator is available. The post-execution menu lets users run validation, list the summary, start a new plan, or end without validation.
 
 Common commands:
 
@@ -407,7 +410,7 @@ Pi Workflow Suite separates workflow responsibilities from the model that powers
 
 This is one of the suite's fundamental controls. A user can keep the same model everywhere for a simple setup, or deliberately split roles when the work benefits from specialization: a deeper planner, a precise executor, a skeptical reviewer, an independent validator, and a separate compaction model for context summarization.
 
-This is also separate from bundled sub-agents. Sub-agents are isolated workers used for research, planning support, execution support, review, validation, and repair support. Model selection controls the underlying model route for a workflow role; sub-agent settings control when additional workers are requested.
+This is also separate from bundled sub-agents. Sub-agents are isolated workers used for research, planning support, execution support, review, validation, and repair support. Parent model selection controls the model route for the main workflow role. Sub-agent policy settings control when additional workers are requested, and sub-agent worker model routes separately control the provider/model and thinking level used by child workers.
 
 Default Plan Mode sequence:
 
@@ -433,8 +436,9 @@ Shared workflow roles:
 - Reviewer
 - Validator
 
-Standard Mode and Mission Mode can either use shared roles or mode-specific role overrides:
+Plan Mode, Standard Mode, and Mission Mode can either use shared roles or mode-specific role overrides:
 
+- Plan Planner / Plan Executor / Plan Reviewer / Plan Validator
 - Standard Planner / Mission Planner
 - Standard Executor / Mission Executor
 - Standard Reviewer / Mission Reviewer
@@ -443,10 +447,10 @@ Standard Mode and Mission Mode can either use shared roles or mode-specific role
 Standard Mode, Plan Mode, and Mission Mode use model settings differently:
 
 - **Standard Mode** supports direct active execution with current Pi model, shared Workflow Suite model selection, or Standard-specific model selection, plus planning/research/execution/repair/review/validation sub-agent workers and optional dynamic To Do progress; it does not require approval, validation/repair, or milestone gates unless the user chooses settings or another workflow that adds them.
-- **Plan Mode** supports formal planned execution: plan, approve, optionally review with a second model, execute with the selected executor model, optionally validate with an independent validator model, and optionally repair/retry failed validation.
+- **Plan Mode** supports formal planned execution: plan, approve, optionally review with a second model, execute with the selected executor model, optionally validate with an independent validator model, and optionally repair/retry failed validation. Plan-specific role routes can be configured separately from shared routes.
 - **Mission Mode** supports persistent milestone work: plan mission milestones, approve the mission, execute the current milestone, validate that milestone, checkpoint, repair/retry if needed, optionally run final whole-mission validation, then continue or complete according to autonomy settings. Mission-specific role overrides let long-running work use different planner/executor/reviewer/validator choices from normal Plan Mode.
 
-The included example settings provide defaults, but users can change provider/model, thinking level, role enablement, reviewer/validator behavior, Mission Mode autonomy, and mission-specific model selection through `/workflow settings`. Do not treat the shipped defaults as the only supported setup. Provider names must match the user's configured Pi/Factory model route and API compatibility; official providers and proxy/generic providers may require different provider values even when the display model name looks similar.
+The included example settings provide defaults, but users can change provider/model, thinking level, role enablement, reviewer/validator behavior, Mission Mode autonomy, and mode-specific model selection through `/workflow settings`. Do not treat the shipped defaults as the only supported setup. Provider names must match the user's configured Pi/Factory model route and API compatibility; official providers and proxy/generic providers may require different provider values even when the display model name looks similar.
 
 Thinking levels:
 
@@ -473,9 +477,49 @@ Configuration examples:
 /workflow settings Shared Compaction
 ```
 
-The grouped settings menus expose shared role selection, Standard-specific model behavior, Mission-specific model behavior, and compaction model/token-budget controls without relying on legacy dashed command entry points.
+The grouped settings menus expose shared role selection, Plan-specific model behavior, Standard-specific model behavior, Mission-specific model behavior, and compaction model/token-budget controls without relying on legacy dashed command entry points.
 
-Shared model selection is available through `/workflow settings Shared Models`. Standard-specific and mission-specific model selection is available through their mode settings menus.
+Shared model selection is available through `/workflow settings Shared Models`. Plan-specific, Standard-specific, and mission-specific model selection is available through their mode settings menus.
+
+## Sub-Agent Worker Model Routes
+
+Sub-agent worker model routes let users choose which provider/model and thinking level powers child worker processes without changing the parent Planner, Executor, Reviewer, Validator, or Mission role model.
+
+This is a cost and specialization control. A workflow can keep a stronger parent executor while routing planning research, execution support, repair preparation, review, or validation workers to cheaper, faster, longer-context, or more specialized models. Worker routes are available for these phases:
+
+- Planning
+- Execution
+- Repair
+- Review
+- Validation
+
+Routes can be configured as shared/global worker defaults or as mode-specific worker routes for Plan, Standard, and Mission. Use shared routes when every mode should use the same worker model for a phase. Use mode-specific routes when Plan, Standard, or Mission needs different child-worker cost or rigor.
+
+Route precedence is:
+
+```text
+mode-specific worker route -> shared sub-agent worker route -> agent default -> child process default
+```
+
+When a configured child route is used, Workflow Suite passes the worker model as `provider/model` and passes the configured thinking level when one is set. Native sub-agent output shows the child model and thinking level when known, so users can confirm which worker route ran.
+
+Mode token counters aggregate completed child-worker input + output tokens into the active Plan, Standard, or Mission usage totals. Cache, context, and cost values remain display/diagnostic details where Pi exposes them; they are not counted in mode token budgets.
+
+Configure worker routes from:
+
+```text
+/workflow settings Shared Sub-agents
+/workflow settings Plan Mode
+/workflow settings Standard Mode
+/workflow settings Mission Mode
+
+/workflow-settings set subagent-models shared <planning|execution|repair|review|validation> <provider> <model>
+/workflow-settings set subagent-models plan <planning|execution|repair|review|validation> <provider> <model>
+/workflow-settings set subagent-models standard <planning|execution|repair|review|validation> <provider> <model>
+/workflow-settings set subagent-models mission <planning|execution|repair|review|validation> <provider> <model>
+/workflow-settings set subagent-models <shared|plan|standard|mission> <phase> thinking <off|minimal|low|medium|high|xhigh>
+/workflow-settings set subagent-models <shared|plan|standard|mission> <phase> inherit
+```
 
 ## Efficiency Guidance
 
@@ -509,7 +553,7 @@ Each mode supports an optional configurable token budget:
 - `missions.maxTokens` — caps estimated token usage for a Mission Mode workflow.
 - `standard.maxTokens` — caps estimated token usage for a Standard Mode session.
 
-Default is `0` (unlimited). When set to a positive value, Workflow Suite tracks cumulative usage and blocks further agent turns when the budget is exceeded. Set budgets with headroom — the tracker uses context window size as a proxy since Pi does not expose cumulative token counts.
+Default is `0` (unlimited). When set to a positive value, Workflow Suite tracks cumulative input + output token usage and blocks further agent turns when the budget is exceeded. Set budgets with headroom; cache, context, and cost details are displayed where Pi exposes them, but mode token budgets count input + output usage.
 
 Configure through `/workflow settings Plan Mode`, `/workflow settings Mission Mode`, or `/workflow settings Standard Mode`.
 
@@ -594,11 +638,19 @@ Settings menus:
 
 ### Workflow Presets
 
-Presets are user-configurable workflow speed/rigor profiles for Standard, Plan, and Mission workflow behavior. Built-in presets primarily shape Plan/Mission rigor and shared sub-agent policy. Custom presets can also save/apply Standard Mode To Do, clarification, widget, model-role, and Standard sub-agent preferences. Presets do not change model/provider selections, API keys, auth/session files, or compaction model settings.
+Presets are user-configurable workflow speed/rigor profiles for Standard, Plan, and Mission workflow behavior. Built-in presets include explicit Standard behavior, Plan/Mission rigor, and shared sub-agent policy. Custom presets save/apply workflow behavior only. Presets do not change model/provider/thinking routes, API keys, auth/session files, or compaction model settings.
+
+Brand-new installs start on `Standard`. `None` means no built-in or saved preset is active. Workflow Suite restores saved manual settings, or the default no-preset baseline if none were saved yet.
+
+Preset order:
+
+```text
+None, Simple, Standard, Deep, Maximum, then saved user presets
+```
+
+Preset behavior and model routing stay separate, so changing presets cannot silently switch providers, models, thinking levels, compaction models, or sub-agent worker model routes.
 
 Built-in presets:
-
-Standard Mode keeps the active `standard.*` settings unless a custom preset includes Standard Mode overrides. This prevents built-in Plan/Mission rigor profiles from unexpectedly changing normal-assistance behavior.
 
 ```text
 Simple — Fast path
@@ -606,26 +658,26 @@ Plan: fast, max 2 clarification questions
 Review: manual/optional
 Validation: manual/optional
 Sub-agents: forced one-worker support for every phase that runs
-Mission: approval-gated, fast planning, milestone validation off by default
+Mission: approval-gated, fast planning, milestone validation on
 
 Standard — Balanced
 Plan: standard, max 3 clarification questions
 Review: manual/optional; not automatic before execution
-Validation: automatic after execution
+Validation: manual/optional after execution
 Sub-agents: forced one-worker planning; execution/repair/review/validation keep two-worker support when those phases run
 Mission: approval-gated, auto-run after approval, standard planning, milestone validation on
 
 Deep — Careful
 Plan: deep, asks clarification for non-trivial work
 Review: manual/optional; not automatic before execution
-Validation: automatic after execution
+Validation: manual/optional after execution
 Sub-agents: forced larger teams across planning/execution/repair/review/validation
 Mission: deep planning with final validation
 
 Maximum — Thorough
 Plan: maximum
-Review: automatic
-Validation: automatic after execution
+Review: optional from approval menu; not automatic before execution
+Validation: manual/optional after execution
 Sub-agents: forced maximum teams across planning/execution/repair/review/validation
 Mission: supervised auto, final validation, higher retry budget
 ```
@@ -639,6 +691,7 @@ Quick access:
 macOS: Ctrl+Shift+U            # cycle presets while Standard/Plan/Mission Mode is active
 Windows/Linux: F4              # cycle presets while Standard/Plan/Mission Mode is active
 /workflow presets list
+/workflow presets apply none
 /workflow presets apply <name>
 /workflow presets next
 /workflow presets prev
@@ -801,9 +854,15 @@ Bundled skills include:
 - `git-safe-summary`
 - `find-skills`
 
-Sub-agent settings are workflow orchestration policy, not a universal permissions UI. They influence when Pi Workflow Suite asks to use sub-agents during planning, execution, repair, review, and validation, and how aggressively it should do so. Standard Mode can use its own phase-specific overrides while inheriting shared sub-agent settings by default. Built-in presets intentionally force sub-agent use so independent workers become the normal path, especially for execution.
+Sub-agent settings are workflow orchestration policy, not a universal permissions UI. They influence when Pi Workflow Suite asks to use sub-agents during planning, execution, repair, review, and validation, and how aggressively it should do so. Standard Mode can use its own phase-specific overrides while inheriting shared sub-agent settings by default. Built-in presets intentionally force sub-agent use so independent workers become the normal path, especially for execution. Worker model routing is covered in [Sub-Agent Worker Model Routes](#sub-agent-worker-model-routes).
 
-Sub-agent policies let users choose how much background assistance each workflow phase should request. Lighter policies keep workflows simpler and cheaper; deeper or forced policies can add independent research, implementation preparation, challenge review, validation evidence, and repair planning before the parent workflow proceeds.
+### Worker Model Routes
+
+Sub-agent worker model routes can be configured globally or per mode for planning, execution, repair, review, and validation workers, with child model/thinking shown in usage output when available. This lets lower-cost or specialized workers contribute research, implementation planning, review, validation, and repair evidence without changing the parent role model. Route precedence is: mode-specific worker route, shared sub-agent worker route, agent default, then the current child process default.
+
+Mode token counters aggregate child input + output tokens from completed worker results. Cache, context, and cost values remain display/diagnostic details where Pi exposes them; they are not counted in mode token budgets.
+
+Sub-agent policies let users choose how much background assistance each workflow phase should request. Lighter policies keep workflows simpler and cheaper; deeper or forced policies can add independent research, implementation preparation, challenge review, validation evidence, and repair planning before the parent workflow proceeds. Auto/deep/maximum skips are advisory; forced remains the hard requirement.
 
 They include:
 
@@ -853,8 +912,9 @@ Plan Mode supports reviewer, validator, and optional repair/retry handoffs:
 - Reviewer checks safety and approach before execution.
 - Executor performs approved work.
 - Validator performs read-only validation afterward.
-- FAIL or PARTIAL PASS can trigger safe repair and revalidation when enabled.
-- `/plan repair`, `/plan retry`, and `/plan revalidate` are available after validation failures.
+- FAIL, UNKNOWN, or PARTIAL PASS with a concrete repairable issue can trigger safe repair and revalidation when enabled.
+- Manual-only or no-concrete-defect validation outcomes route to revalidation, revision, completion, or manual QA instead of consuming a repair retry.
+- `/plan repair`, `/plan retry`, and `/plan revalidate` are available after repairable validation failures.
 
 Plan repair settings include:
 
@@ -870,7 +930,7 @@ Mission Mode adds milestone repair/retry loops:
 
 - Validator PASS is required before a milestone advances.
 - FAIL or PARTIAL PASS does not silently advance.
-- Safe repair can run automatically when enabled.
+- Safe repair can run automatically for concrete repairable issues when enabled.
 - Revalidation runs after repair.
 - Repair blocks if the failure appears destructive, out of scope, secret-adjacent, deployment-related, database-related, or otherwise unsafe.
 
@@ -1098,8 +1158,8 @@ pi install -l npm:@mediadatafusion/pi-workflow-suite
 ### Installing specific versions
 
 ```bash
-pi install npm:@mediadatafusion/pi-workflow-suite@0.0.23
-pi install -l npm:@mediadatafusion/pi-workflow-suite@0.0.23
+pi install npm:@mediadatafusion/pi-workflow-suite@0.0.24
+pi install -l npm:@mediadatafusion/pi-workflow-suite@0.0.24
 ```
 
 An unversioned install follows normal package update behavior through `pi update --all`, which updates Pi and installed packages/extensions together. Bare `pi update` updates Pi itself only. A versioned install pins the package to that version. Pinned package specs are intentionally skipped by Pi's normal package update commands. To move a pinned install to a newer version, reinstall with the desired version. To switch back to latest tracking, use the unversioned install command without `@<version>`.
@@ -1211,15 +1271,24 @@ Choose Mission Mode when you want milestone-based, resumable work:
 
 Primary settings areas:
 
-- `planning` — clarification mode, question count, planning depth.
+- `planning` — clarification mode, question count, planning depth, Plan-specific model routes, and Plan-specific sub-agent worker model routes.
 - `workflow` — approval, reviewer/validator automation, plan history.
 - `models` — provider/model choices for shared planner, executor, reviewer, and validator roles.
-- `standard` — Standard Mode enablement, dynamic To Do tracking, configurable clarification, widgets, model role, Standard sub-agent orchestration, and shared model selection.
-- `missions` — Mission Mode autonomy, runtime, checkpoints, validation, repair, and mission-specific model selection.
-- `subagents` — workflow phase policies, worker targets, activity indicator, parallelism preferences, and edit-concurrency guidance. These settings do not edit arbitrary sub-agent tool permissions.
+- `standard` — Standard Mode enablement, dynamic To Do tracking, configurable clarification, widgets, model role, Standard sub-agent orchestration, Standard-specific model routes, and Standard-specific sub-agent worker model routes.
+- `missions` — Mission Mode autonomy, runtime, checkpoints, validation, repair, mission-specific model selection, and Mission-specific sub-agent worker model routes.
+- `subagents` — workflow phase policies, worker targets, activity indicator, sub-agent worker model routes, parallelism preferences, and edit-concurrency guidance. These settings do not edit arbitrary sub-agent tool permissions.
 - `context` — compaction provider/model, auto-trigger behavior, trigger percentage, cooldown, reserve tokens, and keep-recent tokens.
 - `ui` — widgets, shortcuts, Workflow Suite theme selection, startup visuals, startup logo text styling, editor hints, status text, and optional themed input borders.
 - `safety` — bash/tool guard settings.
+
+Sub-agent worker route settings:
+
+| Setting | Effect |
+|---|---|
+| `subagents.modelRouting.*` | Shared/global child worker model routes. |
+| `planning.subagentModelRouting.*` | Plan-specific child worker model routes. |
+| `standard.subagentModelRouting.*` | Standard-specific child worker model routes. |
+| `missions.subagentModelRouting.*` | Mission-specific child worker model routes. |
 
 Important Standard Mode settings:
 
@@ -1241,6 +1310,7 @@ Important Standard Mode settings:
 | `standard.subagentScope` | Chooses package/user/project agent discovery scope: `user`, `project`, or `both`. |
 | `standard.subagents.*Policy` | Optional Standard-specific planning, execution, repair, review, and validation worker policies. |
 | `standard.subagents.min*Workers*` | Optional Standard-specific worker counts for deep, maximum, and forced policies. |
+| `standard.subagentModelRouting.*` | Optional Standard-specific child worker model routes for planning, execution, repair, review, and validation. |
 | `standard.statusWidgetVisible` | Shows or hides the Standard status widget. |
 | `standard.modelRole` | Chooses the Standard primary model role: `current`, `planner`, `executor`, `reviewer`, or `validator`. |
 | `standard.useSharedExecutorModel` | Enables shared model selection for Standard Mode; `standard.modelRole=current` keeps the active Pi model. |
@@ -1307,10 +1377,10 @@ See `docs/TROUBLESHOOTING.md` for detailed diagnostics.
 
 ## Versioning
 
-The current preparation version is `v0.0.23`. Version information is intentionally aligned across:
+The current preparation version is `v0.0.24`. Version information is intentionally aligned across:
 
-- `VERSION` (`v0.0.23`),
-- `package.json` (`0.0.23`),
+- `VERSION` (`v0.0.24`),
+- `package.json` (`0.0.24`),
 - `package-lock.json`,
 - this README,
 - Workflow Suite settings/about output.
@@ -1354,5 +1424,4 @@ pi install npm:@mediadatafusion/pi-workflow-suite@<version>
 - Optional timed checkpoint scheduling.
 - User-supervised recovery helpers.
 - Agent-routed compaction after Custom agent mode is implemented.
-- Sub-agent model routing so support workers can use lower-cost provider/model/thinking settings while parent workflow roles keep stronger models where needed.
 - Session-local workflow profiles if the Pi runtime supports them cleanly.
