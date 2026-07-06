@@ -2,6 +2,12 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.25] - 2026-07-07
+
+- Hardened Plan and Mission handoffs, validation context, repair/retry recovery, and pass-with-notes behavior.
+- Refined Plan and Mission review/validation menus, including optional validation, quiet End handling, and Mission revision feedback.
+- Improved model routing visibility and inheritance controls for Plan, Standard, Mission, and sub-agent worker routes.
+
 ## [0.0.24] - 2026-07-05
 
 - Added `None` preset support for saved manual settings.

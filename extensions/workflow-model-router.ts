@@ -1593,6 +1593,15 @@ export function setPlanThinkingForRole(role: WorkflowRole, thinkingLevel: Thinki
   });
 }
 
+export function clearPlanModelForRole(role: WorkflowRole, cwd?: string, scope?: WorkflowSettingsScope): SettingsWriteResult {
+  return updateSettings(cwd ?? process.cwd(), scope, (settings) => {
+    const defaults = normalizePlanModels(defaultWorkflowSettings());
+    const models = settings.planning.models ?? normalizePlanModels(defaultWorkflowSettings(), settings.planning);
+    models[role] = { ...defaults[role] };
+    settings.planning.models = models;
+  });
+}
+
 export function setStandardModelForRole(role: WorkflowRole, provider: string, model: string, cwd?: string, scope?: WorkflowSettingsScope): SettingsWriteResult {
   return updateSettings(cwd ?? process.cwd(), scope, (settings) => {
     const models = settings.standard.models ?? normalizeStandardModels(defaultWorkflowSettings(), settings.standard);
@@ -1615,6 +1624,15 @@ export function setStandardThinkingForRole(role: WorkflowRole, thinkingLevel: Th
   });
 }
 
+export function clearStandardModelForRole(role: WorkflowRole, cwd?: string, scope?: WorkflowSettingsScope): SettingsWriteResult {
+  return updateSettings(cwd ?? process.cwd(), scope, (settings) => {
+    const defaults = normalizeStandardModels(defaultWorkflowSettings());
+    const models = settings.standard.models ?? normalizeStandardModels(defaultWorkflowSettings(), settings.standard);
+    models[role] = { ...defaults[role] };
+    settings.standard.models = models;
+  });
+}
+
 export function setMissionModelForRole(role: MissionModelRole, provider: string, model: string, cwd?: string, scope?: WorkflowSettingsScope): SettingsWriteResult {
   return updateSettings(cwd ?? process.cwd(), scope, (settings) => {
     const models = settings.missions.models ?? normalizeMissionModels(defaultWorkflowSettings(), settings.missions);
@@ -1627,6 +1645,15 @@ export function setMissionThinkingForRole(role: MissionModelRole, thinkingLevel:
   return updateSettings(cwd ?? process.cwd(), scope, (settings) => {
     const models = settings.missions.models ?? normalizeMissionModels(defaultWorkflowSettings(), settings.missions);
     models[role] = { ...models[role], thinkingLevel };
+    settings.missions.models = models;
+  });
+}
+
+export function clearMissionModelForRole(role: MissionModelRole, cwd?: string, scope?: WorkflowSettingsScope): SettingsWriteResult {
+  return updateSettings(cwd ?? process.cwd(), scope, (settings) => {
+    const defaults = normalizeMissionModels(defaultWorkflowSettings());
+    const models = settings.missions.models ?? normalizeMissionModels(defaultWorkflowSettings(), settings.missions);
+    models[role] = { ...defaults[role] };
     settings.missions.models = models;
   });
 }
@@ -1810,6 +1837,19 @@ export function formatRole(role: WorkflowRole, settings = loadWorkflowSettings()
 
 export function renderWorkflowModels(settings: WorkflowSettings): string {
   return `${formatRole("planner", settings)}\n${formatRole("executor", settings)}\n${formatRole("validator", settings)}\n${formatRole("reviewer", settings)}`;
+}
+
+export function formatPlanRole(role: WorkflowRole, settings = loadWorkflowSettings()): string {
+  const { source, route } = planRoleRoute(settings, role);
+  const label = role.charAt(0).toUpperCase() + role.slice(1);
+  const sourceLabel = planModelSourceLabel(source);
+  if (!route.enabled) return `${label}: ${sourceLabel} disabled`;
+  if (!roleIsConfigured(route)) return `${label}: ${sourceLabel} enabled, not configured`;
+  return `${label}: ${sourceLabel} enabled, ${route.provider}/${route.model}, thinking: ${route.thinkingLevel}`;
+}
+
+export function renderPlanWorkflowModels(settings: WorkflowSettings): string {
+  return `${formatPlanRole("planner", settings)}\n${formatPlanRole("executor", settings)}\n${formatPlanRole("validator", settings)}\n${formatPlanRole("reviewer", settings)}`;
 }
 
 export function standardModelSource(settings: WorkflowSettings): StandardModelSource {

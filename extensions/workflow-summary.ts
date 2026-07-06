@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { WORKFLOW_SETTINGS_FILE, formatRole, loadEffectiveSettings, loadGlobalSettings, loadWorkflowSettings, renderWorkflowModels, roleIsConfigured, workflowSettingsDiagnostics, type WorkflowSettings } from "./workflow-model-router.js";
+import { WORKFLOW_SETTINGS_FILE, formatPlanRole, formatRole, loadEffectiveSettings, loadGlobalSettings, loadWorkflowSettings, renderPlanWorkflowModels, renderWorkflowModels, roleIsConfigured, workflowSettingsDiagnostics, type WorkflowSettings } from "./workflow-model-router.js";
 import { ACTIVE_STATE_FILE, compact, isMissionRuntimeActiveStatus, isPlanRuntimeActiveMode, loadMissionState, missionActiveRuntimeMs, missionRuntimeCounterState, missionWallClockAgeMs, planActiveRuntimeMs, planRuntimeCounterState, planWallClockAgeMs, isStandardRuntimeActive, standardActiveRuntimeMs, standardRuntimeCounterState, standardWallClockAgeMs, type MissionState, type WorkflowState } from "./workflow-state.js";
 
 const WORKFLOW_SUITE_SESSION_STATE_TYPE = "workflow-suite-state";
@@ -141,6 +141,22 @@ function planReviewRepairActive(state: WorkflowState): boolean {
 
 function isMissionMode(mode: string): boolean {
   return mode === "awaiting_mission_input" || mode.startsWith("mission_");
+}
+
+function isPlanMode(mode: string): boolean {
+  return mode === "awaiting_plan_input"
+    || mode === "awaiting_clarification"
+    || mode === "planning"
+    || mode === "plan_draft"
+    || mode === "plan_approved"
+    || mode === "reviewing"
+    || mode === "reviewed"
+    || mode === "executing"
+    || mode === "executed"
+    || mode === "validating"
+    || mode === "validated"
+    || mode === "repairing"
+    || mode === "revalidating";
 }
 
 function isStandardMode(mode: string): boolean {
@@ -330,8 +346,10 @@ export function renderWorkflowStatus(state: WorkflowState, activeTools: string[]
   }
   const returnToPlan = (settings.workflow as typeof settings.workflow & { returnToPlanModeAfterWorkflow?: boolean }).returnToPlanModeAfterWorkflow !== false;
   const clarificationStatus = state.mode === "awaiting_clarification" ? "pending" : (state.draftPlan && planNeedsClarification(state.draftPlan)) ? "needed" : "none";
+  const planModeActive = isPlanMode(state.mode);
   const missionModeActive = isMissionMode(state.mode);
   const standardModeActive = isStandardMode(state.mode);
+  const roleStatus = planModeActive ? formatPlanRole : formatRole;
   const standardLines = standardModeActive ? `\nStandard Mode: active\n${standardProgressLines(state)}\nStandard Clarification: ${standardClarificationLabel(settings, state)}` : "";
   const mission = state.activeMissionId ? loadMissionState(state.activeMissionId) : undefined;
   const missionLabel = missionModeActive ? "Mission" : "Last Mission";
@@ -340,7 +358,7 @@ export function renderWorkflowStatus(state: WorkflowState, activeTools: string[]
   const total = mission?.milestones?.length ?? 0;
   const missionNextAction = mission?.status === "draft" && total === 0 ? "Run /mission plan to create milestones, then /mission approve, then /mission continue." : mission?.nextAction ?? "none";
   const missionLines = missionModeActive || mission ? `\nMission Mode: ${missionModeActive ? "active" : "inactive"}\n${missionLabel} ID: ${mission?.id ?? state.lastCompletedMissionSummary?.missionId ?? "none"}\n${missionLabel} Status: ${mission?.status ?? state.lastCompletedMissionSummary?.status ?? "none"}\n${missionRuntimeLines(mission, state)}\nMilestone: ${currentMilestone ? `${Math.min((mission?.currentMilestoneIndex ?? 0) + 1, total)} of ${total} - ${displayLabel(currentMilestone.title)}` : "none"}\nProgress: ${total ? `${completed} / ${total}` : state.lastCompletedMissionSummary ? `${state.lastCompletedMissionSummary.milestonesCompleted} / ${state.lastCompletedMissionSummary.milestonesTotal}` : "0 / 0"}\nValidation Retry: ${mission?.currentValidationRetry ?? 0} / ${mission?.maxValidationRetriesPerMilestone ?? settings.missions.maxValidationRetriesPerMilestone ?? 2} per milestone\nMission Repair Retries: ${mission?.missionValidationRetryCount ?? state.lastCompletedMissionSummary?.repairRetries ?? 0} / ${mission?.maxValidationRetriesPerMission ?? state.lastCompletedMissionSummary?.maxRepairRetries ?? settings.missions.maxValidationRetriesPerMission ?? 8} total\nRepair Status: ${mission?.lastRepairStatus ?? state.lastCompletedMissionSummary?.repairStatus ?? "none"}\n${missionLabel} Next Action: ${displayLabel(missionNextAction)}` : "";
-  return `# Workflow Status\n\nWorkflow Mode: ${state.mode}${standardLines}${missionLines}\nPlan Mode Persistent: ${returnToPlan ? "enabled" : "disabled"}\nWaiting For Next Plan: ${state.mode === "awaiting_plan_input" ? "yes" : "no"}\nClarification Status: ${clarificationStatus}\nReturn To Plan Mode After Workflow: ${returnToPlan ? "enabled" : "disabled"}\nPlan Status: ${planStatus(state)}\n${planRuntimeLines(state, cwd)}\nSettings Scope: ${scope}\nProject Override: ${projectLine}\nGlobal Settings File: ${WORKFLOW_SETTINGS_FILE}\nEffective Settings Source: ${sourceLine}\nWorkflow Suite Safe Mode: ${safeMode ? "enabled" : "disabled"}\nSettings Warnings: ${settingsWarningLine}\nProject Instructions: ${projectInstrLine}\nProject Override Priority: enabled\nPlanner: ${formatRole("planner", settings).replace(/^Planner: /, "")}\nExecutor: ${formatRole("executor", settings).replace(/^Executor: /, "")}\nValidator: ${formatRole("validator", settings).replace(/^Validator: /, "")}\nReviewer: ${formatRole("reviewer", settings).replace(/^Reviewer: /, "")}\nSub-agents: ${settings.subagents.enabled ? "enabled" : "disabled"}\nActive Tools: ${activeTools.join(", ")}\nSession State: current Pi session entries (${WORKFLOW_SUITE_SESSION_STATE_TYPE}; compatibility fallback enabled)\nLegacy Active State File: ${ACTIVE_STATE_FILE}\n\nPlan Mode Entry: /p or /plan\nLegacy Alias: /plan-mode\nShortcut: none confirmed\nRecovery: /workflow recover\nUI Indicator: ${((settings.ui as typeof settings.ui & { showPlanModeIndicator?: boolean }).showPlanModeIndicator !== false) ? "enabled" : "disabled"}\nUI Indicator Placement: widget above editor`;
+  return `# Workflow Status\n\nWorkflow Mode: ${state.mode}${standardLines}${missionLines}\nPlan Mode Persistent: ${returnToPlan ? "enabled" : "disabled"}\nWaiting For Next Plan: ${state.mode === "awaiting_plan_input" ? "yes" : "no"}\nClarification Status: ${clarificationStatus}\nReturn To Plan Mode After Workflow: ${returnToPlan ? "enabled" : "disabled"}\nPlan Status: ${planStatus(state)}\n${planRuntimeLines(state, cwd)}\nSettings Scope: ${scope}\nProject Override: ${projectLine}\nGlobal Settings File: ${WORKFLOW_SETTINGS_FILE}\nEffective Settings Source: ${sourceLine}\nWorkflow Suite Safe Mode: ${safeMode ? "enabled" : "disabled"}\nSettings Warnings: ${settingsWarningLine}\nProject Instructions: ${projectInstrLine}\nProject Override Priority: enabled\nPlanner: ${roleStatus("planner", settings).replace(/^Planner: /, "")}\nExecutor: ${roleStatus("executor", settings).replace(/^Executor: /, "")}\nValidator: ${roleStatus("validator", settings).replace(/^Validator: /, "")}\nReviewer: ${roleStatus("reviewer", settings).replace(/^Reviewer: /, "")}\nSub-agents: ${settings.subagents.enabled ? "enabled" : "disabled"}\nActive Tools: ${activeTools.join(", ")}\nSession State: current Pi session entries (${WORKFLOW_SUITE_SESSION_STATE_TYPE}; compatibility fallback enabled)\nLegacy Active State File: ${ACTIVE_STATE_FILE}\n\nPlan Mode Entry: /p or /plan\nLegacy Alias: /plan-mode\nShortcut: none confirmed\nRecovery: /workflow recover\nUI Indicator: ${((settings.ui as typeof settings.ui & { showPlanModeIndicator?: boolean }).showPlanModeIndicator !== false) ? "enabled" : "disabled"}\nUI Indicator Placement: widget above editor`;
 }
 
 export function renderApprovedPlanSummary(state: WorkflowState): string {
@@ -363,7 +381,8 @@ export function renderWorkflowSummary(state: WorkflowState, cwd?: string): strin
   if (finalStop && (state.mode === "awaiting_plan_input" || state.mode === "awaiting_mission_input" || state.mode === "validated" || state.mode === "mission_blocked" || state.mode === "mission_completed" || state.mode === "mission_failed" || state.mode === "mission_stopped")) {
     return `# Workflow Summary\n\n${finalStop}`;
   }
-  return `# Workflow Summary\n\n${renderHandoffProjectContext(cwd)}\n\n## Original Task\n${state.task ?? "(none)"}\n\n## Models Used\n- Planner: ${state.modelsUsed?.planner ?? "(not recorded)"}\n- Executor: ${state.modelsUsed?.executor ?? "(not recorded)"}\n- Validator: ${state.modelsUsed?.validator ?? "(not run)"}\n- Reviewer: ${state.modelsUsed?.reviewer ?? "(not run)"}\n\n## Current Model Configuration\n${renderWorkflowModels(settings)}\n\n## Approved Plan\n${compact(state.approvedPlan, 2200)}\n\n## Execution Summary\n${compact(state.executionSummary, 1800)}\n\n## Validation Result\n${state.validationVerdict ?? "(not validated)"}\n\n${compact(state.validationReport, 1800)}\n\n## Remaining Risks\nReview validation notes, unrun tests, and changed files before committing or promoting.\n\n## Recommended Next Action\nRun project checks manually if they were not run, then review the target repo diff.\n\n## Exact Resume Instructions\n- Re-open the target repo shown above and confirm branch/status.\n- Run /workflow status before continuing.\n- Review this summary alongside the saved plan record when available.\n- Re-read detected project instruction files before any new edits.`;
+  const modelConfiguration = isPlanMode(state.mode) ? renderPlanWorkflowModels(settings) : renderWorkflowModels(settings);
+  return `# Workflow Summary\n\n${renderHandoffProjectContext(cwd)}\n\n## Original Task\n${state.task ?? "(none)"}\n\n## Models Used\n- Planner: ${state.modelsUsed?.planner ?? "(not recorded)"}\n- Executor: ${state.modelsUsed?.executor ?? "(not recorded)"}\n- Validator: ${state.modelsUsed?.validator ?? "(not run)"}\n- Reviewer: ${state.modelsUsed?.reviewer ?? "(not run)"}\n\n## Current Model Configuration\n${modelConfiguration}\n\n## Approved Plan\n${compact(state.approvedPlan, 2200)}\n\n## Execution Summary\n${compact(state.executionSummary, 1800)}\n\n## Validation Result\n${state.validationVerdict ?? "(not validated)"}\n\n${compact(state.validationReport, 1800)}\n\n## Remaining Risks\nReview validation notes, unrun tests, and changed files before committing or promoting.\n\n## Recommended Next Action\nRun project checks manually if they were not run, then review the target repo diff.\n\n## Exact Resume Instructions\n- Re-open the target repo shown above and confirm branch/status.\n- Run /workflow status before continuing.\n- Review this summary alongside the saved plan record when available.\n- Re-read detected project instruction files before any new edits.`;
 }
 
 // No-op default export so this helper module can be safely auto-discovered as a Pi extension.

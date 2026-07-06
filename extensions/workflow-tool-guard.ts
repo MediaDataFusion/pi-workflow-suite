@@ -382,6 +382,25 @@ function isExecutionMode(mode: WorkflowState["mode"]): boolean {
   return mode === "executing" || mode === "repairing" || mode === "mission_running" || mode === "mission_repairing";
 }
 
+function workflowHandoffTool(tool: string): boolean {
+  return tool === WORKFLOW_PLAN_RESULT_TOOL
+    || tool === WORKFLOW_REVIEW_RESULT_TOOL
+    || tool === WORKFLOW_EXECUTION_RESULT_TOOL
+    || tool === WORKFLOW_VALIDATION_RESULT_TOOL
+    || tool === WORKFLOW_REPAIR_RESULT_TOOL
+    || tool === MISSION_PLAN_RESULT_TOOL
+    || tool === MISSION_MILESTONE_RESULT_TOOL
+    || tool === STANDARD_HANDOFF_RESULT_TOOL;
+}
+
+const WORKFLOW_COMMAND_LOCK_MAX_AGE_MS = 10 * 60 * 1000;
+
+function workflowCommandLockActive(lock: WorkflowState["workflowCommandLock"]): lock is NonNullable<WorkflowState["workflowCommandLock"]> {
+  if (!lock) return false;
+  const startedAt = Date.parse(lock.startedAt);
+  return Number.isFinite(startedAt) && Date.now() - startedAt <= WORKFLOW_COMMAND_LOCK_MAX_AGE_MS;
+}
+
 function isSubagentWorker(): boolean {
   return process.env.PI_SUBAGENT_WORKER === "1";
 }
@@ -588,6 +607,11 @@ export function registerToolGuard(pi: ExtensionAPI, getState: () => WorkflowStat
     }
 
     if (tool === STANDARD_HANDOFF_RESULT_TOOL && state.mode !== "standard") return { block: true, reason: "Standard handoff unavailable outside Standard Mode" };
+
+    const commandLock = state.workflowCommandLock;
+    if (workflowCommandLockActive(commandLock) && workflowHandoffTool(tool)) {
+      return { block: true, reason: `Workflow handoff blocked while /${commandLock.family} ${commandLock.action} is collecting user input. Submit the requested input or cancel before handing off.` };
+    }
 
     if (tool === WORKFLOW_PLAN_RESULT_TOOL && state.mode !== "planning" && state.mode !== "executing" && state.mode !== "repairing") return { block: true, reason: `${tool} unavailable outside planning phase` };
     if (tool === MISSION_PLAN_RESULT_TOOL && state.mode !== "mission_planning") return { block: true, reason: "mission_plan_result is only for mission planning. Use mission_milestone_result to submit milestone execution checkpoints." };

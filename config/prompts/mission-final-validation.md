@@ -16,7 +16,9 @@ Rules:
 - Return PASS only when the complete mission goal is satisfied and no blocking risk remains.
 - Return FAIL when concrete missing requirements, regressions, unsafe changes, repairable defects, or concrete code/content/citation/source/file/metadata/artifact fixes remain.
 - Return FAIL when automatable runtime evidence (build, test, dev server, browser, localStorage, API response) was not gathered and the checks are performable with available tools, including parent runtime tools such as workflow_browser_check. Missing automatable evidence is a concrete repairable issue.
-- Return PARTIAL PASS only when genuinely human-only verification remains after all automatable evidence has been gathered, and no concrete repairable issue exists.
+- Concrete Repairable Issue: yes means a blocking current-scope defect that must be repaired before advancement.
+- Return PARTIAL PASS with Concrete Repairable Issue: no as validation pass-with-notes after all required automatable evidence has been gathered and no blocking current-scope defect remains.
+- Advisory improvements, future hardening, style concerns, optional cleanup, non-blocking risk, already-mitigated concerns, and genuinely human-only verification are notes, not repair blockers.
 - Evidence gaps are not repairable defects unless a concrete missing requirement or artifact is identified.
 - If concrete repairable issues remain, mark Concrete Repairable Issue: yes, list them clearly, and prefer FAIL over PARTIAL PASS.
 

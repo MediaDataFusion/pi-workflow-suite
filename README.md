@@ -11,7 +11,7 @@
   <a href="#settings-reference"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.3/docs/assets/readme-link-settings.svg" alt="Settings" /></a>
 </p>
 
-**Workflow Suite Version:** `v0.0.24`
+**Workflow Suite Version:** `v0.0.25`
 
 ## Overview
 
@@ -1158,8 +1158,8 @@ pi install -l npm:@mediadatafusion/pi-workflow-suite
 ### Installing specific versions
 
 ```bash
-pi install npm:@mediadatafusion/pi-workflow-suite@0.0.24
-pi install -l npm:@mediadatafusion/pi-workflow-suite@0.0.24
+pi install npm:@mediadatafusion/pi-workflow-suite@0.0.25
+pi install -l npm:@mediadatafusion/pi-workflow-suite@0.0.25
 ```
 
 An unversioned install follows normal package update behavior through `pi update --all`, which updates Pi and installed packages/extensions together. Bare `pi update` updates Pi itself only. A versioned install pins the package to that version. Pinned package specs are intentionally skipped by Pi's normal package update commands. To move a pinned install to a newer version, reinstall with the desired version. To switch back to latest tracking, use the unversioned install command without `@<version>`.
@@ -1377,10 +1377,10 @@ See `docs/TROUBLESHOOTING.md` for detailed diagnostics.
 
 ## Versioning
 
-The current preparation version is `v0.0.24`. Version information is intentionally aligned across:
+The current preparation version is `v0.0.25`. Version information is intentionally aligned across:
 
-- `VERSION` (`v0.0.24`),
-- `package.json` (`0.0.24`),
+- `VERSION` (`v0.0.25`),
+- `package.json` (`0.0.25`),
 - `package-lock.json`,
 - this README,
 - Workflow Suite settings/about output.

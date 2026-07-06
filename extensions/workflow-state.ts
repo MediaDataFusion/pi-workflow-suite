@@ -288,6 +288,17 @@ export interface WorkflowState {
   executionSummary?: string;
   validationReport?: string;
   validationVerdict?: "PASS" | "PARTIAL PASS" | "FAIL" | "UNKNOWN";
+  validationRunId?: string;
+  validationScope?: "plan" | "mission" | "mission_final";
+  validationPlanId?: string;
+  validationMissionId?: string;
+  validationMilestoneId?: string;
+  validationProjectCwd?: string;
+  workflowCommandLock?: {
+    family: "plan" | "mission";
+    action: string;
+    startedAt: string;
+  };
   currentValidationHandoffRetry?: number;
   maxValidationHandoffRetries?: number;
   lastValidationHandoffFailure?: string;
@@ -463,6 +474,7 @@ export interface MissionState {
   clarificationQuestions?: ClarificationQuestion[];
   clarificationAnswers?: ClarificationAnswer[];
   planText?: string;
+  lastRevisionFeedback?: string;
   currentStep?: string;
   reviewerReport?: string;
   reviewerVerdict?: "PASS" | "NOTES" | "NEEDS REPAIR" | "FAIL" | "BLOCKED" | "UNKNOWN";
@@ -508,6 +520,12 @@ export interface MissionState {
   maxFinalValidationRetries?: number;
   lastFinalValidationResult?: string;
   lastFinalValidationFailure?: string;
+  currentMilestoneExecution?: {
+    milestoneId?: string;
+    summary: string;
+    evidence?: string[];
+    completedAt: string;
+  };
 }
 
 export const WORKFLOW_DIR = join(getAgentDir(), "workflows");

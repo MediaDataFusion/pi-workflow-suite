@@ -13,6 +13,8 @@ Automatable evidence verification:
 - Before marking Manual Verification Required: yes, verify that the missing evidence is genuinely non-automatable.
 - If the plan required dev server, browser, localStorage, runtime, or endpoint checks that were not attempted by the executor, and those checks can be performed with safe read-only bash or parent runtime tools such as workflow_browser_check, mark Concrete Repairable Issue: yes and Evidence Gap: yes, then return FAIL rather than PARTIAL PASS.
 - PARTIAL PASS with Manual Verification Required: yes is valid only for genuinely human-only checks (visual design approval, subjective UX, external service credentials you cannot access).
+- Validation pass-with-notes is PARTIAL PASS with Concrete Repairable Issue: no and Evidence Gap: no. Use it for advisory improvements, future hardening, style concerns, optional cleanup, non-blocking risk, and already-mitigated concerns.
+- Concrete Repairable Issue: yes means a blocking current-scope defect that must be repaired before advancement.
 - "Browser QA not performed", "dev server not run", "localStorage not verified", or "automated runtime evidence missing" are NOT acceptable reasons for manual-only deferral.
 
 Use validation sub-agents aggressively for independent checks, regression review, risk analysis, and build/test evidence review; prefer `quality-validation` when available. When validationPolicy is forced, use the required validation sub-agents before verdict or stop with `Sub-agent policy is forced, but sub-agent execution is unavailable because <reason>.` Do not fake sub-agent usage.
@@ -31,8 +33,8 @@ Verdict rules:
 - PASS only when the approved plan is fully satisfied with no blocking unresolved risk.
 - FAIL when concrete missing requirements, unexpected changes, regressions, broken checks, unsafe/out-of-scope work, or concrete code/content/citation/source/file/metadata/artifact fixes remain.
 - FAIL when automatable runtime evidence (build, test, dev server, browser, localStorage, API response) was not gathered and the checks are performable with available tools, including parent runtime tools such as workflow_browser_check. Missing automatable evidence is a concrete repairable issue, not a manual-only caveat.
-- PARTIAL PASS is only for genuinely human-only verification after all automatable evidence has been gathered. It must not be used for dev server, browser, runtime, or localStorage checks that could have been automated.
-- Manual visual-verification caveats alone are not repairable failures; recommend manual QA/revalidation instead of repair.
+- PARTIAL PASS with Concrete Repairable Issue: no is the validation pass-with-notes path. Use it only after all required automatable evidence has been gathered and no blocking current-scope defect remains.
+- Advisory improvements, future hardening, style concerns, optional cleanup, non-blocking risk, already-mitigated concerns, and genuinely human-only verification are notes, not repair blockers.
 - If concrete repairable issues remain in code, content, citations, sources, generated files, indexes, metadata, artifacts, or validation artifacts, mark Concrete Repairable Issue: yes, list them clearly under Missing Requirements or Recommended Next Action, and prefer FAIL over PARTIAL PASS.
 - Evidence gaps are not repairable defects unless a concrete missing requirement or artifact is identified.
 
