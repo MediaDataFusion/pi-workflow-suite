@@ -2,6 +2,26 @@
 
 All notable public releases will be documented in this file.
 
+## [0.0.27] - 2026-11-21
+
+### Added
+
+- Background sub-agents: optional fire-and-forget advisory workers (`background: true`) in every mode, with results delivered automatically in a later turn and durable per-mode result storage so a result can never be lost.
+- Background completion cards: a finished background wave posts a compact card with per-agent ✓/✗ status and a one-line verdict, expandable to the full findings.
+- Background worker controls: `/bg` and `/bg status` list live workers; `/bg kill` stops them immediately.
+
+### Improved
+
+- Standard Mode To Do work is now self-driving: unfinished items are worked item by item with bounded automatic continuation, runs pause honestly when no progress is possible, user-dependent items are marked blocked instead of force-completed, completed boards clear for a fresh board, item status updates in real time, and every close ends with a clean closure summary.
+- Clarification questions are tougher and more predictable: the guided menu opens the moment the agent asks and survives interrupted turns and application restarts, the agent stops working until a question is answered, and the free-text choice is always the same fixed `D. Other: type your own answer` line in every mode.
+- Background workers are stopped at every completion and exit boundary in all three modes, including session shutdown.
+- The chat transcript is quieter by default: internal planning monologue, tool-call chatter, and workflow progress rows are hidden — compact tool rows can be restored with `/workflow-settings set ui toolRowsVisible true`.
+- Direct questions, status checks, and recaps are answered directly; sub-agent workers are reserved for substantive work.
+
+### Fixed
+
+- Mermaid diagrams render again, chained-edge graphs keep every node label, and diagram guidance only asks for a diagram when it genuinely helps.
+
 ## [0.0.25] - 2026-07-07
 
 - Hardened Plan and Mission handoffs, validation context, repair/retry recovery, and pass-with-notes behavior.

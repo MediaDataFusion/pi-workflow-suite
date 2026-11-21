@@ -322,6 +322,9 @@ export interface WorkflowState {
   planProgressLastToolStep?: number;
   planProgressLastToolStatus?: PlanStepStatus;
   planProgressLastToolAt?: string;
+  planExecutionTransientRecoveryAt?: string;
+  planExecutionTransientRecoveryPlanId?: string;
+  planExecutionTransientRetries?: number;
   planTokensUsed?: number;
   missionTokensUsed?: number;
   standardTokensUsed?: number;
@@ -340,6 +343,20 @@ export interface WorkflowState {
   standardClarifyingQuestions?: ClarificationQuestion[];
   standardClarifyingAnswers?: ClarificationAnswer[];
   standardSubagentPreflight?: Partial<Record<WorkflowSubagentPhase, StandardSubagentPreflightRecord>>;
+  standardTaskAddenda?: string[];
+  standardBackgroundAdvisoryDispatched?: Partial<Record<WorkflowSubagentPhase, string>>;
+  // Durable inbox for completed background advisory results: sendMessage
+  // delivery is fire-and-forget and queued results are destroyed by an
+  // aborting turn, so results are banked here and surfaced in the next
+  // Standard prompt before being cleared (owner report 2026-11-18: zero
+  // background deliveries in all 784 session files).
+  standardBackgroundResults?: { phase?: string; summary: string; completedAt: string }[];
+  // Pass 7 parity: Plan/Mission durable inboxes for background advisory
+  // results — same law as standardBackgroundResults (banked on wave-complete,
+  // surfaced once inside the next naturally-occurring executor/milestone
+  // prompt, cleared at completion/exit so nothing leaks across runs).
+  planBackgroundResults?: { phase?: string; summary: string; completedAt: string }[];
+  missionBackgroundResults?: { phase?: string; summary: string; completedAt: string }[];
   subagentPolicyDecisions?: Partial<Record<WorkflowSubagentPhase, WorkflowSubagentPolicyDecision>>;
   standardLastTodoDecision?: string;
   standardLastTodoReason?: string;
@@ -1135,6 +1152,76 @@ export function extractVerdict(report: string): WorkflowState["validationVerdict
   if (/\bFAIL\b/.test(upper)) return "FAIL";
   if (/\bPASS\b/.test(upper)) return "PASS";
   return "UNKNOWN";
+}
+
+// ── Transient Plan execution recovery ────────────────────────────
+// A transient provider/stream failure during Plan execution marks the
+// workflow so re-arming keeps forced-worker evidence, the progress tool
+// stays available during the re-arm window, and bounded auto re-arm can
+// distinguish "same execution continuing" from a genuinely new phase.
+const PLAN_TRANSIENT_EXECUTION_RECOVERY_WINDOW_MS = 10 * 60 * 1000;
+
+export function planTransientExecutionRecoveryActive(state: WorkflowState): boolean {
+  if (!state.planExecutionTransientRecoveryAt) return false;
+  const atMs = Date.parse(state.planExecutionTransientRecoveryAt);
+  if (!Number.isFinite(atMs) || Date.now() - atMs < 0 || Date.now() - atMs > PLAN_TRANSIENT_EXECUTION_RECOVERY_WINDOW_MS) return false;
+  const recoveryPlanId = state.planExecutionTransientRecoveryPlanId;
+  if (recoveryPlanId && state.activePlanId && recoveryPlanId !== state.activePlanId) return false;
+  return true;
+}
+
+// ── Background sub-agent activity bridge ─────────────────────────
+// The subagent tool and the workflow runtime are separate Pi extension
+// entries in one process. Pass 13 (2026-11-19) proved from the shipped
+// Pi 1.5.2 loader that each extension file is imported through a FRESH
+// jiti instance with moduleCache:false (dist/core/extensions/loader.js
+// loadExtensionModule), so every importing extension gets its OWN
+// evaluation of this module — a module-scoped sink variable would be
+// written by one copy and read as undefined by the other (live
+// 2026-11-19 HouseSaleTravel session: zero sink events processed all
+// run — no worker-finished row flips, no finished cleanup, no results
+// banking). The sink therefore lives on globalThis, which is shared
+// across module instances by spec. Background worker runs outlive
+// their tool call, so the subagent tool emits lifecycle events here
+// and the workflow runtime registers the sink that owns the
+// sub-agent activity surface.
+export type WorkflowBackgroundSubagentEvent = {
+  kind: "worker-finished" | "worker-failed" | "finished" | "wave-complete";
+  toolCallId: string;
+  agent?: string;
+  exitCode?: number;
+  // wave-complete carries the final result summary so the workflow runtime
+  // can bank it in a durable inbox; sendMessage alone is unreliable
+  // (fire-and-forget, and queued follow-ups are destroyed on turn abort).
+  phase?: string;
+  summary?: string;
+  // Pass 15 (owner ruling 2026-11-19: background agents need a visible
+  // completion surface like the sub-agents): per-worker status feeding the
+  // BG result card's ✓/✗ lines. The summary stays the full text payload —
+  // workers only drives the compact card, never the model path.
+  workers?: Array<{ name: string; status: "completed" | "failed" }>;
+  timestamp: string;
+};
+
+type WorkflowBackgroundSubagentSink = ((event: WorkflowBackgroundSubagentEvent) => void) | undefined;
+const WORKFLOW_BACKGROUND_SUBAGENT_SINK_KEY = "__piWorkflowSuiteBackgroundSubagentSink";
+type WorkflowBackgroundSubagentSinkHost = typeof globalThis & { [WORKFLOW_BACKGROUND_SUBAGENT_SINK_KEY]?: WorkflowBackgroundSubagentSink };
+
+export function setWorkflowBackgroundSubagentSink(sink: WorkflowBackgroundSubagentSink): void {
+  try {
+    (globalThis as WorkflowBackgroundSubagentSinkHost)[WORKFLOW_BACKGROUND_SUBAGENT_SINK_KEY] = sink;
+  } catch {
+    // A frozen or sandboxed globalThis cannot host the bridge; rows fall
+    // back to expiry/agent_end cleanup (the pre-pass-13 behavior).
+  }
+}
+
+export function emitWorkflowBackgroundSubagentEvent(event: WorkflowBackgroundSubagentEvent): void {
+  try {
+    (globalThis as WorkflowBackgroundSubagentSinkHost)[WORKFLOW_BACKGROUND_SUBAGENT_SINK_KEY]?.(event);
+  } catch {
+    // Activity updates are best-effort and must never break a worker run.
+  }
 }
 
 // No-op default export so this helper module can be safely auto-discovered as a Pi extension.

@@ -26,8 +26,8 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, getAgentDir, getMarkdownTheme, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { loadWorkflowSettings, parseSubagentModelBucket, resolveWorkflowSubagentModelRoute, type ThinkingLevel, type WorkflowSubagentModelBucket, type WorkflowSubagentModelMode } from "../workflow-model-router.js";
-import { loadState, type WorkflowMode, type WorkflowSubagentPhase } from "../workflow-state.js";
-import { trackSubagentPid, untrackSubagentPid } from "./runner.js";
+import { emitWorkflowBackgroundSubagentEvent, loadState, type WorkflowMode, type WorkflowSubagentPhase } from "../workflow-state.js";
+import { trackSubagentPid, untrackSubagentPid } from "./worker-registry.js";
 import { type AgentConfig, type AgentScope, type AgentSource, discoverAgents } from "./agents.js";
 
 const requireFromExtension = createRequire(import.meta.url);
@@ -87,7 +87,7 @@ function subagentModelModeForWorkflowMode(mode: WorkflowMode): WorkflowSubagentM
 }
 
 function bucketForWorkflowMode(mode: WorkflowMode, standardActivePhase?: WorkflowSubagentPhase): WorkflowSubagentModelBucket | undefined {
-	if (mode === "standard") return standardActivePhase ? parseSubagentModelBucket(standardActivePhase.toLowerCase()) : "planning";
+	if (mode === "standard") return standardActivePhase ? parseSubagentModelBucket(standardActivePhase.toLowerCase()) ?? "planning" : "planning";
 	if (mode === "planning" || mode === "mission_planning") return "planning";
 	if (mode === "executing" || mode === "mission_running") return "execution";
 	if (mode === "repairing" || mode === "mission_repairing") return "repair";
@@ -303,6 +303,7 @@ interface SingleResult {
 	stopReason?: string;
 	errorMessage?: string;
 	step?: number;
+	retriedAfterTimeout?: boolean;
 }
 
 interface SubagentDetails {
@@ -369,6 +370,56 @@ async function writePromptToTempFile(agentName: string, prompt: string): Promise
 	return { dir: tmpDir, filePath };
 }
 
+// ── Per-agent prompt file reuse (Cycle 2 D3) ──────────────────────────────
+// A worker's system prompt is static between agent-definition edits, but
+// every spawn used to mkdtemp + write + unlink identical content again.
+// Keep one prompt file per agent for the session, keyed by content: an
+// edited agent definition writes a fresh file. Registry-owned files are
+// cleaned up on session_shutdown; concurrent first spawns of the same
+// agent share one creation via the in-flight map.
+const agentPromptFileRegistry = new Map<string, { dir: string; filePath: string; content: string }>();
+const agentPromptFileDirs: string[] = [];
+const agentPromptFileInFlight = new Map<string, Promise<{ dir: string; filePath: string }>>();
+
+function cleanupAgentPromptFiles(): void {
+	for (const entry of agentPromptFileRegistry.values()) {
+		try {
+			fs.unlinkSync(entry.filePath);
+		} catch {
+			/* ignore */
+		}
+	}
+	for (const dir of agentPromptFileDirs) {
+		try {
+			fs.rmdirSync(dir);
+		} catch {
+			/* ignore */
+		}
+	}
+	agentPromptFileRegistry.clear();
+	agentPromptFileDirs.length = 0;
+}
+
+async function promptFileForAgent(agentName: string, prompt: string): Promise<{ dir: string; filePath: string }> {
+	const existing = agentPromptFileRegistry.get(agentName);
+	if (existing && existing.content === prompt) return existing;
+	const inFlightKey = `${agentName}::${prompt}`;
+	const pending = agentPromptFileInFlight.get(inFlightKey);
+	if (pending) return pending;
+	const created = (async () => {
+		const file = await writePromptToTempFile(agentName, prompt);
+		agentPromptFileDirs.push(file.dir);
+		agentPromptFileRegistry.set(agentName, { dir: file.dir, filePath: file.filePath, content: prompt });
+		return file;
+	})();
+	agentPromptFileInFlight.set(inFlightKey, created);
+	try {
+		return await created;
+	} finally {
+		agentPromptFileInFlight.delete(inFlightKey);
+	}
+}
+
 function getPiInvocation(args: string[]): { command: string; args: string[] } {
 	const currentScript = process.argv[1];
 	const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
@@ -399,6 +450,42 @@ async function runSingleAgent(
 	limits: { timeoutMinutes?: number; staleMinutes?: number } | undefined,
 	onUpdate: OnUpdateCallback | undefined,
 	makeDetails: (results: SingleResult[]) => SubagentDetails,
+): Promise<SingleResult> {
+	const attemptStartedAt = Date.now();
+	const result = await runSingleAgentAttempt(defaultCwd, agents, agentName, task, cwd, workflowPhase, step, signal, limits, onUpdate, makeDetails);
+	// ── Retry-once for transient worker kills (Cycle 2) ─────────────────
+	// Mirrors the parallel runner's retry contract: a worker lost to a hard
+	// timeout or the stale watchdog is re-run exactly once. User aborts
+	// ("Subagent was aborted") and real model failures are never retried,
+	// and the retry is capped so total elapsed time stays within one
+	// subagentTimeoutMinutes budget — deferred phase windows are timeout +
+	// 1 minute and must not be blown by a second full attempt.
+	const retryableInterruption = result.exitCode !== 0
+		&& result.stopReason === "aborted"
+		&& (result.errorMessage?.includes("timed out") === true || result.errorMessage?.includes("stale watchdog stopped") === true);
+	if (!retryableInterruption || signal?.aborted) return result;
+	const timeoutMinutes = Math.max(1, Math.min(240, Number(limits?.timeoutMinutes ?? 20)));
+	const remainingMs = timeoutMinutes * 60_000 - (Date.now() - attemptStartedAt);
+	if (remainingMs < 60_000) return result;
+	const retryLimits = { ...limits, timeoutMinutes: Math.max(1, Math.floor(remainingMs / 60_000)) };
+	const retryResult = await runSingleAgentAttempt(defaultCwd, agents, agentName, task, cwd, workflowPhase, step, signal, retryLimits, onUpdate, makeDetails);
+	if (retryResult.exitCode === 0) retryResult.retriedAfterTimeout = true;
+	return retryResult;
+}
+
+async function runSingleAgentAttempt(
+	defaultCwd: string,
+	agents: AgentConfig[],
+	agentName: string,
+	task: string,
+	cwd: string | undefined,
+	workflowPhase: string | undefined,
+	step: number | undefined,
+	signal: AbortSignal | undefined,
+	limits: { timeoutMinutes?: number; staleMinutes?: number } | undefined,
+	onUpdate: OnUpdateCallback | undefined,
+	makeDetails: (results: SingleResult[]) => SubagentDetails,
+	background = false,
 ): Promise<SingleResult> {
 	const agent = agents.find((a) => a.name === agentName);
 
@@ -445,9 +532,6 @@ async function runSingleAgent(
 	if (effectiveThinking) args.push("--thinking", effectiveThinking);
 	if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
 
-	let tmpPromptDir: string | null = null;
-	let tmpPromptPath: string | null = null;
-
 	const currentResult: SingleResult = {
 		agent: agentName,
 		agentSource: agent.source,
@@ -472,10 +556,8 @@ async function runSingleAgent(
 
 	try {
 		if (agent.systemPrompt.trim()) {
-			const tmp = await writePromptToTempFile(agent.name, agent.systemPrompt);
-			tmpPromptDir = tmp.dir;
-			tmpPromptPath = tmp.filePath;
-			args.push("--append-system-prompt", tmpPromptPath);
+			const tmp = await promptFileForAgent(agent.name, agent.systemPrompt);
+			args.push("--append-system-prompt", tmp.filePath);
 		}
 
 		args.push(`Task: ${task}`);
@@ -489,6 +571,10 @@ async function runSingleAgent(
 			const proc = spawn(invocation.command, invocation.args, {
 				cwd: effectiveCwd,
 				shell: false,
+				// detached: true makes the worker a process-group leader so group
+				// kills (process.kill(-pid)) actually reach it and any nohup … &
+				// grandchildren; without it kill(-pid) is a guaranteed ESRCH no-op.
+				detached: true,
 				stdio: ["ignore", "pipe", "pipe"],
 				env: {
 					...process.env,
@@ -498,7 +584,7 @@ async function runSingleAgent(
 					...(lockRoot ? { PI_WORKFLOW_REPO_LOCK_ENABLED: "1", PI_WORKFLOW_REPO_LOCK_ROOT: lockRoot } : {}),
 				},
 			});
-			if (proc.pid) trackSubagentPid(proc.pid);
+			if (proc.pid) trackSubagentPid(proc.pid, effectiveCwd, background ? "bg" : "fg");
 			let buffer = "";
 			let lastOutputAt = Date.now();
 			let settled = false;
@@ -507,9 +593,21 @@ async function runSingleAgent(
 				timeoutReason = reason;
 				wasAborted = true;
 				currentResult.errorMessage = reason;
+				// Rows must not lie "running" while the kill ladder fires; emit a
+				// worker-failed event so the activity surface flips immediately
+				// (empty toolCallId: match by agent name — skip-if-busy keeps a
+				// single bg wave in flight, so the name is unambiguous).
+				if (background) emitWorkflowBackgroundSubagentEvent({ kind: "worker-failed", toolCallId: "", agent: agentName, timestamp: new Date().toISOString() });
 				try { process.kill(-proc.pid!, "SIGTERM"); } catch { proc.kill("SIGTERM"); }
+				// pi print-mode workers trap the FIRST SIGTERM (graceful disposal);
+				// only a repeated signal forces exit mid-disposal.
+				setTimeout(() => { try { process.kill(-proc.pid!, "SIGTERM"); } catch { try { proc.kill("SIGTERM"); } catch { /* already dead */ } } }, 2000);
+				// proc.killed only says a signal was SENT; escalate to a group
+				// SIGKILL only when the child has not actually exited.
 				setTimeout(() => {
-					if (!proc.killed) { try { process.kill(-proc.pid!, "SIGKILL"); } catch { proc.kill("SIGKILL"); } }
+					if (proc.exitCode === null && proc.signalCode === null) {
+						try { process.kill(-proc.pid!, "SIGKILL"); } catch { try { proc.kill("SIGKILL"); } catch { /* already dead */ } }
+					}
 				}, 5000);
 			};
 			const timeoutTimer = setTimeout(() => stopProcess(`Sub-agent timed out after ${Math.round(timeoutMs / 60000)} minute(s).`), timeoutMs);
@@ -557,6 +655,9 @@ async function runSingleAgent(
 			};
 
 			proc.stdout.on("data", (data) => {
+				// Any stdout chunk is worker liveness, even when the payload is not
+				// parseable JSON progress; the stale watchdog only fires on total silence.
+				lastOutputAt = Date.now();
 				buffer += data.toString();
 				const lines = buffer.split("\n");
 				buffer = lines.pop() || "";
@@ -574,12 +675,14 @@ async function runSingleAgent(
 				if (buffer.trim()) processLine(buffer);
 				// Kill process group to clean up background child processes
 				// (dev servers, static servers, tools — any program the sub-agent started).
-				// process.kill(-pid) signals the entire process group; works on all Unix.
+				// Valid since the worker spawns detached (group leader); the group
+				// disappears with the leader once every member exits.
 				try { if (proc.pid) process.kill(-proc.pid, "SIGTERM"); } catch { /* group empty */ }
 				resolve(code ?? 0);
 			});
 
 			proc.on("error", () => {
+				if (proc.pid) untrackSubagentPid(proc.pid);
 				settled = true;
 				clearTimeout(timeoutTimer);
 				clearInterval(staleTimer);
@@ -602,18 +705,8 @@ async function runSingleAgent(
 		}
 		return currentResult;
 	} finally {
-		if (tmpPromptPath)
-			try {
-				fs.unlinkSync(tmpPromptPath);
-			} catch {
-				/* ignore */
-			}
-		if (tmpPromptDir)
-			try {
-				fs.rmdirSync(tmpPromptDir);
-			} catch {
-				/* ignore */
-			}
+		// Registry-owned prompt files are reused across spawns for the
+		// session and cleaned up on session_shutdown (Cycle 2 D3).
 	}
 }
 
@@ -643,7 +736,10 @@ const SubagentParams = Type.Object({
 	task: Type.Optional(Type.String({ description: "Task to delegate (for single mode)" })),
 	tasks: Type.Optional(Type.Array(TaskItem, { description: "Array of {agent, task} for parallel execution" })),
 	chain: Type.Optional(Type.Array(ChainItem, { description: "Array of {agent, task} for sequential execution" })),
-	workflowPhase: Type.Optional(WorkflowPhaseSchema),
+		workflowPhase: Type.Optional(WorkflowPhaseSchema),
+	background: Type.Optional(
+			Type.Boolean({ description: "Run sub-agents in the background; the tool returns immediately and results arrive on the next idle turn. Blocked while forced worker evidence is unmet. Not supported for chain." }),
+		),
 	agentScope: Type.Optional(AgentScopeSchema),
 	confirmProjectAgents: Type.Optional(
 		Type.Boolean({ description: "Prompt before running project-local agents. Default: true.", default: true }),
@@ -652,7 +748,32 @@ const SubagentParams = Type.Object({
 		concurrency: Type.Optional(Type.Number({ description: "Max concurrent sub-agents for parallel mode. Default: 8.", minimum: 1, maximum: 16 })),
 		failFast: Type.Optional(Type.Boolean({ description: "Stop remaining tasks on first failure. Default: false.", default: false })),});
 
+// Standard To Do staleness reminder: when a sub-agent batch finishes while an
+// active Standard Mode To Do has not been updated for over two minutes,
+// append a one-line nudge to the tool result / background delivery so the
+// parent turn updates completed items immediately instead of batch-completing
+// them at the end (live 2026-11-16: ~7 minutes stuck on item 1). Non-blocking
+// and read-only; the parent turn still owns the update. Same pattern as
+// backgroundDowngradeNote below.
+function standardTodoReminderNote(): string {
+	try {
+		const workflowState = loadState();
+		const todo = workflowState.standardTodo;
+		if (workflowState.mode !== "standard" || !todo?.items.length || todo.status === "completed") return "";
+		const updatedMs = todo.updatedAt ? Date.parse(todo.updatedAt) : NaN;
+		if (!Number.isFinite(updatedMs)) return "";
+		const staleMinutes = Math.floor((Date.now() - updatedMs) / 60_000);
+		if (staleMinutes < 2) return "";
+		return `\n\n(Standard To Do reminder: ${staleMinutes}m since the last To Do update — call standard_todo({ action: "update", item, status }) now for completed work before continuing.)`;
+	} catch {
+		return "";
+	}
+}
+
 export default function (pi: ExtensionAPI) {
+	pi.on("session_shutdown", () => {
+		cleanupAgentPromptFiles();
+	});
 	pi.registerTool({
 		name: "subagent",
 		label: "Subagent",
@@ -665,7 +786,7 @@ export default function (pi: ExtensionAPI) {
 		].join(" "),
 		parameters: SubagentParams,
 
-		async execute(_toolCallId, params, signal, onUpdate, ctx) {
+		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			const settings = loadWorkflowSettings(ctx.cwd);
 			const lockRoot = repoLockRootForSubagent(ctx.cwd, settings);
 			if (lockRoot) {
@@ -760,6 +881,116 @@ export default function (pi: ExtensionAPI) {
 							details: makeDetails(hasChain ? "chain" : hasTasks ? "parallel" : "single")([]),
 						};
 				}
+			}
+
+			// ── Background execution (Cycle 2, Phase 3) ─────────────────────
+			// Advisory background runs: the tool returns immediately and the
+			// workers' results are delivered on the next idle turn as a
+			// follow-up message. Background workers never satisfy forced
+			// worker evidence (the tool result carries running placeholders,
+			// not exitCode 0); the workflow tool-call guard blocks background
+			// requests while forced evidence is still unmet. Worker processes
+			// are tracked in the shared pid registry, so session cleanup and
+			// the exit sweep cover them.
+			const wantsBackground = params.background === true;
+			if (wantsBackground && hasChain) {
+				return {
+					content: [{ type: "text", text: "Background execution is not supported for chain requests. Remove background:true or use a tasks array." }],
+					details: makeDetails("chain")([]),
+					isError: true,
+				};
+			}
+			const backgroundDowngradeNote = wantsBackground && settings.subagents.allowBackgroundSubagents !== true
+				? "\n\n(Background requested but subagents.allowBackgroundSubagents is disabled; sub-agents ran in the foreground.)"
+				: "";
+			const runInBackground = wantsBackground && settings.subagents.allowBackgroundSubagents === true;
+			if (runInBackground) {
+				const bgTasks: Array<{ agent: string; task: string; cwd?: string }> = hasTasks
+					? (params.tasks ?? []).map((t) => ({ agent: t.agent, task: t.task, cwd: t.cwd }))
+					: [{ agent: params.agent ?? "", task: params.task ?? "", cwd: params.cwd }];
+				const bgMode: "single" | "parallel" = hasTasks ? "parallel" : "single";
+				const placeholders: SingleResult[] = bgTasks.map((t) => ({
+					agent: t.agent,
+					agentSource: agents.find((a) => a.name === t.agent)?.source ?? "unknown",
+					task: t.task,
+					exitCode: -1,
+					messages: [],
+					stderr: "",
+					usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+				}));
+				const startedLines = bgTasks.map((t) => `- ${t.agent}: ${t.task.slice(0, 120)}`).join("\n");
+					// Fire-and-forget: the background continuation passes NO abort
+					// signal and NO tool-call streaming update callback — the parent
+					// turn must stay free (Esc does not kill background workers), and
+					// late tool-call updates would wedge the activity rows. Worker
+					// completion is reported through the shared background activity
+					// bridge (workflow-state.js) so [bg] rows and counts stay live
+					// without touching the tool-call update stream. The raw attempt
+					// path is used (single attempt, no retry) so a background run
+					// stays time-bounded.
+					void (async () => {
+						try {
+							const results = await mapWithConcurrencyLimit(bgTasks, params.concurrency ?? DEFAULT_CONCURRENCY, async (t) => {
+								try {
+									const result = await runSingleAgentAttempt(ctx.cwd, agents, t.agent, t.task, t.cwd, params.workflowPhase, undefined, undefined, subagentLimits, undefined, makeDetails(bgMode), true);
+									emitWorkflowBackgroundSubagentEvent({ kind: "worker-finished", toolCallId, agent: t.agent, exitCode: result.exitCode, timestamp: new Date().toISOString() });
+									return result;
+								} catch (error) {
+									// A thrown worker must still report completion to the
+									// activity bridge; otherwise its [bg] row sticks
+									// "running" forever and Standard runtime never idles.
+									emitWorkflowBackgroundSubagentEvent({ kind: "worker-finished", toolCallId, agent: t.agent, exitCode: 1, timestamp: new Date().toISOString() });
+									const failed: SingleResult = {
+										agent: t.agent,
+										agentSource: agents.find((a) => a.name === t.agent)?.source ?? "unknown",
+										task: t.task,
+										exitCode: 1,
+										messages: [],
+										stderr: "",
+										usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+										errorMessage: error instanceof Error ? error.message : String(error),
+									};
+									return failed;
+								}
+							});
+							const summary = results
+								.map((r) => {
+									const output = r.exitCode === 0 ? getFinalOutput(r.messages) : r.errorMessage || r.stderr || "(no output)";
+									const text = output ?? "(no output)";
+									const clipped = text.length > 4000 ? `${text.slice(0, 4000)}…(clipped)` : text;
+									return `## ${r.agent} — ${r.exitCode === 0 ? "completed" : "failed"}\nTask: ${r.task.slice(0, 200)}\n\n${clipped}`;
+								})
+								.join("\n\n");
+							// Bank the results durably BEFORE the best-effort message:
+							// sendMessage is fire-and-forget and a queued follow-up is
+							// destroyed when the user aborts the running turn (live
+							// 2026-11-18: zero deliveries in all session history), so
+							// the workflow runtime stores this summary in a persistent
+							// inbox and surfaces it on a later turn regardless.
+							// Pass 15: workers feeds the visible BG result card only
+							// (✓/✗ per agent); the summary remains the full payload.
+							const waveWorkers = results.map((r) => ({ name: r.agent, status: r.exitCode === 0 ? ("completed" as const) : ("failed" as const) }));
+							emitWorkflowBackgroundSubagentEvent({ kind: "wave-complete", toolCallId, phase: params.workflowPhase, summary: `# BG Sub-Agents Finished\n\n${summary}`, workers: waveWorkers, timestamp: new Date().toISOString() });
+							try {
+								pi.sendMessage(
+									{ customType: "workflow-subagent-background-result", content: `# BG Sub-Agents Finished\n\n${summary}${standardTodoReminderNote()}`, display: false, details: { toolCallId } },
+									{ triggerTurn: true, deliverAs: "followUp" },
+								);
+							} catch {
+								// Delivery is best-effort; a disposed session swallows it.
+							}
+						} finally {
+							// Always emit "finished", even if the batch threw, so the
+							// workflow side schedules row cleanup and the activity
+							// ticker can stop. A missing "finished" leaves every [bg]
+							// row "running" forever with no cleanup path.
+							emitWorkflowBackgroundSubagentEvent({ kind: "finished", toolCallId, timestamp: new Date().toISOString() });
+						}
+					})();
+				return {
+					content: [{ type: "text", text: `# BG Sub-Agents Started\n\n${startedLines}\n\nResults will be delivered on the next idle turn. Background sub-agents never count toward forced worker evidence.` }],
+					details: makeDetails(bgMode)(placeholders),
+				};
 			}
 
 			if (params.chain && params.chain.length > 0) {
@@ -906,7 +1137,7 @@ export default function (pi: ExtensionAPI) {
 					content: [
 						{
 							type: "text",
-							text: `Parallel: ${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n")}`,
+							text: `Parallel: ${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n")}${backgroundDowngradeNote}${standardTodoReminderNote()}`,
 						},
 					],
 					details: makeDetails("parallel")(results),
@@ -938,7 +1169,7 @@ export default function (pi: ExtensionAPI) {
 					};
 				}
 				return {
-					content: [{ type: "text", text: getFinalOutput(result.messages) || "(no output)" }],
+					content: [{ type: "text", text: `${getFinalOutput(result.messages) || "(no output)"}${backgroundDowngradeNote}${standardTodoReminderNote()}` }],
 					details: makeDetails("single")([result]),
 				};
 			}
@@ -1254,8 +1485,9 @@ export default function (pi: ExtensionAPI) {
 					if (displayItems.length === 0)
 						text += `\n${theme.fg("muted", r.exitCode === -1 ? "(running...)" : "(no output)")}`;
 					else text += `\n${renderDisplayItems(displayItems, 5)}`;
-					const taskUsage = formatUsageStats(r.usage, r.model, r.thinkingLevel);
-					if (taskUsage) text += `\n${theme.fg("dim", taskUsage)}`;
+				const taskUsage = formatUsageStats(r.usage, r.model, r.thinkingLevel);
+				if (taskUsage) text += `\n${theme.fg("dim", taskUsage)}`;
+				if (r.retriedAfterTimeout) text += `\n${theme.fg("dim", "[retry after timeout]")}`;
 				}
 				if (!isRunning) {
 					const usageStr = formatUsageStats(aggregateUsage(details.results));

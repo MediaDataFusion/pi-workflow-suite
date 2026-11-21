@@ -13,7 +13,9 @@ import * as crypto from "node:crypto";
 import type { Message } from "@earendil-works/pi-ai";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { loadWorkflowSettings, type ThinkingLevel } from "../workflow-model-router.js";
+import { emitWorkflowBackgroundSubagentEvent } from "../workflow-state.js";
 import { type AgentConfig, type AgentScope, type AgentSource, discoverAgents } from "./agents.js";
+import { trackSubagentPid, untrackSubagentPid } from "./worker-registry.js";
 
 export interface WorkflowSubagentTask {
   agent: string;
@@ -71,36 +73,29 @@ export interface WorkflowSubagentRunOptions {
   concurrency?: number;
   failFast?: boolean;
   background?: boolean;
+  // Background completion hook (pass 6): the fire-and-forget branch resolves
+  // outlive the tool call; onComplete lets the caller finalize activity rows
+  // the moment the whole wave settles instead of waiting for row expiry.
+  onComplete?: (results: WorkflowSubagentResult[]) => void;
 }
 
 const DEFAULT_CONCURRENCY = 8;
 
 // ── Orphan process tracking (#8) ──────────────────────────────
-const trackedPids = new Set<number>();
-
-export function trackedOrphanPids(): ReadonlySet<number> {
-  return trackedPids;
-}
-
-export function trackSubagentPid(pid: number): void {
-  trackedPids.add(pid);
-}
-
-export function untrackSubagentPid(pid: number): void {
-  trackedPids.delete(pid);
-}
-
-export function cleanupOrphanProcesses(): void {
-  for (const pid of trackedPids) {
-    try { process.kill(pid, "SIGTERM"); } catch { /* already dead */ }
-  }
-  trackedPids.clear();
-}
-
-// Clean up on parent exit (unexpected death)
-if (typeof process.on === "function") {
-  process.on("exit", () => { for (const pid of trackedPids) { try { process.kill(pid, "SIGTERM"); } catch { /* ignore */ } } });
-}
+// Registry implementation lives in ./worker-registry.ts (pass 6 extraction:
+// kind-aware, per-pid dir mapping, bg-only kill filtering). Re-exported here
+// so existing import sites stay stable.
+export {
+  backgroundWorkerSnapshot,
+  cleanupOrphanProcesses,
+  killBackgroundSubagentWorkers,
+  subagentWorkerRegistryPath,
+  sweepStaleSubagentWorkers,
+  trackSubagentPid,
+  trackedOrphanPids,
+  untrackSubagentPid,
+  SUBAGENT_WORKER_SWEEP_AGE_MS,
+} from "./worker-registry.js";
 
 // ── Result caching (#6) ─────────────────────────────────────
 const resultCache = new Map<string, WorkflowSubagentResult>();
@@ -211,6 +206,7 @@ async function runSingleWorkflowSubagent(
   task: WorkflowSubagentTask,
   signal: AbortSignal | undefined,
   limits: { timeoutMinutes?: number; staleMinutes?: number },
+  background = false,
 ): Promise<WorkflowSubagentResult> {
   const agent = agents.find((a) => a.name === task.agent);
   if (!agent) {
@@ -281,11 +277,15 @@ async function runSingleWorkflowSubagent(
     const timeoutMs = Math.max(1, Math.min(240, Number(limits.timeoutMinutes ?? 20))) * 60_000;
     const staleMs = Math.max(1, Math.min(240, Number(limits.staleMinutes ?? 8))) * 60_000;
 
-    const exitCode = await new Promise<number>((resolve) => {
-      const invocation = getPiInvocation(args);
-      const proc = spawn(invocation.command, invocation.args, {
+      const exitCode = await new Promise<number>((resolve) => {
+        const invocation = getPiInvocation(args);
+        const proc = spawn(invocation.command, invocation.args, {
         cwd: effectiveCwd,
         shell: false,
+        // detached: true makes the worker a process-group leader so group
+        // kills (process.kill(-pid)) actually reach it and any nohup … &
+        // grandchildren; without it kill(-pid) is a guaranteed ESRCH no-op.
+        detached: true,
         stdio: ["ignore", "pipe", "pipe"],
         env: {
           ...process.env,
@@ -297,7 +297,7 @@ async function runSingleWorkflowSubagent(
           ...(task.output ? { PI_SUBAGENT_OUTPUT: task.output } : {}),
         },
       });
-      trackedPids.add(proc.pid!);
+      trackSubagentPid(proc.pid!, effectiveCwd, background ? "bg" : "fg");
       let buffer = "";
       let lastOutputAt = Date.now();
       let settled = false;
@@ -307,8 +307,22 @@ async function runSingleWorkflowSubagent(
         timeoutReason = reason;
         wasAborted = true;
         errorMessage = reason;
+        // Rows must not lie "running" while the kill ladder fires; emit a
+        // worker-failed event so the activity surface flips immediately
+        // (empty toolCallId: match by agent name — skip-if-busy keeps a
+        // single bg wave in flight, so the name is unambiguous).
+        if (background) emitWorkflowBackgroundSubagentEvent({ kind: "worker-failed", toolCallId: "", agent: agent.name, timestamp: new Date().toISOString() });
         try { process.kill(-proc.pid!, "SIGTERM"); } catch { proc.kill("SIGTERM"); }
-        setTimeout(() => { if (!proc.killed) { try { process.kill(-proc.pid!, "SIGKILL"); } catch { proc.kill("SIGKILL"); } } }, 5000);
+        // pi print-mode workers trap the FIRST SIGTERM (graceful disposal);
+        // only a repeated signal forces exit mid-disposal.
+        setTimeout(() => { try { process.kill(-proc.pid!, "SIGTERM"); } catch { try { proc.kill("SIGTERM"); } catch { /* already dead */ } } }, 2000);
+        // proc.killed only says a signal was SENT; escalate to a group
+        // SIGKILL only when the child has not actually exited.
+        setTimeout(() => {
+          if (proc.exitCode === null && proc.signalCode === null) {
+            try { process.kill(-proc.pid!, "SIGKILL"); } catch { try { proc.kill("SIGKILL"); } catch { /* already dead */ } }
+          }
+        }, 5000);
       };
       const timeoutTimer = setTimeout(() => stopProcess(`Sub-agent timed out after ${Math.round(timeoutMs / 60000)} minute(s).`), timeoutMs);
       const staleTimer = setInterval(() => {
@@ -346,6 +360,9 @@ async function runSingleWorkflowSubagent(
       };
 
       proc.stdout.on("data", (data) => {
+        // Any stdout chunk is worker liveness, even when the payload is not
+        // parseable JSON progress; the stale watchdog only fires on total silence.
+        lastOutputAt = Date.now();
         buffer += data.toString();
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
@@ -354,19 +371,20 @@ async function runSingleWorkflowSubagent(
       proc.stderr.on("data", (data) => { stderr += data.toString(); });
       proc.on("close", (code) => {
         settled = true;
-        trackedPids.delete(proc.pid!);
+        untrackSubagentPid(proc.pid!);
         clearTimeout(timeoutTimer);
         clearInterval(staleTimer);
         if (buffer.trim()) processLine(buffer);
         // Kill process group to clean up background child processes
         // (dev servers, static servers, tools — any program the sub-agent started).
-        // process.kill(-pid) signals the entire process group; works on all Unix.
+        // Valid since the worker spawns detached (group leader); the group
+        // disappears with the leader once every member exits.
         try { if (proc.pid) process.kill(-proc.pid, "SIGTERM"); } catch { /* group empty */ }
         resolve(code ?? 0);
       });
       proc.on("error", () => {
         settled = true;
-        trackedPids.delete(proc.pid!);
+        untrackSubagentPid(proc.pid!);
         clearTimeout(timeoutTimer);
         clearInterval(staleTimer);
         resolve(1);
@@ -436,10 +454,12 @@ export async function runWorkflowSubagents(options: WorkflowSubagentRunOptions):
 
   const executeTask = async (task: WorkflowSubagentTask, index: number): Promise<WorkflowSubagentResult> => {
     const limits = { timeoutMinutes: options.timeoutMinutes, staleMinutes: options.staleMinutes };
-    let result = await runSingleWorkflowSubagent(options.cwd, discovery.agents, task, options.signal, limits);
+    const workerKindBackground = Boolean(options.background || task.background);
+    let result = await runSingleWorkflowSubagent(options.cwd, discovery.agents, task, options.signal, limits, workerKindBackground);
     // ── Retry-on-timeout (#3): retry once on timeout/stale ──
-    if (result.exitCode !== 0 && result.stopReason === "aborted" && result.errorMessage?.includes("timed out") && !options.signal?.aborted) {
-      const retryResult = await runSingleWorkflowSubagent(options.cwd, discovery.agents, task, options.signal, limits);
+    const retryableInterruption = result.errorMessage?.includes("timed out") || result.errorMessage?.includes("stale watchdog stopped");
+    if (result.exitCode !== 0 && result.stopReason === "aborted" && retryableInterruption && !options.signal?.aborted) {
+      const retryResult = await runSingleWorkflowSubagent(options.cwd, discovery.agents, task, options.signal, limits, workerKindBackground);
       retryResult.output = `[retry after timeout]\n${retryResult.output}`;
       result = retryResult;
     }
@@ -454,8 +474,10 @@ export async function runWorkflowSubagents(options: WorkflowSubagentRunOptions):
     // Fire-and-forget: start execution, don't await, deliver results via onUpdate
     mapWithConcurrencyLimit(options.tasks, concurrency, executeTask, options.failFast).then((results) => {
       // Results delivered via onUpdate during execution; final result available for next turn
+      try { options.onComplete?.(results); } catch { /* activity finalization is best-effort */ }
     }).catch(() => {
       // Background failures are non-fatal; onUpdate already reported individual failures
+      try { options.onComplete?.([]); } catch { /* activity finalization is best-effort */ }
     });
     return { agentScope, projectAgentsDir: discovery.projectAgentsDir, results: running };
   }

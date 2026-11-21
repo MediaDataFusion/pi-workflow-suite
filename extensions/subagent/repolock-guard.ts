@@ -206,10 +206,22 @@ function stripUriTokens(command: string): string {
   return command.replace(/\b[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s'"`;&|)]*/g, " ");
 }
 
+function plausiblePathCandidate(raw: string): boolean {
+  // Keep bare traversal and tilde forms: they resolve outside the repo root.
+  if (raw === "." || raw === "..") return true;
+  if (raw.startsWith("~")) return true;
+  if (raw.startsWith("./") || raw.startsWith("../")) return true;
+  if (!raw.startsWith("/")) return false; // bare relative names resolve inside the validated cwd
+  if (raw === "/") return true; // skipped downstream as a no-op candidate
+  // Absolute tokens must carry a word character in a path segment, so markdown
+  // punctuation like /## or /** is never treated as a path candidate.
+  return /^\/[^/]*[A-Za-z0-9_]/.test(raw) || /\/[^/]*[A-Za-z0-9_]/.test(raw);
+}
+
 function bashPathCandidates(command: string): string[] {
   const trimmed = stripUriTokens(stripHereDocBodies(stripQuotedSlashes(command))).trim();
   if (!trimmed) return [];
-  return Array.from(trimmed.matchAll(/(?:^|[\s=:'"`])((?:\.{1,2}|~|\/)[^\s'"`;&|)]*)/g)).map((match) => match[1]).filter(Boolean);
+  return Array.from(trimmed.matchAll(/(?:^|[\s=:'"`])((?:\.{1,2}|~|\/)[^\s'"`;&|)]*)/g)).map((match) => match[1]).filter(Boolean).filter(plausiblePathCandidate);
 }
 
 function hasShellControlOperator(command: string): boolean {

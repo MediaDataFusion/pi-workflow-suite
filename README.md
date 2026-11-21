@@ -11,7 +11,7 @@
   <a href="#settings-reference"><img src="https://cdn.jsdelivr.net/npm/@mediadatafusion/pi-workflow-suite@0.0.3/docs/assets/readme-link-settings.svg" alt="Settings" /></a>
 </p>
 
-**Workflow Suite Version:** `v0.0.25`
+**Workflow Suite Version:** `v0.0.27`
 
 ## Overview
 
@@ -214,6 +214,14 @@ Dynamic To Do expectations:
 - The `standard_todo` tool initializes dynamic items with `action: "set"` and updates progress with `action: "update"`.
 - `To Do Trigger Mode` controls when Standard Mode starts lightweight To Do progress tracking: Disabled never starts it, On request starts it only when explicitly requested, Automatic when useful lets Standard Mode decide, and Required creates or maintains it before substantive active task work.
 - Standard To Do tracking is not a Plan Mode approved plan and not Mission Mode milestones; it is lightweight progress visibility for direct Standard Mode work.
+- The To Do list is driven, not decorative: when a turn ends with actionable items and no clarification is waiting, Standard Mode automatically continues the work item by item. Continuation is bounded — if several automatic continuations make no progress, the run pauses honestly with a visible card instead of looping or hanging.
+- Items complete in real time: an item's status changes the moment its work finishes, and completing a not-yet-started item is rejected — the list can never jump to fully completed in an end-of-turn batch.
+- The status never lies about completion: `completed` displays only when no work is still running, and while a clarification question waits on you the status reads `awaiting answer`.
+- Direct questions, status checks, and recap requests are answered directly — forced sub-agent policies apply to substantive work, never to answering a question.
+- A closed run always closes visibly: the agent's accepted handoff stays armed until pending work drains, then Standard Mode finalizes with a closure summary (final To Do state, exactly what happened to background workers, plus any background results that were not delivered inline), stops the active clock, and kills background advisory workers. Background advisory workers never hold a close open: they get one bounded window to return their report, then the close stops them and says so.
+- Unfinished items are never force-completed. Items that only the user can advance are marked blocked; the list shows the real state (`paused`, `blocked`, or `completed`) instead of pretending everything finished.
+- A completed board clears from the progress widget instead of lingering, and the next task opens a fresh board.
+- With no To Do list active, the status line reads `Standard assist`.
 
 Configurable clarification:
 
@@ -391,10 +399,12 @@ Clarification behavior:
 
 - Questions are generated from the actual task or mission goal.
 - Options use concrete A/B/C/D choices.
-- `D` is a custom answer.
+- `D` is always the same fixed free-text choice — `D. Other: type your own answer` — and selecting it opens the typing box for your own answer.
 - Questions can be skipped.
 - Shorthand answers are accepted, for example `1A, 2C, 3D: custom answer`.
 - Guided UI selection is used when available.
+- The guided menu opens the moment the agent asks, recovers if the asking turn is interrupted, and re-opens after an application restart while a question is still waiting.
+- Once a question is asked, the agent stops working until it is answered; duplicate asks are refused.
 
 Configuration modes:
 
@@ -513,17 +523,21 @@ Configure worker routes from:
 /workflow settings Standard Mode
 /workflow settings Mission Mode
 
-/workflow-settings set subagent-models shared <planning|execution|repair|review|validation> <provider> <model>
-/workflow-settings set subagent-models plan <planning|execution|repair|review|validation> <provider> <model>
-/workflow-settings set subagent-models standard <planning|execution|repair|review|validation> <provider> <model>
-/workflow-settings set subagent-models mission <planning|execution|repair|review|validation> <provider> <model>
-/workflow-settings set subagent-models <shared|plan|standard|mission> <phase> thinking <off|minimal|low|medium|high|xhigh>
-/workflow-settings set subagent-models <shared|plan|standard|mission> <phase> inherit
+/workflow settings set subagent-models shared <planning|execution|repair|review|validation> <provider> <model>
+/workflow settings set subagent-models plan <planning|execution|repair|review|validation> <provider> <model>
+/workflow settings set subagent-models standard <planning|execution|repair|review|validation> <provider> <model>
+/workflow settings set subagent-models mission <planning|execution|repair|review|validation> <provider> <model>
+/workflow settings set subagent-models <shared|plan|standard|mission> <phase> thinking <off|minimal|low|medium|high|xhigh>
+/workflow settings set subagent-models <shared|plan|standard|mission> <phase> inherit
 ```
 
 ## Efficiency Guidance
 
 Workflow Suite gives you independent control over workflow rigor and model cost. This section explains which settings affect token usage and how to tune them.
+
+### Sub-Agent Model Routing
+
+Fresh installs inherit the Pi default model for every sub-agent worker, which can route workers to a flagship-priced model. Route worker phases explicitly with the settings commands above (`/workflow settings set subagent-models …`) or by filling the `subagentModelRouting` tables in `workflow-settings.json` (scopes: shared, plan, standard, mission; buckets: planning, execution, repair, review, validation). A common cost profile routes all worker buckets to a fast, cheaper model while keeping the parent roles (planner, reviewer, validator) on the flagship model. Background workers follow the same routing tables.
 
 ### Thinking Levels
 
@@ -905,6 +919,17 @@ Commands:
 /workflow settings Shared Sub-agents
 ```
 
+### Background Sub-Agents
+
+Background sub-agents are optional fire-and-forget advisory workers: the `subagent` call returns immediately with `background: true`, workers run detached, and results arrive automatically in a later turn (visible in the `BG Sub-agents` column beside the top widget status lines while running). They are advisory only — they never satisfy forced worker evidence and never replace required synchronous workers.
+
+- Enabled by `subagents.allowBackgroundSubagents` (`/workflow settings Shared Sub-agents`). Note that the built-in `simple` and `standard` presets force this off; `deep` and `maximum` force it on.
+- Rules: one small read-only advisory task per call (no polling, sleep loops, watchers, or servers), only after the phase's required synchronous workers are satisfied, and only while consuming work remains. Standard Mode additionally dispatches one deterministic advisory per satisfied worker bucket while To Do work remains.
+- Durable results: completed waves are banked per mode and surfaced exactly once in the next Standard prompt / Plan executor prompt / Mission milestone prompt, so a lost inline delivery can never swallow a result. Standard Mode's closure summary also lists any still-undelivered banked results.
+- Completion cards: when a background wave finishes, a compact card appears in the transcript with per-agent ✓/✗ status and a one-line verdict, expandable to the full findings.
+- Lifecycle: workers are killed the moment their consuming work ends — Standard terminal state and exit, "no remaining To Do work", Plan completion and exit, Mission completion and exit, session shutdown — plus an in-session timeout sweep. A hard timeout ladder (SIGTERM to SIGKILL) enforces the per-worker ceiling.
+- Manual control in any mode: `/bg status` lists live background workers with their PIDs; `/bg kill` group-kills them immediately (foreground workers are never touched).
+
 ## Review, Validation, Repair, And Retry
 
 Plan Mode supports reviewer, validator, and optional repair/retry handoffs:
@@ -1158,8 +1183,8 @@ pi install -l npm:@mediadatafusion/pi-workflow-suite
 ### Installing specific versions
 
 ```bash
-pi install npm:@mediadatafusion/pi-workflow-suite@0.0.25
-pi install -l npm:@mediadatafusion/pi-workflow-suite@0.0.25
+pi install npm:@mediadatafusion/pi-workflow-suite@0.0.27
+pi install -l npm:@mediadatafusion/pi-workflow-suite@0.0.27
 ```
 
 An unversioned install follows normal package update behavior through `pi update --all`, which updates Pi and installed packages/extensions together. Bare `pi update` updates Pi itself only. A versioned install pins the package to that version. Pinned package specs are intentionally skipped by Pi's normal package update commands. To move a pinned install to a newer version, reinstall with the desired version. To switch back to latest tracking, use the unversioned install command without `@<version>`.
@@ -1259,6 +1284,8 @@ Choose Mission Mode when you want milestone-based, resumable work:
 | `/workflow settings Summary` | Show concise effective Workflow Suite settings summary. |
 | `/workflow models` / `/workflow models list` | List shared role models. |
 | `/workflow subagents status` | List workflow sub-agent policy status. |
+| `/bg` / `/bg status` | List live background sub-agent workers (any mode). |
+| `/bg kill` | Immediately kill all background sub-agent workers (any mode). |
 | `/workflow widgets` / `/workflow widgets list` | List widget visibility. |
 | `/workflow widgets toggle top` / `/workflow widgets toggle bottom` | Toggle active mode top or bottom widget. |
 | `/workflow widgets on` / `/workflow widgets off` | Enable or disable active workflow widgets. |
@@ -1278,7 +1305,7 @@ Primary settings areas:
 - `missions` — Mission Mode autonomy, runtime, checkpoints, validation, repair, mission-specific model selection, and Mission-specific sub-agent worker model routes.
 - `subagents` — workflow phase policies, worker targets, activity indicator, sub-agent worker model routes, parallelism preferences, and edit-concurrency guidance. These settings do not edit arbitrary sub-agent tool permissions.
 - `context` — compaction provider/model, auto-trigger behavior, trigger percentage, cooldown, reserve tokens, and keep-recent tokens.
-- `ui` — widgets, shortcuts, Workflow Suite theme selection, startup visuals, startup logo text styling, editor hints, status text, and optional themed input borders.
+- `ui` — widgets, shortcuts, Workflow Suite theme selection, startup visuals, startup logo text styling, editor hints, status text, optional themed input borders, and tool-row visibility in chat (`ui.toolRowsVisible`).
 - `safety` — bash/tool guard settings.
 
 Sub-agent worker route settings:
@@ -1374,13 +1401,14 @@ See `docs/TROUBLESHOOTING.md` for detailed diagnostics.
 - Mission checkpoints are created at workflow gates and progress saves. The checkpoint interval setting records the preferred cadence for future timed checkpoint automation.
 - Watchdog status can report stale mission activity when enabled. Recovery remains user-supervised so Mission Mode does not resume or mutate work unexpectedly.
 - Parallel file edits are governed separately from parallel sub-agent work. Scoped parallel edit mode requires conflict protection; otherwise the main workflow keeps writes serialized for safety.
+- Standard Mode To Do runs cannot hang: accepted handoffs stay armed until pending work drains, the settle re-arms whenever background work drains, unfinished actionable items trigger bounded automatic continuation, and every close ends with a visible closure summary. Background sub-agent workers are killed at every mode completion/exit boundary in all three modes.
 
 ## Versioning
 
-The current preparation version is `v0.0.25`. Version information is intentionally aligned across:
+The current preparation version is `v0.0.27`. Version information is intentionally aligned across:
 
-- `VERSION` (`v0.0.25`),
-- `package.json` (`0.0.25`),
+- `VERSION` (`v0.0.27`),
+- `package.json` (`0.0.27`),
 - `package-lock.json`,
 - this README,
 - Workflow Suite settings/about output.

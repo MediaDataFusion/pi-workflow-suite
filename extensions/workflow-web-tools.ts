@@ -1,7 +1,9 @@
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import { type ExtensionAPI, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { execSync } from "node:child_process";
+import { Text, type Component } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { loadWorkflowSettings } from "./workflow-model-router.js";
 
 type RuntimeToolInfo = {
   name?: unknown;
@@ -566,6 +568,65 @@ export function runtimeWebResearchGuidance(): string {
   ].join("\n");
 }
 
+// ── Pass 14: transcript silence for web tool rows ──────────────────────────
+// Renderers are DISPLAY-ONLY (result.content is the model path and is
+// untouched). Hidden by default: successful call/result rows render ZERO
+// transcript lines; ui.toolRowsVisible=true restores compact one-line rows.
+// The web tools never set isError, so failures are detected by their content
+// prefix and stay fully visible. Renderer bodies must never throw — a
+// throwing renderer falls back to the VISIBLE default shell.
+const renderWorkflowWebToolText = (result: unknown): string => {
+  if (!result || typeof result !== "object") return "";
+  const content = (result as { content?: unknown }).content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((block): block is { type: string; text: string } => !!block && typeof block === "object" && (block as { type?: unknown }).type === "text" && typeof (block as { text?: unknown }).text === "string")
+    .map((block) => block.text)
+    .join("\n")
+    .trim();
+};
+
+const renderWorkflowWebToolCall = (toolName: string, args: unknown, context: unknown): Component => {
+  try {
+    const renderContext = context as { cwd?: string } | undefined;
+    const settings = renderContext?.cwd ? loadWorkflowSettings(renderContext.cwd) : undefined;
+    if (settings?.ui?.toolRowsVisible !== true) return new Text("", 0, 0);
+    const params = args && typeof args === "object" ? args as Record<string, unknown> : {};
+    const target = typeof params.query === "string" ? params.query
+      : typeof params.url === "string" ? params.url
+        : params.port !== undefined ? String(params.port)
+          : undefined;
+    return new Text(target ? `${toolName}: ${target}` : toolName, 0, 0);
+  } catch {
+    return new Text("", 0, 0);
+  }
+};
+
+const renderWorkflowWebToolResult = (result: unknown, context: unknown): Component => {
+  try {
+    const renderContext = context as { isError?: boolean; cwd?: string } | undefined;
+    const settings = renderContext?.cwd ? loadWorkflowSettings(renderContext.cwd) : undefined;
+    const text = renderWorkflowWebToolText(result);
+    if (!text) return new Text("", 0, 0);
+    const firstLine = text.split("\n")[0] ?? "";
+    // The web tools report failures as content text or details.error (no
+    // isError flag) — e.g. browser check with puppeteer missing returns a
+    // "successful" result carrying details.error. Both signals must keep
+    // failure rows visible (W1 swarm finding).
+    const details = (result as { details?: { error?: unknown } }).details;
+    const softError = typeof details?.error === "string" && details.error.trim().length > 0;
+    const isError = renderContext?.isError === true
+      || softError
+      || /^Workflow web (?:search|fetch) failed:/.test(firstLine)
+      || /^Workflow browser check failed:/.test(firstLine);
+    if (isError) return new Text(text, 0, 0);
+    if (settings?.ui?.toolRowsVisible !== true) return new Text("", 0, 0);
+    return new Text(firstLine.slice(0, 160), 0, 0);
+  } catch {
+    return new Text("", 0, 0);
+  }
+};
+
 export function registerWorkflowWebTools(pi: ExtensionAPI): void {
   if (workflowWebToolsRegistered) return;
   workflowWebToolsRegistered = true;
@@ -577,6 +638,9 @@ export function registerWorkflowWebTools(pi: ExtensionAPI): void {
     promptSnippet: "Search the public web for current external evidence with source URLs",
     promptGuidelines: ["Use workflow_web_search before refusing current/time-sensitive web research requests."],
     parameters: WorkflowWebSearchParams,
+    renderShell: "self",
+    renderCall(args: unknown, _theme: unknown, context: unknown): Component { return renderWorkflowWebToolCall(WORKFLOW_WEB_SEARCH_TOOL, args, context); },
+    renderResult(result: unknown, _options: unknown, _theme: unknown, context: unknown): Component { return renderWorkflowWebToolResult(result, context); },
     executionMode: "parallel",
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<WorkflowWebSearchDetails>> {
       if (signal?.aborted) throw new Error("Web search aborted.");
@@ -597,6 +661,9 @@ export function registerWorkflowWebTools(pi: ExtensionAPI): void {
     promptSnippet: "Fetch and read a public HTTP(S) URL for source-backed evidence",
     promptGuidelines: ["Use workflow_web_fetch to inspect specific source URLs returned by search or supplied by the user."],
     parameters: WorkflowWebFetchParams,
+    renderShell: "self",
+    renderCall(args: unknown, _theme: unknown, context: unknown): Component { return renderWorkflowWebToolCall(WORKFLOW_WEB_FETCH_TOOL, args, context); },
+    renderResult(result: unknown, _options: unknown, _theme: unknown, context: unknown): Component { return renderWorkflowWebToolResult(result, context); },
     executionMode: "parallel",
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<WorkflowWebFetchDetails>> {
       if (signal?.aborted) throw new Error("Web fetch aborted.");
@@ -625,6 +692,9 @@ export function registerWorkflowWebTools(pi: ExtensionAPI): void {
       "Set screenshot: true for initial page, or use a screenshot action step after interactions.",
     ],
     parameters: WorkflowBrowserCheckParams,
+    renderShell: "self",
+    renderCall(args: unknown, _theme: unknown, context: unknown): Component { return renderWorkflowWebToolCall(WORKFLOW_BROWSER_CHECK_TOOL, args, context); },
+    renderResult(result: unknown, _options: unknown, _theme: unknown, context: unknown): Component { return renderWorkflowWebToolResult(result, context); },
     executionMode: "sequential",
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<WorkflowBrowserCheckDetails>> {
       if (signal?.aborted) throw new Error("Browser check aborted.");
@@ -703,6 +773,9 @@ export function registerWorkflowWebTools(pi: ExtensionAPI): void {
       "This works cross-platform and does not require fuser, lsof, or other platform-specific tools installed.",
     ],
     parameters: WorkflowStopServerParams,
+    renderShell: "self",
+    renderCall(args: unknown, _theme: unknown, context: unknown): Component { return renderWorkflowWebToolCall(WORKFLOW_STOP_SERVER_TOOL, args, context); },
+    renderResult(result: unknown, _options: unknown, _theme: unknown, context: unknown): Component { return renderWorkflowWebToolResult(result, context); },
     executionMode: "parallel",
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<{ port: number; killed: boolean }>> {
       if (signal?.aborted) throw new Error("Server stop aborted.");

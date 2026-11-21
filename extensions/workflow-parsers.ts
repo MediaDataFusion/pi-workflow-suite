@@ -135,7 +135,33 @@ export function parseClarifyingQuestions(text: string): ClarificationQuestion[] 
     if (optMatch && currentQ) currentQ.options.push(`${optMatch[1].toUpperCase()}. ${optMatch[2].trim()}`);
   }
   if (currentQ && currentQ.options.length > 0) questions.push(currentQ);
-  return questions;
+  // Pass 17 (owner ruling 2026-11-20): option D is the user's free-text slot and
+  // is always the same fixed line, exactly like the menu's fixed Skip and Stop
+  // lines. Selecting D opens the custom-answer input by letter, so a
+  // model-authored fourth option was never selectable — it is replaced, and
+  // paraphrased D variants are normalized to the fixed wording.
+  return questions.map(q => ({ ...q, options: enforceCanonicalOtherOption(q.options) }));
+}
+
+/**
+ * The fixed free-text option every clarification question shows as D.
+ * Model-authored or paraphrased D labels never reach a menu or card.
+ */
+export const CLARIFICATION_OTHER_OPTION = "D. Other: type your own answer";
+
+/**
+ * Enforce the fixed D option on a parsed A/B/C/D option list: an existing D
+ * label is always rewritten to the fixed free-text line, and a missing D is
+ * appended. A/B/C labels are untouched.
+ */
+export function enforceCanonicalOtherOption(options: string[]): string[] {
+  // Pass 17 (owner ruling 2026-11-20): exactly one fixed D line, always last —
+  // model-authored D labels are dropped (never selectable; D routes to the
+  // free-text input by letter), duplicate D-prefixed entries never display,
+  // and out-of-order D input still lands last. A/B/C order is untouched.
+  const enforced = options.filter(option => !/^D[.:)]/i.test(option));
+  enforced.push(CLARIFICATION_OTHER_OPTION);
+  return enforced;
 }
 
 /**
@@ -190,7 +216,9 @@ export function formatAnswersForPlanner(questions: ClarificationQuestion[], answ
       } else if (answer.custom) {
         lines.push(`${q.index}. ${q.question}\n   → ${answer.letter} (Custom): ${answer.custom}`);
       } else {
-        const optionText = q.options.find(o => o.startsWith(`${answer.letter}.`));
+        // Pass 17 (owner ruling 2026-11-20): a D answer is always the free-text
+        // choice — never echo a stored D label into the planner prompt.
+        const optionText = answer.letter === "D" ? CLARIFICATION_OTHER_OPTION : q.options.find(o => o.startsWith(`${answer.letter}.`));
         lines.push(`${q.index}. ${q.question}\n   → ${optionText ?? answer.letter}`);
       }
     } else {

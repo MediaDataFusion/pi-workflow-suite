@@ -12,12 +12,12 @@ import { activeWorkflowPresetLabel, applyMissionModelForRole, applyPlanModelForR
 import { renderHandoffProjectContext, renderWorkflowStatus, renderWorkflowSummary } from "./workflow-summary.js";
 import { BASE_EXECUTE_TOOLS, EXECUTE_TOOLS, PLAN_TOOLS, REVIEW_TOOLS, WORKFLOW_DIAGRAM_TOOL, WORKFLOW_PLAN_RESULT_TOOL, WORKFLOW_REVIEW_RESULT_TOOL, WORKFLOW_EXECUTION_RESULT_TOOL, WORKFLOW_VALIDATION_RESULT_TOOL, WORKFLOW_REPAIR_RESULT_TOOL, WORKFLOW_PROGRESS_TOOL, MISSION_PLAN_RESULT_TOOL, MISSION_MILESTONE_RESULT_TOOL, STANDARD_HANDOFF_RESULT_TOOL, isBlockedExecuteCommand, registerToolGuard, standardSafeReadOnlyBash, VALIDATOR_TOOLS } from "./workflow-tool-guard.js";
 import { refreshRuntimeWebTools, registerWorkflowWebTools, runtimeWebResearchGuidance, webSafePlanTools, withRuntimeWebTools } from "./workflow-web-tools.js";
-import { addMissionCheckpoint, applyPlanRuntimeAccounting, applyStandardRuntimeAccounting, clearOldMissionStates, clearOldWorkflowPlans, compact, createMissionState, createStandardRuntimeId, createWorkflowPlanId, emptyState, extractVerdict, isMissionRuntimeActiveStatus, isPlanRuntimeActiveMode, listMissionStates, listWorkflowPlans, loadMissionState, loadState, loadWorkflowPlan, missionActiveRuntimeMs, missionRuntimeCounterState, missionWallClockAgeMs, planActiveRuntimeMs, planRuntimeCounterState, planWallClockAgeMs, saveMissionState, saveState, saveWorkflowPlan, standardActiveRuntimeMs, standardRuntimeCounterState, standardWallClockAgeMs, PLAN_HISTORY_DIR, MISSION_HISTORY_DIR, type ClarificationAnswer, type ClarificationQuestion, type MissionAutonomy, type MissionMilestone, type MissionState, type PlanProgressState, type PlanStepStatus, type PlanValidationStatus, type SavedWorkflowPlan, type StandardTodoItemStatus, type StandardTodoState, type WorkflowState, type WorkflowTypedHandoffType } from "./workflow-state.js";
+import { addMissionCheckpoint, applyPlanRuntimeAccounting, applyStandardRuntimeAccounting, clearOldMissionStates, clearOldWorkflowPlans, compact, createMissionState, createStandardRuntimeId, createWorkflowPlanId, emptyState, extractVerdict, isMissionRuntimeActiveStatus, isPlanRuntimeActiveMode, listMissionStates, listWorkflowPlans, loadMissionState, loadState, loadWorkflowPlan, missionActiveRuntimeMs, missionRuntimeCounterState, missionWallClockAgeMs, planActiveRuntimeMs, planRuntimeCounterState, planTransientExecutionRecoveryActive, planWallClockAgeMs, saveMissionState, saveState, saveWorkflowPlan, setWorkflowBackgroundSubagentSink, standardActiveRuntimeMs, standardRuntimeCounterState, standardWallClockAgeMs, PLAN_HISTORY_DIR, MISSION_HISTORY_DIR, type ClarificationAnswer, type ClarificationQuestion, type MissionAutonomy, type MissionMilestone, type MissionState, type PlanProgressState, type PlanStepStatus, type PlanValidationStatus, type SavedWorkflowPlan, type StandardTodoItemStatus, type StandardTodoState, type WorkflowBackgroundSubagentEvent, type WorkflowState, type WorkflowTypedHandoffType } from "./workflow-state.js";
 import { WORKFLOW_SHORTCUTS, workflowEntryShortcutLabel as workflowRegistryEntryShortcutLabel, workflowPresetCycleShortcutLabel, workflowSettingsShortcutLines, workflowShortcutKey, workflowWidgetShortcutLabel, type WorkflowShortcutActionId } from "./workflow-shortcuts.js";
-import { cleanupOrphanProcesses, clearSubagentResultCache, runWorkflowSubagents, workflowSubagentResultOutput, type WorkflowSubagentResult, type WorkflowSubagentTask } from "./subagent/runner.js";
-import { parseScope, parseBool, parsePlanningDepth, parseClarificationMode, parseStandardTodoTriggerMode, parseStandardClarificationMode, parseStandardModelRole, parseWorkflowAgentScope, parseClarificationTiming, parseSubagentPolicy, parseSubagentPlanningPolicy, parseEditConcurrencyMode, parsePlanningOrchestrationPolicy, parseCompactionMode, parseWorkflowCompactionCheckMode, parseMissionAutonomy, parseValidationRetryMode, parsePositiveInt, updatedMessage, parseClarifyingQuestions, parseShorthandAnswers, formatAnswersForPlanner, planValidationStatusForVerdict } from "./workflow-parsers.js";
+import { backgroundWorkerSnapshot, cleanupOrphanProcesses, clearSubagentResultCache, killBackgroundSubagentWorkers, runWorkflowSubagents, sweepStaleSubagentWorkers, workflowSubagentResultOutput, type WorkflowSubagentResult, type WorkflowSubagentTask } from "./subagent/runner.js";
+import { parseScope, parseBool, parsePlanningDepth, parseClarificationMode, parseStandardTodoTriggerMode, parseStandardClarificationMode, parseStandardModelRole, parseWorkflowAgentScope, parseClarificationTiming, parseSubagentPolicy, parseSubagentPlanningPolicy, parseEditConcurrencyMode, parsePlanningOrchestrationPolicy, parseCompactionMode, parseWorkflowCompactionCheckMode, parseMissionAutonomy, parseValidationRetryMode, parsePositiveInt, updatedMessage, parseClarifyingQuestions, parseShorthandAnswers, formatAnswersForPlanner, planValidationStatusForVerdict, CLARIFICATION_OTHER_OPTION, enforceCanonicalOtherOption } from "./workflow-parsers.js";
 import { classifyValidationFailure, normalizeValidationVerdict, validationReportHasRepairableIssue } from "./workflow-validation-classifier.js";
-import { type SubagentPhase, type SubagentPolicyValue, type SubagentPolicyDecision, subagentPhaseSettingKeys, phasePolicy, phaseAutoUseAllowed, phaseParallelAllowed, workerCount, workerTargetForPolicy, activeWorkerTargetLabel, planningSubagentsAllowed, executionSubagentsAllowed, reviewSubagentsAllowed, validationSubagentsAllowed, repairPolicySource, forcedSubagentUnavailableReason, forcedSubagentMessage, fileWriteModeLabel, hasRequiredSubagentPreflight, requiredSubagentPreflightSection, forcedSubagentPolicySatisfiedGuidance, subagentSuitableForForcedPhase, subagentToolProfileLabel, subagentToolsAllowMutation, subagentPolicyRequiresRequiredEvidence, subagentPolicyNeedsInternalDecision, formatSubagentPolicyDecision, forcedSubagentActionDecision, advisorySubagentPolicyDecision } from "./workflow-subagent-policy.js";
+import { type SubagentPhase, type SubagentPolicyValue, type SubagentPolicyDecision, subagentPhaseSettingKeys, phasePolicy, phaseAutoUseAllowed, phaseParallelAllowed, workerCount, workerTargetForPolicy, activeWorkerTargetLabel, planningSubagentsAllowed, executionSubagentsAllowed, reviewSubagentsAllowed, validationSubagentsAllowed, repairPolicySource, forcedSubagentUnavailableReason, forcedSubagentMessage, fileWriteModeLabel, hasRequiredSubagentPreflight, requiredSubagentPreflightSection, forcedSubagentPolicySatisfiedGuidance, subagentSuitableForForcedPhase, subagentToolProfileLabel, subagentToolsAllowMutation, subagentPolicyRequiresRequiredEvidence, subagentPolicyNeedsInternalDecision, formatSubagentPolicyDecision, forcedSubagentActionDecision, advisorySubagentPolicyDecision, forcedTaskMentionsWorkVerbs } from "./workflow-subagent-policy.js";
 import { renderWorkflowSettingsCapabilityMatrix, workflowSettingsCapabilitiesByStatus } from "./workflow-settings-capabilities.js";
 import { Box, Markdown, Spacer, Text, hyperlink, type Component } from "@earendil-works/pi-tui";
 
@@ -107,14 +107,14 @@ const StandardTodoParams = Type.Object({
   action: Type.Optional(StringEnum(["set", "update", "clear"] as const)),
   item: Type.Optional(Type.Number({ description: "Standard Mode To Do item number for progress updates" })),
   status: Type.Optional(StringEnum(["active", "completed", "skipped", "blocked", "pending"] as const)),
-  items: Type.Optional(Type.Array(Type.String({ description: "Task-specific Standard Mode To Do item" }), { description: "Dynamic task-specific To Do items to initialize" })),
+  items: Type.Optional(Type.Array(Type.Unknown({ description: "Task-specific Standard Mode To Do item; non-string entries are normalized" }), { description: "Dynamic task-specific To Do items to initialize; non-string entries are normalized" })),
   itemsText: Type.Optional(Type.String({ description: "Newline-separated dynamic task-specific To Do items to initialize" })),
   task: Type.Optional(Type.String({ description: "Task these dynamic To Do items belong to" })),
 });
 
 const WorkflowQuestionOptionParams = Type.Object({
   letter: StringEnum(["A", "B", "C", "D"] as const),
-  label: Type.String({ description: "Concrete option label" }),
+  label: Type.String({ description: "Concrete option label. For letter D use exactly: Other: type your own answer" }),
 });
 
 const WorkflowClarificationQuestionParams = Type.Object({
@@ -667,6 +667,7 @@ function professionalOutputGuidance(context: string): string {
   return `Professional user-facing output guidance for ${context}:
 - Do not use emoji, pictographs, medal icons, warning icons, decorative symbols, Markdown tables, or box-art tables in user-facing prose.
 - Prefer concise section titles and labeled lines. Simple Markdown section headings are allowed for final user-facing summaries so the terminal can render styled headings without showing raw hashtag markers. Do not use decorative Markdown headings or dash-bullet lists except where an exact parser-safe legacy fallback contract requires them.
+- User-facing prose carries decisions, results, and next steps. Keep internal option-weighing and planning monologue out of chat — deliberation belongs in thinking, not in the visible reply.
 - Typed handoff tools are the primary control plane. If an Output exactly or legacy fallback section specifies headings, preserve that parser-safe format exactly.`;
 }
 
@@ -725,7 +726,9 @@ function professionalFinalSummaryMarkdown(text: string | undefined): string {
 function standardVisibleOptionLabel(option: string): string {
   return stripVisibleWorkflowMarkdown(option)
     .replace(/^([A-D])\.\s+/i, "$1) ")
-    .replace(/^D\)\s*(?:Other|Other\s*\/\s*custom answer).*$/i, "D) Something else")
+    // Pass 17 (owner ruling 2026-11-20): the card shows the same fixed D line
+    // as the interactive menu — any D label becomes the free-text invitation.
+    .replace(/^D\).*$/i, "D) Other: type your own answer")
     .trim();
 }
 
@@ -1088,7 +1091,11 @@ function deferWorkflowMenuAction(pi: ExtensionAPI, label: string, action: () => 
 }
 
 type WorkflowHandoffSnapshot = {
-  kind: "plan_clarification_menu" | "plan_approval_menu" | "mission_clarification_menu" | "mission_plan_menu" | "workflow_menu";
+  // "standard_clarification_menu" (pass 12): Standard asks schedule their
+  // interactive menu at tool time exactly like Plan/Mission — the menu must
+  // not depend on a cleanly ending agent turn (live 2026-11-19: an aborted
+  // agent_end returned before the menu bridge and the ask sat invisible).
+  kind: "plan_clarification_menu" | "plan_approval_menu" | "mission_clarification_menu" | "mission_plan_menu" | "standard_clarification_menu" | "workflow_menu";
   expectedMode?: string;
   activePlanId?: string;
   activeMissionId?: string;
@@ -1130,9 +1137,16 @@ function planToolsFor(settings: ReturnType<typeof loadWorkflowSettings>): string
 }
 
 function clarificationToolsFor(settings: ReturnType<typeof loadWorkflowSettings>, allowSubagents: boolean): string[] {
+  // Pass 12 (live 2026-11-19: while a clarification was awaiting the user's
+  // answer, the model churned standard_todo set → clear → new board because
+  // the awaiting surface advertised it). The awaiting-answer surface offers
+  // nothing that mutates workflow state; the tool guard blocks every tool
+  // during awaiting_answer regardless, so this only keeps the advertised
+  // loadout honest. Note (swarm W2): all four call sites are Standard
+  // clarification windows — the ask handler and awaiting-turn loadout, plus
+  // the two pre-ask clarification gates — so no other surface is affected.
   const tools = webSafePlanTools(PLAN_TOOLS);
-  const withToDo = Array.from(new Set([...tools, "standard_todo"]));
-  return allowSubagents ? Array.from(new Set([...withToDo, "subagent"])) : withToDo;
+  return allowSubagents ? Array.from(new Set([...tools, "subagent"])) : tools;
 }
 
 function clarificationAnalysisRequired(settings: ReturnType<typeof loadWorkflowSettings>, mode: "plan" | "mission"): boolean {
@@ -1249,7 +1263,7 @@ function validationToolsFor(settings: ReturnType<typeof loadWorkflowSettings>): 
 
 
 function workflowMermaidGuidance(): string {
-  return `Mermaid diagrams are rendered by Workflow Suite as a uniform dark-mode visual component.
+  return `Mermaid diagrams are rendered by Workflow Suite as a uniform dark-mode visual component. Diagrams exist to help the user understand structure — include one when it genuinely clarifies a user-facing workflow, architecture, lifecycle, or data flow; skip it when prose alone is clearer or the diagram would decorate rather than explain.
 
 Diagram guidance:
 - Place diagrams inline with the prose they illustrate rather than batching at start or end of your response.
@@ -1270,6 +1284,7 @@ Diagram guidance:
 - Split crowded flows into multiple diagrams rather than shrinking labels.
 - Use concise, readable labels. Do not hardcode random Mermaid style/classDef/light-theme overrides.
 - Do not repeat the same diagram across multiple turns. If you already diagrammed a concept, reference it by name rather than re-calling workflow_diagram with identical source.
+- When a sub-agent report contains a diagram that clarifies the result for the user, include that diagram block in your reply so it renders.
 - Skip diagrams when: response is genuinely trivial, user explicitly requested prose-only, or the response is pure code/configuration with no structural concept to diagram.`;
 }
 
@@ -1524,20 +1539,51 @@ function workflowMermaidJoinBoxes(boxes: string[][]): string[] {
 function workflowMermaidParseGraph(source: string): WorkflowMermaidParsedGraph {
   const nodes = new Map<string, string>();
   const edges: WorkflowMermaidEdge[] = [];
+  // Labeled node definitions register FIRST so chained edges
+  // (A --> B1["x"] --> B2["y"] --> …) keep every label and produce real
+  // edges. The old single-pair regex swallowed the whole chain as one giant
+  // pseudo-label, and the fallback then printed raw "B1[…] --> B2[…]"
+  // fragments — the live "broken diagram tool" report of 2026-11-18.
+  const labeledNodePattern = /([A-Za-z0-9_.$:-]+)\s*(?:\[(?:"([^"]*)"|'([^']*)'|[^\][|]*)\]|\((?:"([^"]*)"|'([^']*)'|[^()[|]*)\)|\{(?:"([^"]*)"|'([^']*)'|[^{}|]*)\})/g;
   for (const rawLine of source.split("\n")) {
     const line = workflowMermaidCleanLine(rawLine).replace(/;$/, "");
     if (!line || /^(flowchart|graph|stateDiagram|stateDiagram-v2)\b/.test(line) || /^(subgraph|end\b|direction\b|classDef\b|class\b|style\b|linkStyle\b)/.test(line)) continue;
-    const edgeMatch = line.match(/^(.+?)\s*(?:--\s*([^>|-]+?)\s*)?(-->|---|==>|-.->|->)\s*(?:\|([^|]+)\|\s*)?(.+)$/);
-    if (edgeMatch) {
-      const from = workflowMermaidSetNode(nodes, edgeMatch[1]);
-      const label = workflowMermaidCleanLabel(edgeMatch[2] ?? edgeMatch[4] ?? "") || undefined;
-      const targets = edgeMatch[5].split(/\s*&\s*/).map((target) => target.trim()).filter(Boolean);
-      for (const target of targets) {
-        const to = workflowMermaidSetNode(nodes, target);
-        if (from && to) edges.push({ from, to, label });
-      }
-      continue;
+    for (const nodeMatch of line.matchAll(labeledNodePattern)) {
+      const nodeId = nodeMatch[1];
+      const nodeLabel = workflowMermaidCleanLabel(nodeMatch[2] ?? nodeMatch[3] ?? nodeMatch[4] ?? nodeMatch[5] ?? nodeMatch[6] ?? nodeMatch[7] ?? "");
+      if (nodeId && nodeLabel && !nodes.has(nodeId)) nodes.set(nodeId, nodeLabel);
     }
+    // Skeleton pass: collapse labeled definitions to bare ids and normalize
+    // legacy "-- text -->" edges to "-->|text|" so arrow splitting sees a
+    // clean chain — label text containing "->" can no longer fake an arrow.
+    const skeleton = line
+      .replace(labeledNodePattern, "$1")
+      .replace(/--\s*([^->][^-|>]*)-->/g, (_match, edgeLabel: string) => `-->|${String(edgeLabel).trim()}|`);
+    const segments = skeleton.split(/(-->|---|==>|-.->|->)/).map((part) => part.trim()).filter(Boolean);
+    let walkedChain = false;
+    for (let index = 0; index + 2 < segments.length + 1; index += 2) {
+      const arrow = segments[index + 1];
+      if (!arrow || !/^(-->|---|==>|-.->|->)$/.test(arrow)) break;
+      let toToken = segments[index + 2] ?? "";
+      let label: string | undefined;
+      const edgeLabelMatch = toToken.match(/^\|([^|]+)\|(.*)$/);
+      if (edgeLabelMatch) {
+        label = workflowMermaidCleanLabel(edgeLabelMatch[1]) || undefined;
+        toToken = edgeLabelMatch[2].trim();
+      }
+      for (const fromRaw of segments[index].split(/\s*&\s*/)) {
+        const from = workflowMermaidSetNode(nodes, fromRaw);
+        if (!from) continue;
+        for (const toRaw of toToken.split(/\s*&\s*/)) {
+          const to = workflowMermaidSetNode(nodes, toRaw);
+          if (to) {
+            edges.push({ from, to, label });
+            walkedChain = true;
+          }
+        }
+      }
+    }
+    if (walkedChain) continue;
     const stateMatch = line.match(/^(.+?)\s*:\s*(.+)$/);
     if (stateMatch && !line.includes("http")) {
       const id = workflowMermaidCleanLabel(stateMatch[1]);
@@ -1820,6 +1866,74 @@ function workflowSuiteMarkdownRenderer(message: { content: unknown }, _options: 
   const box = new Box(1, 1, workflowMermaidCardBg);
   box.addChild(new Markdown(markdownWithoutWorkflowMermaidBlocks(content), 0, 0, getMarkdownTheme(), { color: (text) => theme.fg("customMessageText", text) }));
   return box;
+}
+
+const WORKFLOW_BG_RESULT_MESSAGE_TYPE = "workflow-bg-result";
+
+type WorkflowBgResultDetails = {
+  summary?: string;
+  workers?: Array<{ name: string; status: "completed" | "failed" }>;
+  phase?: string;
+  completedAt?: string;
+};
+
+// First meaningful worker-output line of a wave summary, squashed and bounded
+// to ~120 chars, cutting at a word boundary when one exists in the tail (an
+// unbroken long token still gets a bounded cut — the pass-15 trigger showed
+// the old close blob dying mid-sentence at "Most important i").
+function workflowBgResultVerdictLine(summary: string): string {
+  const lines = summary.split(/\r?\n/).map((line) => line.trim());
+  for (const line of lines) {
+    if (!line || line.startsWith("#") || line.startsWith("Task:")) continue;
+    const squashed = line.replace(/\s+/g, " ");
+    if (squashed.length <= 120) return squashed;
+    const cut = squashed.slice(0, 120);
+    const boundary = cut.lastIndexOf(" ");
+    return boundary > 60 ? `${cut.slice(0, boundary)}…` : `${cut}…`;
+  }
+  return "";
+}
+
+// Pass 15 (owner ruling 2026-11-19: background agents need a visible
+// completion surface "like the sub-agents"). Pi 1.5.2 has no panel and tool
+// rows exist only for in-flight tool calls, so the closest legal surface is
+// this display-only card: ✓/✗ per worker plus one verdict line, ctrl+o
+// expands the full findings. The card's message CONTENT must stay a single
+// short line — custom-message content always enters model history (Pi
+// convertToLlm case "custom") while details never do — so the full summary
+// rides in details only and the hidden follow-up stays the sole model
+// delivery path.
+function workflowBgResultRenderer(message: { content: unknown; details?: unknown }, options: { expanded: boolean }, theme: { fg(color: string, text: string): string; bg(color: string, text: string): string; bold(text: string): string }): Component | undefined {
+  try {
+    const details = message.details as WorkflowBgResultDetails | undefined;
+    if (!details) return undefined;
+    const box = new Box(1, 1, workflowMermaidCardBg);
+    box.addChild(new Text(theme.fg("toolTitle", theme.bold("BG Sub-Agents Finished")), 0, 0));
+    box.addChild(new Spacer(1));
+    const workers = Array.isArray(details.workers) ? details.workers : [];
+    if (workers.length === 0) {
+      box.addChild(new Text(theme.fg("muted", "Background wave settled."), 0, 0));
+    } else {
+      for (const worker of workers.slice(0, 8)) {
+        const icon = worker.status === "failed" ? theme.fg("error", "✗") : theme.fg("success", "✓");
+        box.addChild(new Text(`${icon} ${worker.name}`, 0, 0));
+      }
+      if (workers.length > 8) box.addChild(new Text(theme.fg("muted", `… +${workers.length - 8} more`), 0, 0));
+    }
+    // Swarm fix (pass 15, W1 LOW-3): the verdict is summary-driven, not
+    // workers-driven — render it even for a workers-less event.
+    const verdict = workflowBgResultVerdictLine(typeof details.summary === "string" ? details.summary : "");
+    if (verdict) box.addChild(new Text(theme.fg("customMessageText", verdict), 0, 0));
+    if (options.expanded && typeof details.summary === "string" && details.summary.trim().length > 0) {
+      box.addChild(new Spacer(1));
+      box.addChild(new Markdown(details.summary, 0, 0, getMarkdownTheme(), { color: (text) => theme.fg("customMessageText", text) }));
+    }
+    return box;
+  } catch {
+    // Renderers must never throw (pass-13 law): undefined falls back to Pi's
+    // default custom-message markdown rendering.
+    return undefined;
+  }
 }
 
 // requiredSubagentPreflightSection, hasRequiredSubagentPreflight,
@@ -2297,7 +2411,7 @@ ${subagentCapabilityTable()}
 
 Web research guidance:
 ${workflowRuntimeWebResearchGuidance()}
-
+${state.planBackgroundResults?.length ? `\nBackground sub-agent results (banked from completed background waves — use them for the current step, then move on):\n${state.planBackgroundResults.map((result) => `- [${result.phase ?? "background"} · ${result.completedAt}] ${result.summary.replace(/\s+/g, " ").slice(0, 600)}`).join("\n")}\n` : ""}${settings.subagents.allowBackgroundSubagents === true ? `\nOptional background advisory sub-agents (Plan execution): after the current step's required synchronous execution workers are satisfied and while plan steps remain, you may launch exactly one small read-only background check by passing background:true in the subagent call (workflowPhase=execution; no polling, sleep loops, watchers, or servers). Background results never satisfy forced worker evidence and arrive automatically in a later turn. Skip this when no genuinely useful read-only check exists.\n` : ""}
 Approved plan:
 ${state.approvedPlan}`;
 }
@@ -2764,6 +2878,7 @@ UI Widgets:
 - /workflow-settings set ui planBottomWidgetVisible true|false
 - /workflow-settings set ui missionTopWidgetVisible true|false
 - /workflow-settings set ui missionBottomWidgetVisible true|false
+- /workflow-settings set ui toolRowsVisible true|false
 - /workflow-settings set standard statusWidgetVisible true|false
 - /workflow-settings set standard todoProgressVisible true|false
 - /workflow-settings set ui rememberWidgetVisibility true|false
@@ -3207,9 +3322,26 @@ function standardActivePresentation(state: WorkflowState): boolean {
   return state.standardRuntime?.active === true;
 }
 
+// Pass 9: module-scope display functions ask the extension-scoped work
+// tracker (workers, queued turns, active tools) whether anything is still
+// running. Assigned during extension init; the safe default reports no
+// running work.
+let workflowHasActiveOrPendingWorkRef: () => boolean = () => false;
+
 function standardDisplayPhase(state: WorkflowState): string {
   const todo = state.standardTodo;
-  if (todo?.status && todo.status !== "none" && todo.status !== "active") return todo.status;
+  // Pass 9: the user's gate outranks the board. While a clarification is
+  // waiting the run is "awaiting answer" — never completed, never executing.
+  // A completed board with work still draining (background advisories,
+  // queued turns, active tools) is still executing: "completed" displays
+  // only when nothing is running (live 2026-11-18: "STANDARD | completed"
+  // rode beside "BG Sub-agents active: 2" for ~an hour because the label
+  // came from todo.status alone the instant the batch landed).
+  if (state.standardClarificationPending || state.standardClarificationStage === "awaiting_answer") return "awaiting answer";
+  if (todo?.status && todo.status !== "none" && todo.status !== "active") {
+    if (todo.status === "completed" && workflowHasActiveOrPendingWorkRef()) return "executing";
+    return todo.status;
+  }
   if (!standardActivePresentation(state)) return "ready";
   return "executing";
 }
@@ -3218,6 +3350,9 @@ function standardUiPhase(state: WorkflowState): string {
   const todo = state.standardTodo;
   if (!todo?.items.length || todo.status === "none") return standardDisplayPhase(state);
   if (todo.status === "active") return standardDisplayPhase(state);
+  // Pass 9: phase tokens inherit the same honesty rule — a completed board
+  // still draining work renders as executing, not completed.
+  if (todo.status === "completed") return workflowPhaseToken(standardDisplayPhase(state));
   return workflowPhaseToken(todo.status);
 }
 
@@ -3792,6 +3927,7 @@ Idle Entry Hint: ${workflowWidgetUi(settings).showIdleWorkflowEntryHint !== fals
 Active Switch Hint: ${workflowWidgetUi(settings).showActiveWorkflowSwitchHint !== false ? "visible" : "hidden"}
 Widget Shortcut Hint: ${workflowWidgetUi(settings).showWidgetShortcutHint !== false ? "visible" : "hidden"}
 Preset Shortcut Hint: ${workflowWidgetUi(settings).showPresetShortcutHint !== false ? "visible" : "hidden"}
+Tool Rows: ${settings.ui.toolRowsVisible === true ? "visible" : "hidden"}
 Editor Hint Contrast: ${workflowEditorHintContrastLabel(workflowEditorHintContrast(settings))}
 Workflow Theme: ${workflowThemeDisplayName(workflowThemeName(settings))}
 Startup Visual: ${startupVisualOrDefault(settings)}
@@ -4489,9 +4625,21 @@ function missionStateFallbackWidget(state: WorkflowState, mission: MissionState 
 
 function standardTodoWidget(state: WorkflowState, settings: ReturnType<typeof loadWorkflowSettings>): string[] {
   const todo = state.standardTodo;
-  if (!todo?.items.length || todo.status === "none") {
+  // Pass 13 (owner ruling 2026-11-19): a COMPLETED board clears from
+  // display the moment it completes — even while the run keeps executing
+  // follow-on work without a new board. The board stays in state (close
+  // latch, adoption, terminal patch) but never renders as a live
+  // in-flight list again: "To Do: 3 of 3 | 100% | Current: T3 …" riding
+  // beside unrelated work lied twice (a stale Current item, and "waiting
+  // for task" while the agent was actively working).
+  if (!todo?.items.length || todo.status === "none" || todo.status === "completed") {
     const required = standardTodoMode(settings) === "required";
     const phase = workflowHeaderState(standardDisplayPhase(state));
+    // Pass 16 (owner ruling 2026-11-20): the pass-13 boardless phrasing was
+    // injected without approval and is reverted — the no-board presentation
+    // reads "Standard assist" again, exactly as it did before pass 13. Auto
+    // mode is the mode for substantive work: boards for almost everything
+    // except one-off things.
     return [
       ...progressHeaderLines("STANDARD", phase, "active", standardTodoRuntimeSummaryLine(state), required ? "To Do: required" : "To Do: not active"),
       `Current: ${workflowWidgetSummaryText("Standard assist", 46)}`,
@@ -4501,9 +4649,26 @@ function standardTodoWidget(state: WorkflowState, settings: ReturnType<typeof lo
   const done = standardTodoDoneCount(todo);
   const current = standardTodoCurrentIndex(todo);
   const next = todo.items.findIndex((item, index) => index > current && item.status === "pending");
-  const status = todo.status === "active" ? standardDisplayPhase(state) : todo.status;
+  // Pass 9: one shared honesty rule — standardDisplayPhase already returns
+  // "awaiting answer" while a clarification waits and "executing" for a
+  // completed board whose work is still draining; every non-active todo
+  // status passes through it unchanged, so the header can never say
+  // "completed" while workers still run.
+  const status = standardDisplayPhase(state);
+  // Honest-UI staleness marker: an active To Do whose last update is minutes
+  // old while work continues means the model stopped updating it — surface
+  // that instead of letting the widget look wedged. Visual only.
+  const updatedMs = todo.updatedAt ? Date.parse(todo.updatedAt) : NaN;
+  // Swarm review fix (pass 9): a board intentionally parked on the user's
+  // answer is not stale — the stale marker must not accuse the model while
+  // a clarification is waiting.
+  const staleMinutes = Number.isFinite(updatedMs) && todo.status === "active"
+    && !state.standardClarificationPending && state.standardClarificationStage !== "awaiting_answer"
+    ? Math.floor((Date.now() - updatedMs) / 60_000)
+    : 0;
+  const staleSuffix = staleMinutes >= 3 ? ` · stale ${staleMinutes}m` : "";
   return [
-    ...progressHeaderLines("STANDARD", workflowHeaderState(status), standardTodoProgressBar(todo, settings), standardTodoRuntimeSummaryLine(state), `To Do: ${done} of ${todo.items.length}`),
+    ...progressHeaderLines("STANDARD", workflowHeaderState(status), standardTodoProgressBar(todo, settings), standardTodoRuntimeSummaryLine(state), `To Do: ${done} of ${todo.items.length}${staleSuffix}`),
     `Current: ${standardTodoItemLabel(todo, current, "Standard assistance")}`,
     `Next: ${standardTodoItemLabel(todo, next, "waiting for task")}`,
   ];
@@ -4534,7 +4699,24 @@ function standardTodoLooksGeneric(todo: StandardTodoState | undefined): boolean 
 
 function standardTodoTitlesFromInput(items: unknown, itemsText: unknown): string[] {
   const rawItems: string[] = [];
-  if (Array.isArray(items)) rawItems.push(...items.filter((item): item is string => typeof item === "string"));
+  if (Array.isArray(items)) {
+    for (const entry of items) {
+      if (typeof entry === "string") {
+        rawItems.push(entry);
+        continue;
+      }
+      // Malformed item entries (live 2026-11-16: item 5 was the array
+      // ["error"]) must not kill the whole "set" call — normalize instead so
+      // the To Do list is still created; the generic-line filter below drops
+      // entries that reduce to noise.
+      if (Array.isArray(entry)) {
+        const joined = entry.filter((part) => ["string", "number", "boolean"].includes(typeof part)).map(String).join(" ").trim();
+        if (joined) rawItems.push(joined);
+      } else if (typeof entry === "number" || typeof entry === "boolean") {
+        rawItems.push(String(entry));
+      }
+    }
+  }
   if (typeof itemsText === "string") rawItems.push(...itemsText.split("\n"));
   const seen = new Set<string>();
   const titles: string[] = [];
@@ -4561,6 +4743,11 @@ function createStandardTodoFromTitles(task: string | undefined, titles: string[]
   };
 }
 
+// Pass 8: direct-answer shape — interrogatives and answer-noun requests with
+// no work verbs (work/evidence/finalization verbs are checked separately and
+// always win). Question-shaped Standard turns are answer-only, not worker work.
+const STANDARD_DIRECT_ANSWER_TASK_RE = /\b(?:tell me|explain|summari[sz]e|summary|recap|what|why|how|where|who|when|which|status|report|going on|update me)\b|\?/i;
+
 function standardTaskLooksSubstantive(task: string | undefined): boolean {
   const text = task?.trim() ?? "";
   if (!text || text.startsWith("/")) return false;
@@ -4568,20 +4755,59 @@ function standardTaskLooksSubstantive(task: string | undefined): boolean {
   return text.length >= 8 || text.split(/\s+/).filter(Boolean).length >= 2;
 }
 
-function classifyStandardWork(task: string | undefined, answerSummary?: string): { phase: SubagentPhase; kind: NonNullable<WorkflowState["standardWorkKind"]> } {
+function classifyStandardWorkInner(task: string | undefined, answerSummary?: string): { result: { phase: SubagentPhase; kind: NonNullable<WorkflowState["standardWorkKind"]> }; branch: string } {
   const text = `${task ?? ""}\n${answerSummary ?? ""}`.toLowerCase();
-  if (/\b(repair|fix failing|resolve failure|remediate)\b/.test(text)) return { phase: "Repair", kind: "repair" };
-  if (/\b(validate|validation|verify|test|lint|build|typecheck|quality review|review)\b/.test(text)) return { phase: "Validation", kind: "validation" };
-  if (/\b(plan|design|proposal|architecture|outline|approach)\b/.test(text) && !/\b(edit|write|modify|change|implement|add|remove|delete|refactor|commit|push|deploy|migrate|apply|update files?|create files?)\b/.test(text)) return { phase: "Planning", kind: "read_only" };
-  if (/\b(edit|write|modify|change|implement|add|remove|delete|refactor|commit|push|deploy|migrate|apply|update files?|create files?)\b/.test(text)) return { phase: "Execution", kind: "mutation" };
-  if (/\b(read.?only|scan|inspect|summari[sz]e|status|action items?|checklist|report|docs? only|no code|do not edit|without editing)\b/.test(text)) return { phase: "Planning", kind: "read_only" };
-  recordWorkflowInternalEvent(undefined, `Standard work classifier fell back to default (read_only Planning) for: ${(task ?? "").slice(0, 120)}`);
-  return { phase: "Planning", kind: "read_only" };
+  if (/\b(repair|fix failing|resolve failure|remediate)\b/.test(text)) return { result: { phase: "Repair", kind: "repair" }, branch: "repair" };
+  if (/\b(validate|validation|verify|test|lint|build|typecheck|quality review|review)\b/.test(text)) return { result: { phase: "Validation", kind: "validation" }, branch: "validation" };
+  // Mutation detection covers file/code verbs AND creative-generation verbs.
+  // Generation verbs only count when the text is not a read-outcome request
+  // ("generate a summary", "render a verdict") so reports stay read-only.
+  const fileMutation = /\b(edit|write|modify|change|implement|add|remove|delete|refactor|commit|push|deploy|migrate|apply|update files?|create files?)\b/.test(text);
+  const generationMutation = (/\b((?:re-?)?generate|render|recreate|produce|compose|remaster|upscale|remix)\b/.test(text)
+    || /\b(?:make|create|produce|generate|render|remix)\s+(?:\d+\s+)?(?:variations?|variants?|varieties)\b/.test(text))
+    && !/\b(summari[sz]e[sd]?|reports?|status|verdicts?|decisions?|notes?|lists?|outlines?|read.?only|docs? only)\b/.test(text);
+  const mutation = fileMutation || generationMutation;
+  if (/\b(plan|design|proposal|architecture|outline|approach)\b/.test(text) && !mutation) return { result: { phase: "Planning", kind: "read_only" }, branch: "planning" };
+  if (mutation) return { result: { phase: "Execution", kind: "mutation" }, branch: "mutation" };
+  if (/\b(read.?only|scan|inspect|summari[sz]e|status|action items?|checklist|report|docs? only|no code|do not edit|without editing)\b/.test(text)) return { result: { phase: "Planning", kind: "read_only" }, branch: "read_only" };
+  // Pass 8: question-shaped tasks are answer-only turns — the user asked for
+  // an answer, recap, or status answerable from existing context. Classify
+  // them read-only (never the Execution/mutation fallback) so the Standard
+  // direct-answer exemption can release them without workers. The raw task
+  // alone decides; clarification answers and addenda never flip a work turn.
+  if ((task ?? "").trim() && STANDARD_DIRECT_ANSWER_TASK_RE.test((task ?? "").trim())) {
+    return { result: { phase: "Planning", kind: "read_only" }, branch: "question_read_only" };
+  }
+  // Fallback: bias substantive, non-conversational tasks to Execution so the
+  // forced gates engage (under-classifying to read_only silently disarms the
+  // whole deep-preset policy); chatter and empty prompts stay read-only.
+  if (task?.trim() && standardTaskLooksSubstantive(task) && !/^(?:hi|hello|hey|thanks?|thank you|ok|okay|yes|no|yo|sup|status|help)\b/i.test(task.trim()) && !/[?]{1,}\s*$/.test(task.trim())) {
+    return { result: { phase: "Execution", kind: "mutation" }, branch: "fallback_substantive" };
+  }
+  return { result: { phase: "Planning", kind: "read_only" }, branch: "fallback" };
+}
+
+function classifyStandardWork(task: string | undefined, answerSummary?: string): { phase: SubagentPhase; kind: NonNullable<WorkflowState["standardWorkKind"]> } {
+  const classified = classifyStandardWorkInner(task, answerSummary);
+  recordWorkflowInternalEvent(undefined, `Standard work classified: ${classified.result.phase}/${classified.result.kind} (${classified.branch}) for: ${(task ?? "").slice(0, 120)}`);
+  return classified.result;
 }
 
 function trivialSubagentSkipReason(phase: SubagentPhase, task: string | undefined, kind?: WorkflowState["standardWorkKind"]): string | undefined {
   const decision = forcedSubagentActionDecision({ phase, policy: "forced", task, kind });
   return decision.outcome === "exempt_trivial" ? decision.reason : undefined;
+}
+
+// Pass 8: a direct question/status/recap turn is answer-only work — the
+// forced gates exist for substantive work, not for answering the user.
+// Exempt only when the task itself names no work verbs (single-source veto)
+// and matches the direct-answer shape; classification must also have stamped
+// the turn read_only (mutation/validation/repair/review turns never exempt).
+function standardDirectAnswerTurn(task: string | undefined): boolean {
+  const text = (task ?? "").trim();
+  if (!text) return false;
+  if (forcedTaskMentionsWorkVerbs(text)) return false;
+  return STANDARD_DIRECT_ANSWER_TASK_RE.test(text);
 }
 
 function standardForcedSubagentSafeBash(command: string): boolean {
@@ -4654,7 +4880,8 @@ Rules:
   A. <concrete option>
   B. <concrete option>
   C. <concrete option>
-  D. Other / custom answer
+  D. Other: type your own answer
+- Always include D. Other as last option.
 - ${analysis}
 - Keep any analysis internal; do not show reasoning, uncertainty chatter, or phrases like "I think", "The user is asking", or "Let me search".
 - Ask only the polished clarification question(s) and A/B/C/D options in the visible response after the parser-safe auto-check contract.
@@ -4693,7 +4920,7 @@ function fallbackStandardClarificationQuestions(task: string, reason: string | u
       "A. Diagnose and summarize only; do not edit files or run mutating commands",
       "B. Make the smallest safe implementation fix, then run targeted validation",
       "C. Complete the requested implementation, validation, and user-approved live checks if applicable",
-      "D. Other / custom answer",
+      CLARIFICATION_OTHER_OPTION,
     ],
   }];
 }
@@ -4904,30 +5131,33 @@ function routeModelLabelForUser(model?: RoleModelSettings): string {
   return `${model.provider}/${model.model}, thinking: ${model.thinkingLevel}`;
 }
 
-function standardRouteForDisplay(settings: ReturnType<typeof loadWorkflowSettings>): { role: StandardModelRole; sourceLabel: string; route?: RoleModelSettings; fallback: boolean } {
+function standardRouteForDisplay(settings: ReturnType<typeof loadWorkflowSettings>): { role: StandardModelRole; sourceLabel: string; route?: RoleModelSettings } {
   const role = effectiveStandardModelRole(settings);
   const source = standardModelSource(settings);
-  if (role === "current" || source === "current") return { role: "current", sourceLabel: "Current Pi model", fallback: false };
+  if (role === "current" || source === "current") return { role: "current", sourceLabel: "Current Pi model" };
   const standardRoute = settings.standard.models?.[role];
-  if (source === "standard_specific" && standardRoute && roleIsConfigured(standardRoute)) return { role, sourceLabel: "Standard-specific", route: standardRoute, fallback: false };
-  return { role, sourceLabel: "Shared", route: settings.models[role], fallback: source === "standard_specific" };
+  if (source === "standard_specific" && standardRoute && roleIsConfigured(standardRoute)) return { role, sourceLabel: "Standard-specific", route: standardRoute };
+  return { role, sourceLabel: "Shared", route: settings.models[role] };
 }
 
-function planRouteForDisplay(settings: ReturnType<typeof loadWorkflowSettings>, role: WorkflowRole): { sourceLabel: string; route?: RoleModelSettings; fallback: boolean } {
+function planRouteForDisplay(settings: ReturnType<typeof loadWorkflowSettings>, role: WorkflowRole): { sourceLabel: string; route?: RoleModelSettings } {
   const planRoute = settings.planning.models?.[role];
-  if (settings.planning.usePlanSpecificModels && planRoute && roleIsConfigured(planRoute)) return { sourceLabel: "Plan-specific", route: planRoute, fallback: false };
-  return { sourceLabel: "Shared", route: settings.models[role], fallback: settings.planning.usePlanSpecificModels === true };
+  if (settings.planning.usePlanSpecificModels && planRoute && roleIsConfigured(planRoute)) return { sourceLabel: "Plan-specific", route: planRoute };
+  return { sourceLabel: "Shared", route: settings.models[role] };
 }
 
-function workflowModelDisplayLine(sourceLabel: string, role: WorkflowRole, route?: RoleModelSettings, fallback = ""): string {
-  return `Model: ${sourceLabel} ${workflowRoleLabel(role)} — ${routeModelLabelForUser(route)}${fallback}`;
+// Pass 18 (owner ruling 2026-11-21): the Model status line ends after the thinking
+// level — the internal fallback explanation is never displayed. The fallback
+// routing itself is unchanged; the line's source label already shows the
+// effective Shared route.
+function workflowModelDisplayLine(sourceLabel: string, role: WorkflowRole, route?: RoleModelSettings): string {
+  return `Model: ${sourceLabel} ${workflowRoleLabel(role)} — ${routeModelLabelForUser(route)}`;
 }
 
 function standardModelDisplayLine(settings: ReturnType<typeof loadWorkflowSettings>): string {
   const route = standardRouteForDisplay(settings);
   if (route.role === "current") return "Model: Current Pi model";
-  const fallback = route.fallback ? " (Standard-specific route not configured; using Shared)" : "";
-  return workflowModelDisplayLine(route.sourceLabel, route.role, route.route, fallback);
+  return workflowModelDisplayLine(route.sourceLabel, route.role, route.route);
 }
 
 function activePiModelLine(ctx: ExtensionContext, activeThinking: string): string {
@@ -4985,28 +5215,50 @@ function standardPrompt(state: WorkflowState, settings: ReturnType<typeof loadWo
   const clarificationLine = clarificationOff
     ? "Standard Mode clarification is disabled. Do not ask clarification questions; proceed with reasonable assumptions and state them briefly when needed."
     : standardClarificationMode(settings) === "always_for_nontrivial"
-      ? `Standard Mode clarification is always_for_nontrivial. For substantive work, dynamic task-specific clarification must be answered before direct work continues. Ask at most ${Math.max(0, Math.min(2, settings.standard.maxClarificationQuestions ?? 1))} concise clarification question(s), only when required by the current task state. If asking, use parseable ## Question N plus A/B/C/D options grounded in the actual task. In the visible Standard Auto Checks block, state whether clarification is needed or not needed and why.`
-      : `Standard Mode clarification is auto. When clarification would materially improve this response, you MUST stop and ask before continuing work. Call standard_handoff_result({ clarificationDecision: "ask", questions, todoDecision }) FIRST — before any standard_todo updates, file edits, or bash commands. Print ## Question N with A/B/C/D options. Then STOP — do not run tools or provide the final answer in this turn. The user will answer and you will continue. Ask at most ${Math.max(0, Math.min(2, settings.standard.maxClarificationQuestions ?? 1))} concise clarification question(s), only when genuinely useful. In the visible Standard Auto Checks block, state whether clarification is needed or not needed and why.`;
+      ? `Standard Mode clarification is always_for_nontrivial. For substantive work, dynamic task-specific clarification must be answered before direct work continues. Ask at most ${Math.max(0, Math.min(2, settings.standard.maxClarificationQuestions ?? 1))} concise clarification question(s), only when required by the current task state. If asking, use parseable ## Question N plus A/B/C/D options grounded in the actual task — the question itself is the entire visible output, so never narrate the question, the rendered card, or your own stopping. In the visible Standard Auto Checks block, state whether clarification is needed or not needed and why.`
+      : `Standard Mode clarification is auto. When clarification would materially improve this response, you MUST stop and ask before continuing work. Call standard_handoff_result({ clarificationDecision: "ask", questions, todoDecision }) FIRST — before any standard_todo updates, file edits, or bash commands. Print ## Question N with A/B/C/D options. Then STOP — do not run tools or provide the final answer in this turn. The question itself is the entire visible output: do not narrate the question, the rendered card, or your own stopping. The user will answer and you will continue. Ask at most ${Math.max(0, Math.min(2, settings.standard.maxClarificationQuestions ?? 1))} concise clarification question(s), only when genuinely useful. In the visible Standard Auto Checks block, state whether clarification is needed or not needed and why.`;
   const todoMode = standardTodoMode(settings);
   const standardModelRole = effectiveStandardModelRole(settings);
   const standardSubagentPolicyBlock = standardSubagentsAllowed(settings)
-    ? `Standard sub-agent policy:\n- current worker bucket: ${state.standardActivePhase ?? "Planning"}${state.standardWorkKind ? ` (${state.standardWorkKind})` : ""}\n- agentScope: ${settings.standard.subagentScope ?? "user"}\n- planning/research: ${activeWorkerTargetLabel(standardPhasePolicy(settings, "Planning"), standardWorkerCount(settings, "Planning"))}\n- execution: ${activeWorkerTargetLabel(standardPhasePolicy(settings, "Execution"), standardWorkerCount(settings, "Execution"))}\n- repair: ${activeWorkerTargetLabel(standardPhasePolicy(settings, "Repair"), standardWorkerCount(settings, "Repair"))}\n- review: ${activeWorkerTargetLabel(standardPhasePolicy(settings, "Review"), standardWorkerCount(settings, "Review"))}\n- validation: ${activeWorkerTargetLabel(standardPhasePolicy(settings, "Validation"), standardWorkerCount(settings, "Validation"))}\nUse any configured package, user, or project agent that fits the task. When calling subagent in Standard Mode, pass agentScope=${settings.standard.subagentScope ?? "user"} and workflowPhase=planning, execution, repair, review, or validation. These workflowPhase labels are Standard worker buckets only; they do not move Standard into Plan/Mission review or validation UI. Do not launch execution sub-agents merely for read-only summaries, status updates, action-item reports, or docs/repo inspection; use execution sub-agents only before actual mutation or execution-class bash. If the active Standard worker bucket is execution or repair and that bucket policy is forced, satisfy the required sub-agent usage before edit/write/unsafe bash.`
+    ? `Standard sub-agent policy:\n- current worker bucket: ${state.standardActivePhase ?? "Planning"}${state.standardWorkKind ? ` (${state.standardWorkKind})` : ""}\n- agentScope: ${settings.standard.subagentScope ?? "user"}\n- planning/research: ${activeWorkerTargetLabel(standardPhasePolicy(settings, "Planning"), standardWorkerCount(settings, "Planning"))}\n- execution: ${activeWorkerTargetLabel(standardPhasePolicy(settings, "Execution"), standardWorkerCount(settings, "Execution"))}\n- repair: ${activeWorkerTargetLabel(standardPhasePolicy(settings, "Repair"), standardWorkerCount(settings, "Repair"))}\n- review: ${activeWorkerTargetLabel(standardPhasePolicy(settings, "Review"), standardWorkerCount(settings, "Review"))}\n- validation: ${activeWorkerTargetLabel(standardPhasePolicy(settings, "Validation"), standardWorkerCount(settings, "Validation"))}\nUse any configured package, user, or project agent that fits the task. When calling subagent in Standard Mode, pass agentScope=${settings.standard.subagentScope ?? "user"} and workflowPhase=planning, execution, repair, review, or validation. These workflowPhase labels are Standard worker buckets only; they do not move Standard into Plan/Mission review or validation UI. Do not launch execution sub-agents merely for read-only summaries, status updates, action-item reports, or docs/repo inspection; use execution sub-agents only before actual mutation or execution-class bash. If this turn is a direct question, status, recap, or summary request you can answer from existing context, workers are never required: answer directly and complete the turn with standard_handoff_result — never launch workers just to satisfy a forced gate for an answer. If the active Standard worker bucket is execution or repair and that bucket policy is forced, satisfy the required sub-agent usage before edit/write/unsafe bash.\n- bucket agents: planning → implementation-planning or codebase-research; execution → general-worker; review/validation → quality-validation.${settings.subagents.allowBackgroundSubagents === true ? `\n- background sub-agents: allowed for OPTIONAL extra advisory checks only after the required synchronous workers of a forced bucket are satisfied and while To Do work remains — pass background:true with one small read-only task (no polling, sleep loops, watchers, or servers); results return automatically in a later turn as the BG Sub-agents strip above the input, and background sub-agents never satisfy forced worker evidence. Never use background:true for a forced bucket's required workers. If background advisory workers are still running when your work ends, say so plainly and finish the turn — never declare the run fully closed while they are in flight; the run closes itself when they deliver.` : ""}`
     : "Standard Mode sub-agent delegation is disabled by settings.";
   const standardSubagentDecisionInstruction = standardSubagentsAllowed(settings)
     ? "For Standard auto/deep/maximum sub-agent policies, internally decide delegate or skip. Delegate for non-trivial parallelizable research, validation, repair, audit, or implementation prep. Skip for trivial read-only/status work or when no useful parallel worker exists. Advisory skips are non-blocking; do not use blocked, forced-policy, or retry wording for auto/deep/maximum skips. Do not print internal sub-agent policy deliberation; if no worker runs, give only a concise user-facing skip reason when a Sub-Agent Usage Summary is naturally relevant."
     : "";
   const autoCheckInstruction = standardAutoChecksRequired(state, settings)
-    ? `Your first visible lines for every user-submitted Standard Mode response must be exactly this parser-safe Standard Auto Checks contract before any other text:\nStandard Auto Checks:\nCLARIFICATION_DECISION: ask|skip|disabled\nCLARIFICATION_REASON: <brief user-facing reason>\nTODO_DECISION: create|skip|on request|required|disabled|active\nTODO_REASON: <brief user-facing reason>\nUse CLARIFICATION_DECISION=ask only when you will ask clarification. Use skip when clarification is not needed. Use TODO_DECISION=create when you will initialize optional task-specific To Do tracking with standard_todo, required when To Do tracking is required by settings, active when a To Do list is already active, skip when visible tracking is not useful, on request when To Do tracking starts only on explicit request, and disabled when settings disable it. Keep reasons concise; do not reveal chain-of-thought.`
+    ? `Your first visible lines for every user-submitted Standard Mode response must be exactly this parser-safe Standard Auto Checks contract before any other text:\nStandard Auto Checks:\nCLARIFICATION_DECISION: ask|skip|disabled\nCLARIFICATION_REASON: <brief user-facing reason>\nTODO_DECISION: create|skip|on request|required|disabled|active\nTODO_REASON: <brief user-facing reason>\nUse CLARIFICATION_DECISION=ask only when you will ask clarification. Use skip when clarification is not needed. Use TODO_DECISION=create when you will initialize optional task-specific To Do tracking with standard_todo, required when To Do tracking is required by settings, active when a To Do list is already active, skip only when the entire task is a one-off answer with no follow-up actions, on request when To Do tracking starts only on explicit request, and disabled when settings disable it. Keep reasons concise; do not reveal chain-of-thought.`
     : "Standard auto To Do and clarification checks are disabled; no Standard Auto Checks block is required.";
-  const todoInstruction = state.standardTodo?.items.length
-    ? `Active Standard Mode To Do:\n${state.standardTodo.items.map((item, index) => `${index + 1}. ${item.title} [${item.status}]`).join("\n")}\nUse standard_todo({ action: \"update\", item, status }) to update To Do progress as work advances. If you delegate work to sub-agents, the parent Standard turn still owns To Do updates after their results return; do not leave the current item stale. In the visible Standard Auto Checks block, mark To Do as ${todoMode === "required" && todoCreatedThisTurn ? "required" : "already active"} and briefly say you will update it.`
-    : todoMode === "off"
+  // Pass 13 (owner ruling 2026-11-19): a completed board is no longer
+  // presented as "Active" — the model sees it as finished and is taught to
+  // open a NEW board for the next substantive unit of work instead of
+  // free-riding the completed one (live 2026-11-19: 30+ minutes of
+  // follow-on work rode a finished 3-of-3 board with no new list).
+  // Pass 16 (owner ruling 2026-11-20, supersedes the pass-13 skip
+  // permissions): auto mode is the mode for substantive work — the to-do
+  // list is used for almost everything except one-off things. The pass-13
+  // trivial-work exemptions are deleted (live evidence: board creation
+  // collapsed from 13 boards/~20 tasks to 7/~45+ exactly at this
+  // post-completion boundary). The manual branch keeps its explicit-request
+  // policy and does NOT carry the unconditional new-board law (swarm W1
+  // caught the contradiction in the first draft).
+  const todoBoardActive = Boolean(state.standardTodo?.items.length) && state.standardTodo?.status !== "completed";
+  const todoBoardCompleted = state.standardTodo?.status === "completed";
+  const todoCompletionInstruction = "The previous Standard Mode To Do board is complete and no longer displayed. Do not ride the completed board and do not update its items. When you begin the next task, initialize a NEW board sized to that work with standard_todo({ action: \"set\", task, items }). A new board is needed for every task except one-off things: a single question, a status check, a greeting, or a purely conversational reply. Mark To Do as skip in the visible Standard Auto Checks block only for those one-off cases.";
+  const todoInstruction = todoBoardActive
+    ? `Active Standard Mode To Do:\n${state.standardTodo!.items.map((item, index) => `${index + 1}. ${item.title} [${item.status}]`).join("\n")}\nUse standard_todo({ action: \"update\", item, status }) to update To Do progress as work advances: mark the current item completed, skipped, or blocked immediately when it finishes and before starting the next item; never batch-complete items at the end of the turn, and never reserve updates for the end of the turn — each item's status changes the moment its work does. If you delegate work to sub-agents, the parent Standard turn still owns To Do updates after their results return; do not leave the current item stale. If an item can only advance with user input or decisions, mark it blocked immediately and keep working the other items; when nothing actionable remains, call standard_handoff_result with clarificationDecision \"ask\" and concrete questions naming exactly what you need. Never end a work turn with actionable items untouched. In the visible Standard Auto Checks block, mark To Do as ${todoMode === "required" && todoCreatedThisTurn ? "required" : "already active"} and briefly say you will update it.`
+    : todoBoardCompleted && todoMode !== "off"
+      ? todoMode === "required"
+        ? `${todoCompletionInstruction} To Do tracking is required: your first tool call for the next substantive task work must be that new standard_todo set.`
+        : todoMode === "manual"
+          ? "The previous Standard Mode To Do board is complete and no longer displayed. Do not ride the completed board and do not update its items. To Do tracking is manual: start the next board only when the user explicitly requests it."
+          : todoCompletionInstruction
+      : todoMode === "off"
       ? "Standard Mode To Do tracking is disabled by settings. Do not initialize a To Do list. If an auto-check block is shown because clarification is enabled, mark To Do as disabled."
       : todoMode === "manual"
         ? "Standard Mode To Do tracking starts only on explicit request. Initialize it only when the current user request explicitly asks for To Do tracking or came from /standard todo start. When initializing, call standard_todo({ action: \"set\", task, items }) with concrete task-specific items. Choose the smallest useful item count from actual task complexity; do not default to three. Otherwise mark To Do as on request in the visible Standard Auto Checks block."
         : todoMode === "required"
           ? "Standard Mode To Do tracking is required for active task work. Do not proceed with substantive task work, sub-agent calls, edits, write operations, unsafe bash commands, or final answers until a Standard To Do list is active. If there is no active To Do list and the current request is substantive task work, your first tool call must be standard_todo({ action: \"set\", task, items }) with a dynamic number of concrete task-specific items. Choose the smallest useful item count from actual task complexity; one item is acceptable for tiny work, two to four may fit small/normal work, and more may be needed for broad/risky work. Do not default to three, do not use a fixed three-item list, and do not use generic boilerplate such as assessment/context/summary placeholders. If creation fails, retry once with valid concrete items; if it still cannot be created, stop and report the blocker instead of continuing. Keep this lightweight: Standard To Do tracking is not a Plan Mode approved plan and not Mission Mode milestones."
-          : "Standard Mode To Do tracking is automatic. Create a task-specific To Do list for every task. Only skip the To Do for single-question lookups, status checks, greetings, or purely conversational replies. Call standard_todo({ action: \"set\", task, items }) with concrete items matching the actual task. One or two items is fine for simple tasks; use more for complex work. Do not default to three or use boilerplate. Mark To Do as skip only when the entire task is a one-shot answer with no follow-up actions.";
+          : "Standard Mode To Do tracking is automatic. Create a task-specific To Do list for every task. Only skip the To Do for single-question lookups, status checks, greetings, or purely conversational replies. Call standard_todo({ action: \"set\", task, items }) with concrete items matching the actual task. One or two items is fine for simple tasks; use more for complex work. Do not default to three or use boilerplate. Mark To Do as skip only when the entire task is a one-off answer with no follow-up actions.";
   return `You are in PI WORKFLOW STANDARD MODE.
 
 ${professionalOutputGuidance("Standard Mode")}
@@ -5042,7 +5294,7 @@ ${todoInstruction}
 Handoff: Before your final response, call standard_handoff_result with clarificationDecision (ask/skip/disabled) and todoDecision (create/skip/required). The typed tool result is the primary Standard Mode handoff control plane.
 
 Web research guidance:
-${workflowRuntimeWebResearchGuidance()}`;
+${workflowRuntimeWebResearchGuidance()}${state.standardTaskAddenda?.length ? `\n\nRecent task guidance from the user (part of the current task, not new tasks):\n${state.standardTaskAddenda.map((note) => `- ${note}`).join("\n")}` : ""}${state.standardBackgroundResults?.length ? `\n\nBackground sub-agent results (from completed background advisory waves — use them for the current work, then move on):\n${state.standardBackgroundResults.map((result) => `- [${result.phase ?? "background"} · ${result.completedAt}] ${result.summary.replace(/\s+/g, " ").slice(0, 600)}`).join("\n")}` : ""}`;
 }
 
 function planStepDisplayLabel(step: PlanProgressState["steps"][number] | undefined, fallback: string): string {
@@ -5431,8 +5683,13 @@ function workflowWidgetRgb(settings: ReturnType<typeof loadWorkflowSettings>, ro
   return decorate ? decorate(colored) : colored;
 }
 
-function workflowSubagentActivityTitle(settings: ReturnType<typeof loadWorkflowSettings>, status: "active" | "failed", count: number): string {
+function workflowSubagentActivityTitle(settings: ReturnType<typeof loadWorkflowSettings>, status: "active" | "failed" | "completed", count: number): string {
   if (status === "failed") return workflowWidgetRgb(settings, "error", `${count === 1 ? "Sub-agent" : "Sub-agents"} failed: ${count}`);
+  // Pass 9: the completed title's count carries the SAME success color as
+  // the completed rows beneath it (owner ruling 2026-11-19: the number must
+  // mirror its lane). The active title's count stays "progress" — it
+  // mirrors the xN count treatment of the running rows beneath it.
+  if (status === "completed") return `${workflowWidgetRgb(settings, "success", `✓ ${count === 1 ? "Sub-agent" : "Sub-agents"} completed:`)} ${workflowWidgetRgb(settings, "success", String(count))}`;
   return `${workflowWidgetRgb(settings, "subagent", `${count === 1 ? "Sub-agent" : "Sub-agents"} active:`)} ${workflowWidgetRgb(settings, "progress", String(count))}`;
 }
 
@@ -6325,10 +6582,14 @@ function renderAllStartupVisualPresetPreviews(settings: ReturnType<typeof loadWo
 function workflowStatusThemeSlot(state: WorkflowState): WorkflowThemeSlot {
   if (state.mode === "idle" || state.mode === "cancelled") return "idle";
   if (state.mode === "standard") {
-    const todo = state.standardTodo;
-    if (todo?.status === "completed") return "validatedPass";
-    if (todo?.status === "blocked") return "validatedFail";
-    if (todo?.status === "paused") return "idle";
+    // Pass 9: the theme follows the same honesty rule as the header text —
+    // a completed board with work draining stays "executing", and a waiting
+    // clarification is a wait state — so colors can never announce
+    // completion before the run actually closes.
+    const display = standardDisplayPhase(state);
+    if (display === "completed") return "validatedPass";
+    if (display === "blocked") return "validatedFail";
+    if (display === "paused" || display === "awaiting answer") return "idle";
     return "executing";
   }
   if (state.mode === "awaiting_plan_input" || state.mode === "awaiting_clarification") return "plan";
@@ -6609,8 +6870,7 @@ function workflowTopModelLine(state: WorkflowState, settings: ReturnType<typeof 
   const role = workflowTopModelRole(state, mission);
   if (isPlanWorkflowUiMode(state)) {
     const planRoute = planRouteForDisplay(settings, role);
-    const fallback = planRoute.fallback ? " (Plan-specific route not configured; using Shared)" : "";
-    return workflowModelDisplayLine(planRoute.sourceLabel, role, planRoute.route, fallback);
+    return workflowModelDisplayLine(planRoute.sourceLabel, role, planRoute.route);
   }
   if (isMissionWorkflowMode(state)) {
     const missionRoute = settings.missions.models?.[role];
@@ -6797,33 +7057,93 @@ function truncateVisibleText(line: string, maxWidth: number): string {
 
 function subagentActivityLines(ctx: ExtensionContext, activeSubagents: ActiveSubagent[]): string[] {
   const settings = loadWorkflowSettings(ctx.cwd);
-  if (!subagentActivityIndicatorEnabled(settings) || activeSubagents.length === 0) return [];
-  const running = activeSubagents.filter((agent) => agent.status === "running");
-  const failed = activeSubagents.filter((agent) => agent.status === "failed");
-  const visible = running.length > 0 ? running : failed;
+  // Foreground sub-agents only: background workers render on their own
+  // aboveEditor strip (backgroundAgentsWidgetLines) so the two sub-agent
+  // classes stay visually distinct (owner decision 2026-11-16).
+  const foreground = activeSubagents.filter((agent) => !agent.background);
+  if (!subagentActivityIndicatorEnabled(settings) || foreground.length === 0) return [];
+  const running = foreground.filter((agent) => agent.status === "running");
+  const completed = foreground.filter((agent) => agent.status === "completed");
+  const failed = foreground.filter((agent) => agent.status === "failed");
+  const visible = running.length > 0 ? [...running, ...completed] : completed.length > 0 ? completed : failed;
   if (visible.length === 0) return [];
   const displayLabel = (agent: ActiveSubagent): string => {
     const route = [agent.model, agent.thinkingLevel ? `thinking:${agent.thinkingLevel}` : undefined].filter(Boolean).join(", ");
     return route ? `${agent.name} (${route})` : agent.name;
   };
   const fgCounts = new Map<string, number>();
-  const bgCounts = new Map<string, number>();
   for (const agent of visible) {
-    const map = agent.background ? bgCounts : fgCounts;
-    const label = displayLabel(agent);
-    map.set(label, (map.get(label) ?? 0) + 1);
+    const label = agent.status === "completed" ? `✓ ${displayLabel(agent)}` : displayLabel(agent);
+    fgCounts.set(label, (fgCounts.get(label) ?? 0) + 1);
   }
-  const role: WorkflowWidgetColorRole = running.length > 0 ? "subagent" : "error";
+  const role: WorkflowWidgetColorRole = running.length > 0 ? "subagent" : completed.length > 0 ? "success" : "error";
   const spinner = WORKFLOW_SUBAGENT_SPINNER_FRAMES[workflowSubagentActivityFrame % WORKFLOW_SUBAGENT_SPINNER_FRAMES.length] ?? "•";
   const title = running.length > 0
     ? `${workflowWidgetRgb(settings, "subagent", spinner)} ${workflowSubagentActivityTitle(settings, "active", running.length)}`
-    : workflowWidgetRgb(settings, "error", `${failed.length === 1 ? "Sub-agent" : "Sub-agents"} failed: ${failed.length}`);
+    : completed.length > 0
+      ? workflowSubagentActivityTitle(settings, "completed", completed.length)
+      : workflowWidgetRgb(settings, "error", `${failed.length === 1 ? "Sub-agent" : "Sub-agents"} failed: ${failed.length}`);
   const fgLines = Array.from(fgCounts.entries()).map(([label, count]) => workflowSubagentAgentLine(settings, role, label, count));
-  const bgLines = Array.from(bgCounts.entries()).map(([label, count]) => {
-    const text = count > 1 ? `${label} x${count}` : label;
-    return `${workflowWidgetRgb(settings, "muted", text)} ${workflowWidgetRgb(settings, "muted", "[bg]")}`;
+  return [title, ...fgLines];
+}
+
+// Background sub-agents render as the RIGHT COLUMN of the top widget's own
+// two lines (Standard:/Model: on the left), composed with the exact same
+// left+right padding the bottom progress widget uses for the foreground
+// sub-agent lane (bottomProgressWidget / composeBottomProgressWidgetLines).
+// Never a separate stacked widget: a second aboveEditor widget added two
+// blank half-lines and raised the top block off the input line (owner ruling
+// 2026-11-18, final after four rejected layouts: the top widget "stays
+// exactly the same", the lane is "exactly the same" as the sub-agents
+// "just placed above the input line", "this is done with padding"). Hard
+// capped at two lines so the top block can never grow: title on the
+// Standard: line, ONE aggregate row on the Model: line.
+function backgroundAgentsColumnLines(ctx: ExtensionContext, activeSubagents: ActiveSubagent[]): string[] {
+  const settings = loadWorkflowSettings(ctx.cwd);
+  const background = activeSubagents.filter((agent) => agent.background);
+  if (!subagentActivityIndicatorEnabled(settings) || background.length === 0) return [];
+  const running = background.filter((agent) => agent.status === "running");
+  const completed = background.filter((agent) => agent.status === "completed");
+  const failed = background.filter((agent) => agent.status === "failed");
+  const spinner = WORKFLOW_SUBAGENT_SPINNER_FRAMES[workflowSubagentActivityFrame % WORKFLOW_SUBAGENT_SPINNER_FRAMES.length] ?? "•";
+  // Pass 13 (owner ruling 2026-11-19: "the color treatment ... should
+  // also apply to the number, the same as for sub-agents"): the BG
+  // title's count now carries the SAME role the foreground lane's title
+  // count uses — "progress", mirroring the xN count treatment of the
+  // rows beneath it (workflowSubagentActivityTitle). "success" when
+  // completed; failed already embeds the count in one error chunk.
+  const title = running.length > 0
+    ? `${workflowWidgetRgb(settings, "subagent", `${spinner} BG Sub-agents active:`)} ${workflowWidgetRgb(settings, "progress", String(running.length))}`
+    : failed.length > 0
+      ? workflowWidgetRgb(settings, "error", `BG Sub-agents failed: ${failed.length}`)
+      : `${workflowWidgetRgb(settings, "success", `✓ BG Sub-agents completed:`)} ${workflowWidgetRgb(settings, "success", String(completed.length))}`;
+  const counts = new Map<string, number>();
+  // Swarm review fix (pass 9): running types enter the map first so the
+  // two-row bound can never hide the only RUNNING type behind completed
+  // rows while the title counts it.
+  const bgStatusRank = (agent: ActiveSubagent): number => agent.status === "running" ? 0 : agent.status === "completed" ? 1 : 2;
+  for (const agent of [...background].sort((a, b) => bgStatusRank(a) - bgStatusRank(b))) {
+    const label = agent.status === "completed" ? `✓ ${agent.name}` : agent.status === "failed" ? `✗ ${agent.name}` : agent.name;
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  const role: WorkflowWidgetColorRole = running.length > 0 ? "subagent" : completed.length > 0 ? "success" : "error";
+  // Pass 9 (owner ruling 2026-11-19): one row per worker type — the exact
+  // pattern the foreground lane uses (`label xN` rows via
+  // workflowSubagentAgentLine). The old aggregate join crammed multiple
+  // types onto ONE line ("quality-validation x2 · implementation-planning"),
+  // which read as sloppy next to the foreground lane. Supersedes the pass-6
+  // two-line hard cap; still bounded at two type rows so the top block
+  // stays compact.
+  // Pass 10 (owner ruling 2026-11-19: "one of them got a down checkmark,
+  // but it didn't turn green like the sub-agent"): each row carries ITS OWN
+  // state color — a completed row turns success green the moment it
+  // completes (even while siblings still run), a failed row turns error
+  // red, running rows keep the lane color.
+  const typeRows = Array.from(counts.entries()).slice(0, 2).map(([label, count]) => {
+    const rowRole: WorkflowWidgetColorRole = label.startsWith("✓") ? "success" : label.startsWith("✗") ? "error" : role;
+    return workflowSubagentAgentLine(settings, rowRole, label, count);
   });
-  return [title, ...fgLines, ...bgLines];
+  return [title, ...typeRows];
 }
 
 function composeBottomProgressWidgetLines(leftLines: string[], rightLines: string[] = [], width: number): string[] {
@@ -6879,7 +7199,15 @@ function rightOverlayWidget(leftLines: string[], rightLines: string[]): (tui: un
 
 function renderSubagentActivity(ctx: ExtensionContext, activeSubagents: ActiveSubagent[], state?: WorkflowState): void {
   try { ctx.ui.setWidget("workflow-subagent-activity", undefined); } catch { /* UI unavailable */ }
-  try { ctx.ui.setStatus("workflow-subagent-activity", undefined); } catch { /* UI unavailable */ }
+  // Pass 9: the counts-only footer status line for worker activity is
+  // REMOVED — it appeared in no approved document (the E5 note approved a
+  // different label, and the bg segment was approved nowhere) per the owner
+  // ruling 2026-11-19. Worker visibility lives in the bottom progress
+  // widget lane and the top-widget BG column only. The status key is still
+  // cleared at shutdown/exit sites in case a line from an older install
+  // lingers.
+  // Background rows live in the top widget's right column (composed inside
+  // setWorkflowUi), so the row-refresh path simply re-renders the whole UI.
   if (state) setWorkflowUi(ctx, state, activeSubagents);
 }
 
@@ -6963,8 +7291,25 @@ function setWorkflowUi(ctx: ExtensionContext, state: WorkflowState, activeSubage
   const settings = loadWorkflowSettings(ctx.cwd);
   workflowEditorHintText = workflowEditorHintTextFor(state, settings);
   const topVisible = isPlanWorkflowUiMode(state) ? workflowWidgetVisible(settings, "planTop") : isMissionWorkflowMode(state) ? workflowWidgetVisible(settings, "missionTop") : isStandardWorkflowMode(state) ? workflowWidgetVisible(settings, "standardTop") : true;
-  if (topVisible && settings.ui.showWorkflowStatus && state.mode !== "idle" && state.mode !== "cancelled") ctx.ui.setWidget(WORKFLOW_SUITE_UI_KEY, colorWorkflowTopWidgetLines(workflowWidget(state, ctx.cwd), settings));
-  else ctx.ui.setWidget(WORKFLOW_SUITE_UI_KEY, undefined);
+  // Top widget: Standard:/Model: lines on the left, BG sub-agents column on
+  // the right of the SAME two lines (bottomProgressWidget — the identical
+  // left+right composition the bottom progress widget uses for the
+  // foreground sub-agent lane; owner ruling 2026-11-18). No bg rows → the
+  // plain two lines exactly as before pass 4.
+  if (topVisible && settings.ui.showWorkflowStatus && state.mode !== "idle" && state.mode !== "cancelled") {
+    const topLines = colorWorkflowTopWidgetLines(workflowWidget(state, ctx.cwd), settings);
+      const bgColumnLines = backgroundAgentsColumnLines(ctx, activeSubagents);
+      if (bgColumnLines.length) {
+        // Pass 9 (owner ruling 2026-11-19): per-type BG rows grow UPWARD —
+        // the opposite of the bottom lane's downward growth. Pad the two
+        // base lines at the TOP so the column title sits at the top of the
+        // block and the Standard:/Model: lines stay at the bottom, nearest
+        // the input line.
+        const bgPad = Math.max(0, bgColumnLines.length - topLines.length);
+        const paddedTopLines = bgPad ? [...Array.from({ length: bgPad }, () => ""), ...topLines] : topLines;
+        ctx.ui.setWidget(WORKFLOW_SUITE_UI_KEY, bottomProgressWidget(paddedTopLines, bgColumnLines));
+      } else ctx.ui.setWidget(WORKFLOW_SUITE_UI_KEY, topLines);
+  } else ctx.ui.setWidget(WORKFLOW_SUITE_UI_KEY, undefined);
 
   ctx.ui.setWidget("workflow-plan-mode-indicator", undefined);
   ctx.ui.setWidget("workflow-standard-mode-indicator", undefined);
@@ -7086,9 +7431,9 @@ function clarificationGate(task: string, settings: ReturnType<typeof loadWorkflo
 
 function renderClarificationQuestionsForUser(questions: ClarificationQuestion[]): string {
   return questions.map(q => {
-    const opts = q.options.map(o => `- ${o}`).join("\n");
-    const hasCustom = q.options.some(o => /^D\./i.test(o));
-    return `## Question ${q.index}\n\n${q.question}\n\n${opts}${hasCustom ? "" : "\n- D. Other: type your own answer"}\n- S. Skip this question`;
+    // Pass 17 (owner ruling 2026-11-20): D is always the fixed free-text line.
+    const opts = enforceCanonicalOtherOption(q.options).map(o => `- ${o}`).join("\n");
+    return `## Question ${q.index}\n\n${q.question}\n\n${opts}\n- S. Skip this question`;
   }).join("\n\n");
 }
 
@@ -7227,8 +7572,11 @@ function normalizeTypedClarificationQuestions(value: unknown, maxQuestions: numb
       return /^[A-D]\.\s+/.test(option) ? option : `${letter}. ${option.replace(/^[A-D][.:)]\s*/i, "")}`;
     });
     if (normalized.length < 2) continue;
-    if (normalized.length === 3) normalized.push("D. Other: type your own answer");
-    questions.push({ index: Number.isFinite(Number(input.index)) ? Number(input.index) : questions.length + 1, question, options: normalized });
+    // Pass 17 (owner ruling 2026-11-20): D is the user's free-text slot and is
+    // always the fixed line — a model-authored fourth label is replaced and a
+    // missing D is appended (generalizes the old append-only-when-exactly-3 rule).
+    const enforcedOptions = enforceCanonicalOtherOption(normalized);
+    questions.push({ index: Number.isFinite(Number(input.index)) ? Number(input.index) : questions.length + 1, question, options: enforcedOptions });
   }
   return questions.slice(0, maxQuestions);
 }
@@ -7305,7 +7653,7 @@ function renderPlanList(plans: SavedWorkflowPlan[]): string {
 
 function renderSavedPlan(plan: SavedWorkflowPlan): string {
   const questions = plan.clarificationQuestions?.length
-    ? plan.clarificationQuestions.map((q) => `${q.index}. ${q.question}\n${q.options.map((o) => `   ${o}`).join("\n")}`).join("\n\n")
+    ? plan.clarificationQuestions.map((q) => `${q.index}. ${q.question}\n${enforceCanonicalOtherOption(q.options).map((o) => `   ${o}`).join("\n")}`).join("\n\n")
     : "(none recorded)";
   const answers = plan.clarificationAnswers?.length
     ? plan.clarificationAnswers.map((a) => `${a.index}. ${a.skipped || a.letter === "S" ? "Skipped" : `${a.letter}${a.custom ? `: ${a.custom}` : ""}`}`).join("\n")
@@ -8269,6 +8617,15 @@ function missionRunPlan(mission: MissionState): string {
   return `# Mission Approved Milestone Plan\n\nMission ID: ${mission.id}\nGoal: ${mission.goal}\nAutonomy: ${mission.autonomy}\n\n## Current Milestone\n${milestone?.id ?? "M?"}. ${milestone?.title ?? "Unknown"}\nObjective: ${milestone?.objective ?? "(not recorded)"}\n\nAcceptance Criteria:\n${(milestone?.validation ?? []).map((s) => `- ${s}`).join("\n") || "- Current milestone objective is satisfied with no blocking unresolved risk."}\n\nRequired Evidence:\n- Files changed or inspected for this milestone.\n- Commands run with exit status, or checks skipped with reason.\n- Manual QA evidence required by the milestone, if any.\n\nSteps:\n${(milestone?.steps ?? []).map((s) => `- ${s}`).join("\n") || "- Follow the approved milestone objective."}\n\nValidation:\n${(milestone?.validation ?? []).map((s) => `- ${s}`).join("\n") || "- Validate the milestone before marking complete."}\n\nRisks:\n${(milestone?.risks ?? []).map((s) => `- ${s}`).join("\n") || "- Stop on unexpected risk."}\n\n${runPrompt}`;
 }
 
+function missionBackgroundResultsBlock(state: WorkflowState): string {
+  // Pass 7 parity: banked Mission background advisory results, appended to
+  // the runtime prompt at before_agent_start (missionRuntimePrompt itself has
+  // no workflow-state access). Rendered from the pre-clear snapshot.
+  return state.missionBackgroundResults?.length
+    ? `\n\nBackground sub-agent results (banked from completed background waves — use them for the current milestone, then move on):\n${state.missionBackgroundResults.map((result) => `- [${result.phase ?? "background"} · ${result.completedAt}] ${result.summary.replace(/\s+/g, " ").slice(0, 600)}`).join("\n")}`
+    : "";
+}
+
 function missionRuntimePrompt(mission: MissionState, settings: ReturnType<typeof loadWorkflowSettings>, preflightBlock?: string): string {
   const milestone = mission.milestones[mission.currentMilestoneIndex];
   const completed = mission.milestones.filter((m) => m.status === "completed" || m.status === "skipped");
@@ -8276,7 +8633,7 @@ function missionRuntimePrompt(mission: MissionState, settings: ReturnType<typeof
   const last = mission.checkpoints[mission.checkpoints.length - 1];
   const policy = settings.subagents.executionPolicy ?? "auto";
   const subagentPolicyBlock = phasePromptPolicyBlock(settings, "Execution", "Mission Execution", preflightBlock);
-  return `You are PI MISSION MODE RUNTIME.\n\n${professionalOutputGuidance("Mission runtime")}\n\nMISSION MODE ACTIVE\n\nMission ID: ${mission.id}\nMission goal:\n${mission.goal}\n\nAutonomy: ${mission.autonomy}\nMission status: ${mission.status}\nCurrent milestone index: ${mission.currentMilestoneIndex}\nCurrent milestone: ${milestone ? `${milestone.id} — ${milestone.title}` : "none"}\nCurrent milestone objective: ${milestone?.objective ?? "none"}\n\nMilestone steps:\n${(milestone?.steps ?? []).map((s) => `- ${s}`).join("\n") || "- none recorded"}\n\nCompleted milestones:\n${completed.map((m) => `- ${m.id}: ${m.title}`).join("\n") || "- none"}\n\nRemaining milestones:\n${remaining.map((m) => `- ${m.id}: ${m.title} (${m.status})`).join("\n") || "- none"}\n\nLast checkpoint: ${last ? `${last.id} at ${last.timestamp} — ${last.summary}` : "none"}\nLast stop reason: ${mission.lastStopReason || "none"}\nLast block reason: ${mission.lastBlockReason || "none"}\nNext action: ${mission.nextAction || missionNextActionText(mission, settings)}\n\nSafety rules:\n- This is Mission Mode, not Plan Mode. Do not produce a generic implementation plan.\n- Execute only the current approved mission milestone.\n- Do not continue to later milestones unless Mission Mode starts them.\n- Stop on unexpected risk, destructive action, secret/auth/session/log/runtime-state edit, deployment, push, database mutation, or out-of-scope work.\n- Never edit auth files, sessions, logs, .env, .factory, .cursor, or mission runtime state.\n- Keep file writes sequential unless settings explicitly allow safe scoped parallel edits.\n- Use execution sub-agents aggressively for speed, read-only inspection, risk discovery, implementation strategy, and validation preparation when consistent with executionPolicy=${policy}; if forced, do not edit until required workers have reported.\n\n${artifactSafetyPolicyBlock("execution")}\n\n${subagentPolicyBlock}${requiredSubagentPreflightSection(preflightBlock)}\n\n${subagentCapabilityTable()}\n\nDiagram guidance:\n${workflowMermaidGuidance()}\n\nWeb research guidance:\n${workflowRuntimeWebResearchGuidance()}\n\nPre-handoff verification:\n- Before calling mission_milestone_result, verify all Expected Files/Systems from the milestone plan exist and contain correct content.\n- Verify all Acceptance Criteria are satisfied with evidence.\n- Build, lint, and typecheck must pass (or be explicitly skipped with reason).\n- If any deliverable is missing, create it now before handoff.\n\nCheckpoint requirements:\n- Before your final milestone summary, call mission_milestone_result with milestoneId, status, summary, blockers, and evidence. The typed tool result is the primary Mission execution handoff.\n- Produce a checkpoint-ready summary with files changed, risks, validation needs, and next action.\n- Include validator-grade evidence: Acceptance criteria coverage, Commands run with exit status, Checks skipped with reason, files changed/inspected, and remaining manual verification.\n- Do not edit mission runtime state directly; Mission Mode will checkpoint through the workflow runtime.\n\nValidation requirements:\n${(milestone?.validation ?? []).map((s) => `- ${s}`).join("\n") || "- Produce validation-ready execution summary for the mission validator."}\n\n${missionRunPlan(mission)}`;
+  return `You are PI MISSION MODE RUNTIME.\n\n${professionalOutputGuidance("Mission runtime")}\n\nMISSION MODE ACTIVE\n\nMission ID: ${mission.id}\nMission goal:\n${mission.goal}\n\nAutonomy: ${mission.autonomy}\nMission status: ${mission.status}\nCurrent milestone index: ${mission.currentMilestoneIndex}\nCurrent milestone: ${milestone ? `${milestone.id} — ${milestone.title}` : "none"}\nCurrent milestone objective: ${milestone?.objective ?? "none"}\n\nMilestone steps:\n${(milestone?.steps ?? []).map((s) => `- ${s}`).join("\n") || "- none recorded"}\n\nCompleted milestones:\n${completed.map((m) => `- ${m.id}: ${m.title}`).join("\n") || "- none"}\n\nRemaining milestones:\n${remaining.map((m) => `- ${m.id}: ${m.title} (${m.status})`).join("\n") || "- none"}\n\nLast checkpoint: ${last ? `${last.id} at ${last.timestamp} — ${last.summary}` : "none"}\nLast stop reason: ${mission.lastStopReason || "none"}\nLast block reason: ${mission.lastBlockReason || "none"}\nNext action: ${mission.nextAction || missionNextActionText(mission, settings)}\n\nSafety rules:\n- This is Mission Mode, not Plan Mode. Do not produce a generic implementation plan.\n- Execute only the current approved mission milestone.\n- Do not continue to later milestones unless Mission Mode starts them.\n- Stop on unexpected risk, destructive action, secret/auth/session/log/runtime-state edit, deployment, push, database mutation, or out-of-scope work.\n- Never edit auth files, sessions, logs, .env, .factory, .cursor, or mission runtime state.\n- Keep file writes sequential unless settings explicitly allow safe scoped parallel edits.\n- Use execution sub-agents aggressively for speed, read-only inspection, risk discovery, implementation strategy, and validation preparation when consistent with executionPolicy=${policy}; if forced, do not edit until required workers have reported.\n\n${artifactSafetyPolicyBlock("execution")}\n\n${subagentPolicyBlock}${requiredSubagentPreflightSection(preflightBlock)}\n\n${subagentCapabilityTable()}\n\nDiagram guidance:\n${workflowMermaidGuidance()}\n\nWeb research guidance:\n${workflowRuntimeWebResearchGuidance()}\n\nPre-handoff verification:\n- Before calling mission_milestone_result, verify all Expected Files/Systems from the milestone plan exist and contain correct content.\n- Verify all Acceptance Criteria are satisfied with evidence.\n- Build, lint, and typecheck must pass (or be explicitly skipped with reason).\n- If any deliverable is missing, create it now before handoff.\n\nCheckpoint requirements:\n- Before your final milestone summary, call mission_milestone_result with milestoneId, status, summary, blockers, and evidence. The typed tool result is the primary Mission execution handoff.\n- Produce a checkpoint-ready summary with files changed, risks, validation needs, and next action.\n- Include validator-grade evidence: Acceptance criteria coverage, Commands run with exit status, Checks skipped with reason, files changed/inspected, and remaining manual verification.\n- Do not edit mission runtime state directly; Mission Mode will checkpoint through the workflow runtime.\n\nValidation requirements:\n${(milestone?.validation ?? []).map((s) => `- ${s}`).join("\n") || "- Produce validation-ready execution summary for the mission validator."}${settings.subagents.allowBackgroundSubagents === true ? `\n\nOptional background advisory sub-agents (Mission execution): after the current milestone's required synchronous execution workers are satisfied and while milestone work remains, you may launch exactly one small read-only background check by passing background:true in the subagent call (workflowPhase=execution; no polling, sleep loops, watchers, or servers). Background results never satisfy forced worker evidence and arrive automatically in a later turn. Skip this when no genuinely useful read-only check exists.` : ""}\n\n${missionRunPlan(mission)}`;
 }
 
 function missionValidationPrompt(mission: MissionState, settings: ReturnType<typeof loadWorkflowSettings>, executionSummary?: string, preflightBlock?: string, validationContext?: Pick<WorkflowState, "validationRunId" | "validationScope" | "validationMissionId" | "validationMilestoneId" | "validationProjectCwd">): string {
@@ -8665,6 +9022,7 @@ export default function workflowModes(pi: ExtensionAPI): void {
   });
   pi.registerMessageRenderer(WORKFLOW_MERMAID_MESSAGE_TYPE, workflowMermaidRenderer);
   pi.registerMessageRenderer("workflow-suite", workflowSuiteMarkdownRenderer);
+  pi.registerMessageRenderer(WORKFLOW_BG_RESULT_MESSAGE_TYPE, workflowBgResultRenderer);
 
   let state = emptyState();
   let activeMission: MissionState | undefined;
@@ -8672,6 +9030,36 @@ export default function workflowModes(pi: ExtensionAPI): void {
   let standardTodoCreatedThisTurn = false;
 	  let standardTodoRetryCount = 0;
 	  const phasePreflightBlocks: Partial<Record<SubagentPhase, string>> = {};
+  // Dedupes visible Sub-Agent Policy Blocked cards: show a distinct blocker once,
+  // then re-show at most every few minutes while it keeps firing each turn.
+  let lastShownPolicyBlockedCard: { text: string; at: number } = { text: "", at: 0 };
+  // Anti tool-loop hardening: forced-gate blocks escalate after
+  // FORCED_GATE_BLOCK_STRIKE_LIMIT consecutive strikes on the same tool, and
+  // identical diagram sources are refused outright. Both fuel the "keeps
+  // calling the blocked tool" loop observed live in Standard Mode.
+  const FORCED_GATE_BLOCK_STRIKE_LIMIT = 3;
+  const forcedGateBlockStrikes = new Map<string, number>();
+  const renderedWorkflowDiagramSources = new Set<string>();
+  // Identical-success-call loop breaker (Standard Mode only): the live
+  // 2026-11-17 session repeated the SAME successful standard_todo call 75
+  // times in a row — the blocked-call strike breaker above can never see
+  // successful calls. Scoped to the tools that actually looped.
+  const STANDARD_IDENTICAL_CALL_LIMIT = 5;
+  const STANDARD_IDENTICAL_CALL_TOOLS = new Set(["standard_todo", "subagent", "standard_handoff_result"]);
+  const standardIdenticalCallStrikes = new Map<string, { input: string; count: number }>();
+  const standardRecentToolInputs = new Map<string, string>();
+  const stableToolInputKey = (input: unknown): string => {
+    try { return JSON.stringify(input ?? null); } catch { return String(input); }
+  };
+  const showPolicyBlockedCard = (card: string, force = false): void => {
+    const now = Date.now();
+    if (force || lastShownPolicyBlockedCard.text !== card || now - lastShownPolicyBlockedCard.at > 5 * 60_000) {
+      lastShownPolicyBlockedCard = { text: card, at: now };
+      show(pi, card);
+    } else {
+      showInternal(pi, card);
+    }
+  };
   type WorkflowCompactionCheckpoint = "message" | "turn" | "tool" | "agent";
   type DeferredWorkflowCompaction = {
     checkpoint: WorkflowCompactionCheckpoint;
@@ -8876,6 +9264,7 @@ export default function workflowModes(pi: ExtensionAPI): void {
   };
   let workflowSubagentActivityTimer: ReturnType<typeof setInterval> | undefined;
   let workflowSubagentActivityRenderCtx: ExtensionContext | undefined;
+  let lastBackgroundWorkerSweepAt = 0;
   let workflowUiClockTimer: ReturnType<typeof setInterval> | undefined;
   let workflowUiClockRenderCtx: ExtensionContext | undefined;
   let workflowFooterInstalled = false;
@@ -9020,7 +9409,13 @@ export default function workflowModes(pi: ExtensionAPI): void {
     const next = { ...accounted, version: 1 as const, updatedAt: savedAt.toISOString() };
     let persisted = next;
     try { persisted = saveState(next, { alreadyAccounted: true }); } catch { /* active.json persistence must not crash Pi */ }
-    if (ctx) pi.appendEntry(workflowSessionStateEntryType, persisted);
+    // Pass 14: appendEntry on a stale ctx (session replacement/reload) must
+    // never kill Pi — crashes.json 2026-11-18T23:41:25 was exactly this throw
+    // from a timer path. The on-disk state is already saved above; the
+    // transcript entry is best-effort.
+    if (ctx) {
+      try { pi.appendEntry(workflowSessionStateEntryType, persisted); } catch { /* stale ctx after session replacement/reload */ }
+    }
     return persisted;
   };
 
@@ -9294,12 +9689,53 @@ export default function workflowModes(pi: ExtensionAPI): void {
     const todoItems = workflowStringArray(params.todoItems);
     if (todoItems.length && (todoDecision === "create" || todoDecision === "required") && !state.standardTodo?.items.length) patch.standardTodo = createStandardTodoFromTitles(state.task ?? state.originalTask ?? "Standard Mode task", todoItems) ?? state.standardTodo;
     if (clarificationDecision === "ask") {
+      if (state.standardClarificationAnswer?.trim()) {
+        // A late ask after the user already answered must not re-arm the
+        // awaiting state (double-menu wedge observed live 2026-11-17).
+        recordWorkflowInternalEvent(ctx, "Standard clarification ask suppressed: answer already captured");
+        updateState(patch, ctx);
+        return { ...typedToolAck(), details: { accepted: true, clarificationDecision, todoDecision, questions: 0, suppressed: "answer already captured" } };
+      }
       const questions = normalizeTypedClarificationQuestions(params.questions, Math.max(1, Math.min(2, settings.standard.maxClarificationQuestions ?? 1)));
-      Object.assign(patch, { standardClarificationPending: true, standardClarificationStage: "awaiting_answer", standardClarificationRequirementReason: reason, standardClarifyingQuestions: questions.length ? questions : undefined });
+      // Pass 10 (live E3: a malformed ask downgraded to the generic card with
+      // no trace): every silent question drop is now visible in logs.
+      const rawQuestionCount = Array.isArray(params.questions) ? params.questions.length : 0;
+      if (rawQuestionCount > questions.length) recordWorkflowInternalEvent(ctx, `Standard clarification ask: ${rawQuestionCount - questions.length} malformed question(s) dropped — ${questions.length ? "parsed questions shown" : "fallback questions shown"}`);
+      const askTask = state.standardClarificationTask ?? state.task ?? state.originalTask ?? "Standard Mode task";
+      // Pass 12 (wedge fix): when parsing drops every question, store the
+      // FALLBACK questions the card already displays. The old
+      // `undefined` storage armed an ask whose menu could never open
+      // (openStandardClarificationMenu requires stored questions), which the
+      // new awaiting-answer tool lockout would have turned into a wedge.
+      const askDisplayQuestions = questions.length ? questions : fallbackStandardClarificationQuestions(askTask, reason);
+      Object.assign(patch, { standardClarificationPending: true, standardClarificationStage: "awaiting_answer", standardClarificationTask: state.standardClarificationTask ?? state.task ?? state.originalTask, standardClarificationRequirementReason: reason, standardClarifyingQuestions: askDisplayQuestions });
       updateState(patch, ctx);
       pi.setActiveTools(clarificationToolsFor(settings, false));
-      recordWorkflowInternalEvent(ctx, "Internal workflow lifecycle event suppressed.");
-      return { ...typedToolAck(), details: { accepted: true, clarificationDecision, todoDecision, questions: questions.length } };
+      standardClarificationMenuRetryCount = 0;
+      recordWorkflowInternalEvent(ctx, `Standard clarification ask accepted (${askDisplayQuestions.length} questions, typed tool)`);
+      // The questions live in tool args and would otherwise never be visible.
+      show(pi, `# Clarification Needed\n\n${workflowDisplayText(reason)}\n\n${renderStandardClarificationQuestionsForDisplay(askDisplayQuestions)}`);
+      // Pass 12 (live 2026-11-19: the interactive menu opened only at
+      // agent_end — an aborted turn returned before the menu bridge and the
+      // ask sat armed but invisible while the model kept churning tools).
+      // Standard now follows the proven Plan/Mission pattern: schedule the
+      // menu at TOOL time. The agent_end bridge stays as an idempotent
+      // fallback (handoff consumption makes a double-open impossible).
+      const askSnapshot: WorkflowHandoffSnapshot = {
+        kind: "standard_clarification_menu",
+        expectedMode: "standard",
+        questions: askDisplayQuestions,
+        task: askTask,
+        fallback: "Standard clarification questions are ready, but the interactive menu is unavailable. Type your answer in chat.",
+      };
+      scheduleWorkflowHandoff(pi, askSnapshot, () => { void openStandardClarificationMenu(ctx); });
+      // Pass 12: the ack is the stop order. The bare "Accepted." let the
+      // model keep narrating and calling tools after the ask (live
+      // 2026-11-19); the tool guard enforces the same contract mechanically.
+      return {
+        content: [{ type: "text", text: "Accepted. Clarification is pending — the user is answering now. End this turn immediately: print nothing further and call no more tools." }],
+        details: { accepted: true, clarificationDecision, todoDecision, questions: questions.length },
+      };
     }
     updateState(patch, ctx);
     return { ...typedToolAck(), details: { accepted: true, clarificationDecision, todoDecision } };
@@ -9625,6 +10061,11 @@ export default function workflowModes(pi: ExtensionAPI): void {
 
   const runningSubagentActivity = (): boolean => activeSubagents.some((agent) => agent.status === "running");
   const workflowHasActiveOrPendingWork = (): boolean => workflowActiveToolExecutions > 0 || workflowScheduledAgentTurns > 0 || runningSubagentActivity() || Boolean(pendingWorkflowToolPhase);
+  // Pass 9: publish the work tracker to the module-scope display functions
+  // (standardDisplayPhase and the theme slot) so "completed" can render only
+  // when nothing is running — the same sink pattern the background event
+  // bridge uses. Safe pre-init default reports no running work.
+  workflowHasActiveOrPendingWorkRef = workflowHasActiveOrPendingWork;
   const workflowHasQueuedMessages = (ctx: ExtensionContext): boolean => {
     try { return ctx.hasPendingMessages(); } catch { return false; }
   };
@@ -9687,9 +10128,100 @@ export default function workflowModes(pi: ExtensionAPI): void {
       traceWorkflowTracking(ctx, "mission-runtime-user-wait", { reason, missionStatus: mission.status });
     }
   };
+  // Pass 7 continuation law: Standard was the only mode whose board could be
+  // abandoned mid-run (Plan auto-continues steps; Mission auto-runs
+  // milestones). When a turn ends with actionable To Do items and no
+  // clarification is waiting, drive the list instead of parking it (owner
+  // ruling 2026-11-18: "the to-do list is stuck, it's hung, and it was not
+  // completed"). Bounded: three consecutive no-progress continuations pause
+  // honestly so the engine can never run away either.
+  const STANDARD_TODO_CONTINUATION_STALL_LIMIT = 3;
+  // Pass 9 foolproof close (owner ruling 2026-11-19: "Make sure that
+  // background agents are not left running after a run completes… They
+  // should never be hanging"): when the ONLY pending work is background
+  // advisories, a close gives the wave ONE bounded settle window to return
+  // its reports; past the deadline the close proceeds, kills whatever is
+  // still running, and reports it truthfully. Advisory workers are small
+  // one-pass checks (live deliveries land in 43-87s), so two minutes is a
+  // generous ceiling — a close can never hang on them again.
+  const STANDARD_BACKGROUND_CLOSE_SETTLE_MS = 120_000;
+  let standardBackgroundCloseDeadline: number | undefined;
+  // Pass 11 (owner ruling 2026-11-19: the closure card printed twice —
+  // agent_end both schedules a setTimeout(0) idle check and finalizes
+  // directly, and every later settle re-qualified through hasSettledTodo
+  // because the terminal patch keeps the completed board). The closure
+  // report fires at most ONCE per To Do generation, keyed like the advisory
+  // nudge; enterStandardMode and exitStandardModeToIdle reset it, and a new
+  // task's new board (createdAt) naturally re-arms it.
+  let standardCloseReportedForTodo: string | undefined;
+  // Pass 12 (owner ruling 2026-11-19: "the dynamic clarification menu was
+  // never pulled up … put checks upon checks upon checks"). A stranded armed
+  // ask — the menu raced a turn abort and restored its handoff, or a
+  // prose-armed ask whose agent_end aborted — gets a BOUNDED menu retry from
+  // the Standard idle check; the ask must never sit invisible. Reset on every
+  // new ask and at session_start.
+  const STANDARD_CLARIFICATION_MENU_RETRY_LIMIT = 3;
+  let standardClarificationMenuRetryCount = 0;
+  // Swarm review fix (pass 9): the transition table alone cannot stop the
+  // in-order burst — auto-advance chains completions, so "complete 1..7"
+  // issued in the final seconds of a turn is fully legal (the exact live
+  // 22:57:49 pattern), and a skip-storm twin ends in a false "Standard
+  // Complete". Mechanical bound: at most three items may be completed or
+  // skipped per agent turn; the continuation engine drives the rest and
+  // resets this counter every turn. Prompt law alone failed live twice.
+  const STANDARD_TODO_SETTLES_PER_TURN = 3;
+  let standardTodoSettlesThisTurn = 0;
+  let standardTodoContinuationStall = 0;
+  let standardTodoContinuationSeenUpdatedAt: string | undefined;
+  const standardTodoHasActionableItems = (todo: WorkflowState["standardTodo"]): boolean =>
+    Boolean(todo && todo.status === "active" && todo.items.some((item) => item.status === "active" || item.status === "pending"));
+  const standardTodoContinuationPrompt = (todo: NonNullable<WorkflowState["standardTodo"]>): string => {
+    const remaining = todo.items
+      .map((item, index) => `${item.id || `T${index + 1}`} ${item.title} [${item.status}]`)
+      .filter((line, index) => todo.items[index]?.status === "active" || todo.items[index]?.status === "pending");
+    return `PI WORKFLOW STANDARD MODE — CONTINUE THE ACTIVE TO DO LIST
+
+The previous Standard turn ended while these To Do items remain actionable:
+${remaining.slice(0, 12).map((line) => `- ${line}`).join("\n")}
+
+Continue the task now:
+- Work the remaining items in order, calling standard_todo({ action: "update", item, status }) as each item finishes — never batch-complete items at the end of the turn.
+- Items that can only advance with user input or decisions: mark them blocked immediately and keep working the other items.
+- When nothing actionable remains, call standard_handoff_result with clarificationDecision (ask with concrete questions naming exactly what you need from the user, or skip) and todoDecision.
+- Do not stop to ask permission for work you can already do. A stale To Do list is a failure.`;
+  };
   const pauseStandardRuntimeIfIdle = (ctx: ExtensionContext, reason: string): void => {
     if (workflowHasActiveOrPendingWork()) {
       traceWorkflowTracking(ctx, "standard-runtime-pause-deferred", { reason });
+      return;
+    }
+    const todo = state.standardTodo;
+    const clarificationWaiting = state.standardClarificationPending || state.standardClarificationStage === "awaiting_answer" || state.standardClarificationStage === "drafting";
+    if (standardTodoHasActionableItems(todo) && !clarificationWaiting) {
+      if (todo!.updatedAt !== standardTodoContinuationSeenUpdatedAt) {
+        standardTodoContinuationStall = 0;
+        standardTodoContinuationSeenUpdatedAt = todo!.updatedAt;
+      }
+      if (standardTodoContinuationStall < STANDARD_TODO_CONTINUATION_STALL_LIMIT) {
+        standardTodoContinuationStall += 1;
+        traceWorkflowTracking(ctx, "standard-todo-continuation-queued", { reason, stall: standardTodoContinuationStall, updatedAt: todo!.updatedAt });
+        recordWorkflowInternalEvent(ctx, `Standard To Do continuation queued (${standardTodoContinuationStall}/${STANDARD_TODO_CONTINUATION_STALL_LIMIT}): ${reason}`);
+        queueWorkflowPrompt(pi, standardTodoContinuationPrompt(todo!), {
+          requireIdle: true,
+          isIdle: () => ctx.isIdle(),
+          onFinalFailure: () => {
+            recordWorkflowInternalEvent(ctx, "Standard To Do continuation delivery failed");
+            setStandardRuntimeActive(ctx, false);
+          },
+        });
+        return;
+      }
+      // Stall guard: three continuations produced no To Do progress — pause
+      // honestly instead of looping forever (the anti-runaway bound).
+      updateState({ standardTodo: { ...todo!, updatedAt: new Date().toISOString(), status: "paused" } }, ctx);
+      setStandardRuntimeActive(ctx, false);
+      show(pi, `# Standard Paused — To Do Stalled\n\nAfter ${STANDARD_TODO_CONTINUATION_STALL_LIMIT} automatic continuations the To Do list made no progress, so Standard Mode paused instead of looping.\n\nRemaining items keep their statuses. Resume by typing continue, run /standard todo start, or clear the list with /standard todo clear.`);
+      recordWorkflowInternalEvent(ctx, `Standard paused: To Do stalled after ${STANDARD_TODO_CONTINUATION_STALL_LIMIT} continuations without progress`);
       return;
     }
     finalizeStandardTerminalStateIfIdle(ctx, `idle pause: ${reason}`);
@@ -9697,12 +10229,48 @@ export default function workflowModes(pi: ExtensionAPI): void {
   };
   const scheduleStandardRuntimeIdleCheck = (ctx: ExtensionContext, reason: string): void => {
     setTimeout(() => {
-      if (state.mode === "standard") pauseStandardRuntimeIfIdle(ctx, reason);
+      // Pass 10 (crashes.json 2026-11-18T23:41:25: this timer persisted state
+      // through a ctx left stale by the session replacement a menu answer
+      // triggers — uncaught exception in the exact menu machinery). A stale
+      // or failing ctx on a timer means the session moved on; stop quietly.
+      try {
+        if (state.mode !== "standard") return;
+        // Pass 12: a stranded armed ask — the tool-time menu raced a turn
+        // abort and restored its handoff, or a prose-armed ask whose
+        // agent_end aborted before the bridge — gets a bounded menu retry
+        // here. The ask must never sit armed and invisible; past the retry
+        // limit the normal pause path runs and typed chat answers still
+        // work (the message handler answers whenever pending is armed).
+        const strandedClarificationAsk = state.standardClarificationPending
+          && state.standardClarificationStage === "awaiting_answer"
+          && (state.standardClarifyingQuestions?.length ?? 0) > 0
+          && state.lastWorkflowHandoff?.type === STANDARD_HANDOFF_RESULT_TOOL
+          && !state.standardClarificationAnswer?.trim();
+        if (strandedClarificationAsk && standardClarificationMenuRetryCount < STANDARD_CLARIFICATION_MENU_RETRY_LIMIT) {
+          standardClarificationMenuRetryCount += 1;
+          traceWorkflowTracking(ctx, "standard-clarification-menu-retry", { reason, attempt: standardClarificationMenuRetryCount });
+          void openStandardClarificationMenu(ctx).then((opened) => {
+            try {
+              if (!opened) pauseStandardRuntimeIfIdle(ctx, reason);
+            } catch { /* ctx stale after session replacement/reload — nothing to persist */ }
+          });
+          return;
+        }
+        pauseStandardRuntimeIfIdle(ctx, reason);
+      } catch { /* ctx stale after session replacement/reload — nothing to persist */ }
     }, 0);
   };
   const completeStandardTodoForTerminalHandoff = (todo: StandardTodoState | undefined): StandardTodoState | undefined => {
     if (!todo?.items.length || todo.status === "completed" || todo.status === "blocked") return todo;
     const hasBlocked = todo.items.some((item) => item.status === "blocked");
+    // Pass 7 honesty law: a terminal handoff completes only items that are
+    // actually terminal. Unfinished actionable items are NEVER flipped to
+    // completed (live 2026-11-18: a mid-run board would have been force-
+    // completed into a lie); they keep their state and the list parks as
+    // blocked (blocked items exist) or paused instead.
+    if (todo.items.some((item) => item.status === "active" || item.status === "pending")) {
+      return { ...todo, updatedAt: new Date().toISOString(), status: hasBlocked ? "blocked" : "paused" };
+    }
     const items = todo.items.map((item) => item.status === "blocked" ? item : item.status === "skipped" ? item : { ...item, status: "completed" as const });
     return {
       ...todo,
@@ -9721,24 +10289,154 @@ export default function workflowModes(pi: ExtensionAPI): void {
       standardClarificationPending: false,
       standardClarificationStage: state.standardClarificationStage === "drafting" || state.standardClarificationStage === "awaiting_answer" ? undefined : state.standardClarificationStage,
       standardTodo: terminalTodo,
+      standardSubagentPreflight: undefined,
+      standardTaskAddenda: undefined,
+      standardBackgroundAdvisoryDispatched: undefined,
+      standardBackgroundResults: undefined,
       standardRuntime: state.standardRuntime ? { ...state.standardRuntime, active: false, runtimeCounter: "paused" } : state.standardRuntime,
     };
   };
   const finalizeStandardTerminalStateIfIdle = (ctx: ExtensionContext, reason: string): boolean => {
     if (state.mode !== "standard") return false;
+    if (!workflowHasActiveOrPendingWork()) standardBackgroundCloseDeadline = undefined;
     if (workflowHasActiveOrPendingWork()) {
-      traceWorkflowTracking(ctx, "standard-terminal-finalize-deferred", { reason });
+      // Pass 9 foolproof close: foreground work defers as always, but a
+      // close is never held open by background advisories alone — one
+      // bounded settle window, then the close kills the stragglers and
+      // reports them truthfully (live 2026-11-18: the run displayed
+      // "completed" with advisories cycling for ~an hour).
+      const standardForegroundWorkPending = workflowActiveToolExecutions > 0 || workflowScheduledAgentTurns > 0 || Boolean(pendingWorkflowToolPhase);
+      const backgroundOnlyRunning = !standardForegroundWorkPending && activeSubagents.some((agent) => agent.background && agent.status === "running");
+      if (!backgroundOnlyRunning) {
+        traceWorkflowTracking(ctx, "standard-terminal-finalize-deferred", { reason });
+        return false;
+      }
+      if (standardBackgroundCloseDeadline === undefined) {
+        standardBackgroundCloseDeadline = Date.now() + STANDARD_BACKGROUND_CLOSE_SETTLE_MS;
+        // Swarm review fix (pass 9): call the FINALIZER directly, not the
+        // idle check — pauseStandardRuntimeIfIdle early-returns while work
+        // is pending, and bg rows still running is exactly the deadline's
+        // target scenario, so an idle-check re-arm could never fire the
+        // close. finalize itself re-verifies every gate. Pass 10: stale-ctx
+        // guard — this timer outlives session replacements.
+        setTimeout(() => {
+          try {
+            if (state.mode === "standard") finalizeStandardTerminalStateIfIdle(ctx, "background close deadline reached");
+          } catch { /* ctx stale after session replacement/reload — nothing to close */ }
+        }, STANDARD_BACKGROUND_CLOSE_SETTLE_MS);
+        traceWorkflowTracking(ctx, "standard-terminal-finalize-deferred", { reason: `${reason} (background settle window armed)` });
+        return false;
+      }
+      if (Date.now() < standardBackgroundCloseDeadline) {
+        traceWorkflowTracking(ctx, "standard-terminal-finalize-deferred", { reason: `${reason} (background settle window)` });
+        return false;
+      }
+      // Deadline reached with advisories still running: fall through — the
+      // finalize below kills them for real and the closure card states it.
+    }
+    // Pass 7: unfinished actionable items mean the run is not over — the
+    // continuation engine (pauseStandardRuntimeIfIdle) drives the list to a
+    // terminal state before any close is allowed. A close here would either
+    // park a still-working board or (pre-pass-7) force-complete it into a lie.
+    if (standardTodoHasActionableItems(state.standardTodo)) {
+      traceWorkflowTracking(ctx, "standard-terminal-finalize-deferred", { reason: `${reason} (actionable To Do items remain)` });
       return false;
     }
     const hasAcceptedFinalHandoff = state.lastWorkflowHandoff?.type === STANDARD_HANDOFF_RESULT_TOOL
       && state.standardClarificationStage !== "awaiting_answer";
     const hasStalePausedPresentation = state.standardRuntime?.active === false
       && (Boolean(state.standardActivePhase) || state.standardTodo?.status === "active");
+    // Pass 10 (owner ruling 2026-11-19, live: To Do 3/3 done, agent declared
+    // finished, 2 background workers ran forever): a FULLY SETTLED To Do is
+    // close-eligible even when the model never called the typed handoff —
+    // done means CLOSE, with the truthful kill line on the closure card.
+    // Mid-run boards never qualify: items still active/pending keep the
+    // continuation engine owning the run. A waiting clarification ALWAYS
+    // outranks the close (swarm-verify: the auto-ask path can arm a question
+    // on a completed board — closing would steal it from the user).
+    const hasSettledTodo = Boolean(state.standardTodo?.items.length) && state.standardTodo.status === "completed"
+      && !state.standardClarificationPending && state.standardClarificationStage !== "awaiting_answer" && state.standardClarificationStage !== "drafting";
     if (hasStalePausedPresentation && (state.standardClarificationPending || state.standardClarificationStage === "awaiting_answer" || state.standardClarificationStage === "drafting")) return false;
-    if (!hasAcceptedFinalHandoff && !hasStalePausedPresentation) return false;
+    if (!hasAcceptedFinalHandoff && !hasStalePausedPresentation && !hasSettledTodo) return false;
+    // Capture pre-patch state for the closure report: the patch itself clears
+    // the banked background results and finalizes the todo.
+    const closureTodo = state.standardTodo;
+    // Pass 11 latch: this board already closed and reported — re-entries (the
+    // agent_end setTimeout(0) idle check, settle timers, the deadline timer)
+    // must not re-print. Kills STILL run: a straggler appearing after the
+    // close must never be left running (pass-9 foolproof-kill law), and only
+    // genuinely new kills re-report.
+    const alreadyClosed = standardCloseReportedForTodo !== undefined && closureTodo?.createdAt === standardCloseReportedForTodo;
+    if (alreadyClosed) {
+      // Swarm review fix (pass 11): the terminal patch normally clears the
+      // handoff; the latched branch skips it — a handoff re-armed on an
+      // already-closed board is spent (pre-pass-11 re-finalize cleared it)
+      // and would otherwise loop agent_end re-entries forever.
+      if (state.lastWorkflowHandoff) updateState({ lastWorkflowHandoff: undefined }, ctx);
+      // Pass 13 silent close: straggler kills still RUN (pass-9
+      // foolproof-kill law) but never print — the widget carries the rows.
+      killRunningBackgroundWorkers(ctx, "standard terminal state re-entry");
+      traceWorkflowTracking(ctx, "standard-terminal-finalize-deferred", { reason: `${reason} (closure already reported)` });
+      return true;
+    }
+    const undeliveredBackground = state.standardBackgroundResults ?? [];
     updateState(standardTerminalStatePatch(hasAcceptedFinalHandoff), ctx);
     traceWorkflowTracking(ctx, "standard-terminal-finalized", { reason, fromHandoff: hasAcceptedFinalHandoff, stalePresentation: hasStalePausedPresentation });
+    // The work is over — no consumer remains, so background advisory workers
+    // die now, not on their 20-minute backstop (owner ruling 2026-11-18:
+    // "The mission is complete, yet the background agents keep running" is
+    // unacceptable; /bg kill covers the manual case). Kill truthfulness
+    // moved to the widgets and the internal trace (pass 9 caught the
+    // "stopped" claim lying about zero-pid kills; pass 13 removed the
+    // chat claim entirely and stopped blanket-failing no-live-pid rows).
+    killRunningBackgroundWorkers(ctx, "standard terminal state");
+    standardCloseReportedForTodo = closureTodo?.createdAt;
+    // Pass 15 (owner ruling 2026-11-19: the truncated banked blob — "I'm not
+    // sure if it makes sense to have that there, probably not") reduces the
+    // close report to one quiet count line. The findings themselves now live
+    // in the BG result cards emitted at wave completion, and the model
+    // consumes the bank via the next-turn prompt surfacing — so the old
+    // 400-char squashed duplicate (which also re-entered model history as a
+    // custom message) is gone entirely. Pass-7 "nothing silently lost" law
+    // kept: the count still tells the user results went undelivered.
+    const bankedLine = undeliveredBackground.length
+      ? `▪ ${undeliveredBackground.length} background advisory result${undeliveredBackground.length === 1 ? "" : "s"} finished undelivered — findings banked.`
+      : "";
+    if (bankedLine) show(pi, bankedLine);
+    standardBackgroundCloseDeadline = undefined;
     return true;
+  };
+  // Group-kill every background worker, close bg rows, and trace. Returns
+  // the pids acted on. Safe when nothing is running.
+  const killRunningBackgroundWorkers = (ctx: ExtensionContext, reason: string): number[] => {
+    let killed: number[] = [];
+    try { killed = killBackgroundSubagentWorkers(ctx.cwd); } catch { /* registry is best-effort */ }
+    const hadRunningRows = activeSubagents.some((agent) => agent.background && agent.status === "running");
+    if (hadRunningRows && killed.length > 0) {
+      // Real kills happened: flip running bg rows to failed (widget-only —
+      // pass 13 silent close) so a killed worker's row cannot keep
+      // spinning. Over-matching across waves is acceptable: the registry
+      // kill is group-wide.
+      activeSubagents = activeSubagents.map((agent) => agent.background && agent.status === "running" ? { ...agent, status: "failed" as const } : agent);
+      setTimeout(() => {
+        activeSubagents = activeSubagents.filter((agent) => !(agent.background && agent.status === "failed"));
+      }, 30_000);
+      renderWorkflowSubagentActivity(ctx);
+    } else if (hadRunningRows) {
+      // Pass 13 (owner ruling 2026-11-19): rows with NO live processes
+      // behind them close silently — "failed" is unprovable (live
+      // 2026-11-19: workers that completed AND delivered rendered
+      // "✗ quality-validation x2" at close because their phantom rows
+      // were blanket-flipped failed).
+      activeSubagents = activeSubagents.filter((agent) => !(agent.background && agent.status === "running"));
+      renderWorkflowSubagentActivity(ctx);
+    }
+    if (killed.length || hadRunningRows) recordWorkflowInternalEvent(ctx, `Background sub-agent workers killed (${reason}): ${killed.length ? `pids ${killed.join(", ")}` : "no live pids; running rows closed silently"}`);
+    // Pass 7: a kill just drained pending background work — re-arm the
+    // Standard settle so the run closes now instead of waiting on an idle
+    // check that already deferred once (the live 2026-11-18 wedge).
+    if (state.mode === "standard" && (state.standardTodo?.status === "active" || state.standardRuntime?.active === true)) scheduleStandardRuntimeIdleCheck(ctx, "background workers killed");
+    return killed;
   };
   const stopSubagentActivityTicker = (): void => {
     if (workflowSubagentActivityTimer) clearInterval(workflowSubagentActivityTimer);
@@ -9768,6 +10466,35 @@ export default function workflowModes(pi: ExtensionAPI): void {
       setWorkflowProgressWidgets(renderCtx, state, activeSubagents);
     }, 1000);
   };
+  // L4: background rows must never wedge "running" forever. If a worker's
+  // continuation never settles (wedged process), no worker-finished/finished
+  // event ever fires — flip rows older than the hard-timeout ceiling plus a
+  // grace to failed and drop them shortly after (live 2026-11-18: a wedged
+  // 90-minute poll watcher left its row "running" for ~43 minutes).
+  const SUBAGENT_BG_ROW_GRACE_MS = 2 * 60_000;
+  const expireStaleBackgroundSubagentRows = (ctx: ExtensionContext): void => {
+    const timeoutMinutes = Math.max(1, Math.min(240, Number(loadWorkflowSettings(ctx.cwd).subagents.subagentTimeoutMinutes ?? 20)));
+    const maxAgeMs = timeoutMinutes * 60_000 + SUBAGENT_BG_ROW_GRACE_MS;
+    const staleRows = activeSubagents.filter((agent) => agent.background && agent.status === "running" && agent.startedAt && Date.now() - Date.parse(agent.startedAt) > maxAgeMs);
+    if (!staleRows.length) return;
+    const staleKeys = new Set(staleRows.map((agent) => `${agent.toolCallId}:${agent.instance}`));
+    activeSubagents = activeSubagents.map((agent) => staleKeys.has(`${agent.toolCallId}:${agent.instance}`) ? { ...agent, status: "failed" as const } : agent);
+    setTimeout(() => {
+      activeSubagents = activeSubagents.filter((agent) => !staleKeys.has(`${agent.toolCallId}:${agent.instance}`));
+    }, 90_000);
+    // Pass 9: expiry must KILL, not just hide. Flipping the row used to
+    // leave the wedged PROCESS alive (display-only) and, by removing the
+    // last running row, stopped the ticker — the only in-session sweep
+    // caller. Sweep the stale registry entries now with the existing kill
+    // machinery so the process dies with its row.
+    try {
+      sweepStaleSubagentWorkers(ctx.cwd, maxAgeMs);
+      recordWorkflowInternalEvent(ctx, "Background sub-agent rows expired: stale worker processes swept");
+    } catch { /* registry is best-effort */ }
+    // Pass 7: expired rows just drained pending background work — re-arm the
+    // Standard settle so the run can close after the backstop fires.
+    if (state.mode === "standard") scheduleStandardRuntimeIdleCheck(ctx, "background rows expired");
+  };
   const syncSubagentActivityTicker = (ctx: ExtensionContext): void => {
     let indicatorEnabled = true;
     try { indicatorEnabled = subagentActivityIndicatorEnabled(loadWorkflowSettings(ctx.cwd)); } catch { /* keep ticker harmless if settings are temporarily unavailable */ }
@@ -9784,11 +10511,25 @@ export default function workflowModes(pi: ExtensionAPI): void {
         if (renderCtx) renderSubagentActivity(renderCtx, activeSubagents, state);
         return;
       }
+      expireStaleBackgroundSubagentRows(renderCtx);
+      // In-session enforcement (pass 6): while bg rows run, sweep the worker
+      // registry at most every 30 s so a wedged worker is actually killed at
+      // the timeout ceiling + grace — sweeps previously ran only at session
+      // start/shutdown, so nothing in-session ever enforced the backstop.
+      const hasRunningBgRows = activeSubagents.some((agent) => agent.background && agent.status === "running");
+      if (hasRunningBgRows && Date.now() - lastBackgroundWorkerSweepAt > 30_000) {
+        lastBackgroundWorkerSweepAt = Date.now();
+        try {
+          const timeoutMinutes = Math.max(1, Math.min(240, Number(loadWorkflowSettings(renderCtx.cwd).subagents.subagentTimeoutMinutes ?? 20)));
+          sweepStaleSubagentWorkers(renderCtx.cwd, timeoutMinutes * 60_000 + 5 * 60_000);
+        } catch { /* settings are best-effort during ticks */ }
+      }
       workflowSubagentActivityFrame = (workflowSubagentActivityFrame + 1) % WORKFLOW_SUBAGENT_SPINNER_FRAMES.length;
       renderSubagentActivity(renderCtx, activeSubagents, state);
     }, 160);
   };
   const renderWorkflowSubagentActivity = (ctx: ExtensionContext): void => {
+    expireStaleBackgroundSubagentRows(ctx);
     renderSubagentActivity(ctx, activeSubagents, state);
     syncSubagentActivityTicker(ctx);
   };
@@ -10006,7 +10747,11 @@ export default function workflowModes(pi: ExtensionAPI): void {
     const diagrams = parseWorkflowMermaidSegments(text).filter((segment): segment is Extract<WorkflowMarkdownSegment, { type: "mermaid" }> => segment.type === "mermaid").slice(0, WORKFLOW_MERMAID_MAX_BLOCKS_PER_MESSAGE);
     for (const diagram of diagrams) {
       const details = await renderWorkflowMermaidPng(diagram.source, workflowDiagramTitle(diagram.source, diagram.index));
-      piApi.sendMessage({ customType: WORKFLOW_MERMAID_MESSAGE_TYPE, content: details.title, display: false, details }, { triggerTurn: false });
+      // Pass 14: display:true restores the original 73bbcad card channel —
+      // the prose block is stripped from the message below, so this card is
+      // the only visible form of the diagram (a hidden-card flip in 79edb84
+      // made every prose diagram vanish entirely; owner ruling 2026-11-19).
+      piApi.sendMessage({ customType: WORKFLOW_MERMAID_MESSAGE_TYPE, content: details.title, display: true, details }, { triggerTurn: false });
     }
   };
 
@@ -10078,16 +10823,90 @@ export default function workflowModes(pi: ExtensionAPI): void {
     }
   };
 
-  const renderWorkflowHandoffCall = (toolName: string, args: unknown): Component => {
-    const params = args && typeof args === "object" ? args as Record<string, unknown> : {};
-    const primary = typeof params.verdict === "string" ? params.verdict
-      : typeof params.status === "string" ? params.status
-      : typeof params.decision === "string" ? params.decision
-      : undefined;
-    const scope = typeof params.scope === "string" && params.scope.trim() ? params.scope.trim() : undefined;
-    const milestone = typeof params.milestoneId === "string" && params.milestoneId.trim() ? params.milestoneId.trim() : undefined;
-    const bits = [scope, milestone, primary].filter(Boolean);
-    return new Text(bits.length ? `${toolName}: ${bits.join(" ")}` : toolName, 0, 0);
+  // Pass 13 (owner ruling 2026-11-19: progress-maintenance tool rows are
+  // internal duplication — "that's what we have the widgets for"): the
+  // transcript row for standard_todo / workflow_progress is display-only
+  // noise. Pi's renderer layer is strictly display — the model consumes
+  // result.content through the agent loop no matter what renderCall /
+  // renderResult draw (shipped ToolExecutionComponent separates the two
+  // paths), so hiding the row cannot touch the model's feedback channel.
+  // renderShell "self" + an empty Text renders ZERO transcript lines on
+  // live Pi 1.5.2 (ToolExecutionComponent.render returns [] when the
+  // self-shell produces no lines; the older DEV-pinned engine may still
+  // emit one blank spacer line — cosmetic, DEV-only). Error results stay
+  // visible (context.isError) — rare and load-bearing for debugging — and
+  // ui.toolRowsVisible=true restores compact one-line rows. The
+  // renderers must never throw: a throwing renderer falls back to the
+  // VISIBLE default rendering in the shipped component.
+  const renderProgressToolText = (result: unknown): string => {
+    if (!result || typeof result !== "object") return "";
+    const content = (result as { content?: unknown }).content;
+    if (!Array.isArray(content)) return "";
+    return content
+      .filter((block): block is { type: string; text: string } => !!block && typeof block === "object" && (block as { type?: unknown }).type === "text" && typeof (block as { text?: unknown }).text === "string")
+      .map((block) => block.text)
+      .join("\n")
+      .trim();
+  };
+
+  const renderProgressToolCall = (toolName: string, args: unknown, context: unknown): Component => {
+    try {
+      const renderContext = context as { cwd?: string } | undefined;
+      const settings = renderContext?.cwd ? loadWorkflowSettings(renderContext.cwd) : undefined;
+      if (settings?.ui?.toolRowsVisible !== true) return new Text("", 0, 0);
+      const params = args && typeof args === "object" ? args as Record<string, unknown> : {};
+      const primary = typeof params.action === "string" ? params.action
+        : typeof params.status === "string" ? params.status
+        : undefined;
+      const target = params.item !== undefined ? String(params.item)
+        : params.step !== undefined ? String(params.step)
+          : typeof params.title === "string" ? params.title
+            : undefined;
+      const bits = [primary, target].filter((bit) => bit && bit.length > 0).join(" ");
+      return new Text(bits ? `${toolName}: ${bits}` : toolName, 0, 0);
+    } catch {
+      return new Text("", 0, 0);
+    }
+  };
+
+  const renderProgressToolResult = (result: unknown, context: unknown): Component => {
+    try {
+      const renderContext = context as { isError?: boolean; cwd?: string } | undefined;
+      const isError = renderContext?.isError === true;
+      const settings = renderContext?.cwd ? loadWorkflowSettings(renderContext.cwd) : undefined;
+      if (!isError && settings?.ui?.toolRowsVisible !== true) return new Text("", 0, 0);
+      const text = renderProgressToolText(result);
+      if (!text) return new Text("", 0, 0);
+      // Errors render in full (they carry the corrective instruction the
+      // user may need to see); the debug toggle renders one compact line.
+      return new Text(isError ? text : text.split("\n")[0].slice(0, 160), 0, 0);
+    } catch {
+      return new Text("", 0, 0);
+    }
+  };
+
+  // Pass 14: handoff call rows join the transcript-silence family — hidden
+  // unless ui.toolRowsVisible=true, then the compact label (owner ruling
+  // 2026-11-19 supersedes the old always-visible handoff call row).
+  const renderWorkflowHandoffCall = (toolName: string, args: unknown, context?: unknown): Component => {
+    try {
+      const renderContext = context as { cwd?: string } | undefined;
+      const settings = renderContext?.cwd ? loadWorkflowSettings(renderContext.cwd) : undefined;
+      if (settings?.ui?.toolRowsVisible !== true) return new Text("", 0, 0);
+      const params = args && typeof args === "object" ? args as Record<string, unknown> : {};
+      const primary = typeof params.verdict === "string" ? params.verdict
+        : typeof params.status === "string" ? params.status
+          : typeof params.decision === "string" ? params.decision
+            : typeof params.clarificationDecision === "string" ? params.clarificationDecision
+              : typeof params.todoDecision === "string" ? params.todoDecision
+                : undefined;
+      const scope = typeof params.scope === "string" && params.scope.trim() ? params.scope.trim() : undefined;
+      const milestone = typeof params.milestoneId === "string" && params.milestoneId.trim() ? params.milestoneId.trim() : undefined;
+      const bits = [scope, milestone, primary].filter(Boolean);
+      return new Text(bits.length ? `${toolName}: ${bits.join(" ")}` : toolName, 0, 0);
+    } catch {
+      return new Text("", 0, 0);
+    }
   };
 
   pi.registerTool({
@@ -10096,7 +10915,9 @@ export default function workflowModes(pi: ExtensionAPI): void {
     description: "Submit a structured Plan Mode planning result for deterministic handoff routing.",
     promptSnippet: "workflow_plan_result({ decision, steps/questions, reason }) — required before Plan handoff",
     parameters: WorkflowPlanResultParams,
-    renderCall(args: unknown, _theme: unknown, _context: unknown): Component { return renderWorkflowHandoffCall(WORKFLOW_PLAN_RESULT_TOOL, args); },
+    renderShell: "self",
+    renderCall(args: unknown, _theme: unknown, context: unknown): Component { return renderWorkflowHandoffCall(WORKFLOW_PLAN_RESULT_TOOL, args, context); },
+    renderResult(result: unknown, _options: unknown, _theme: unknown, context: unknown): Component { return renderProgressToolResult(result, context); },
       executionMode: "sequential",
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       return applyWorkflowPlanResult(ctx, params as Record<string, unknown>);
@@ -10109,7 +10930,9 @@ export default function workflowModes(pi: ExtensionAPI): void {
     description: "Submit a structured Mission planning result for deterministic plan or clarification handoff routing. For mission execution milestone checkpoints, use mission_milestone_result instead.",
     promptSnippet: "mission_plan_result({ decision, milestones/questions, reason }) — required before Mission planning handoff",
     parameters: MissionPlanResultParams,
-    renderCall(args: unknown, _theme: unknown, _context: unknown): Component { return renderWorkflowHandoffCall(MISSION_PLAN_RESULT_TOOL, args); },
+    renderShell: "self",
+    renderCall(args: unknown, _theme: unknown, context: unknown): Component { return renderWorkflowHandoffCall(MISSION_PLAN_RESULT_TOOL, args, context); },
+    renderResult(result: unknown, _options: unknown, _theme: unknown, context: unknown): Component { return renderProgressToolResult(result, context); },
       executionMode: "sequential",
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       return applyMissionPlanResult(ctx, params as Record<string, unknown>);
@@ -10122,7 +10945,9 @@ export default function workflowModes(pi: ExtensionAPI): void {
     description: "Submit a structured review verdict for deterministic review handoff routing.",
     promptSnippet: "workflow_review_result({ scope, verdict, issues, summary }) — required before Review handoff",
     parameters: WorkflowReviewResultParams,
-    renderCall(args: unknown, _theme: unknown, _context: unknown): Component { return renderWorkflowHandoffCall(WORKFLOW_REVIEW_RESULT_TOOL, args); },
+    renderShell: "self",
+    renderCall(args: unknown, _theme: unknown, context: unknown): Component { return renderWorkflowHandoffCall(WORKFLOW_REVIEW_RESULT_TOOL, args, context); },
+    renderResult(result: unknown, _options: unknown, _theme: unknown, context: unknown): Component { return renderProgressToolResult(result, context); },
       executionMode: "sequential",
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       return await applyReviewResult(ctx, params as Record<string, unknown>);
@@ -10135,7 +10960,9 @@ export default function workflowModes(pi: ExtensionAPI): void {
     description: "Submit structured execution completion evidence for deterministic execution handoff routing.",
     promptSnippet: "workflow_execution_result({ status, completedSteps, changedFiles, commands, summary }) — required before execution handoff",
     parameters: WorkflowExecutionResultParams,
-    renderCall(args: unknown, _theme: unknown, _context: unknown): Component { return renderWorkflowHandoffCall(WORKFLOW_EXECUTION_RESULT_TOOL, args); },
+    renderShell: "self",
+    renderCall(args: unknown, _theme: unknown, context: unknown): Component { return renderWorkflowHandoffCall(WORKFLOW_EXECUTION_RESULT_TOOL, args, context); },
+    renderResult(result: unknown, _options: unknown, _theme: unknown, context: unknown): Component { return renderProgressToolResult(result, context); },
       executionMode: "sequential",
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       return await applyExecutionResult(ctx, params as Record<string, unknown>);
@@ -10148,7 +10975,9 @@ export default function workflowModes(pi: ExtensionAPI): void {
     description: "Submit a structured validation verdict for deterministic validation handoff routing.",
     promptSnippet: "workflow_validation_result({ scope, verdict, concreteRepairableIssue, evidenceGap, issues }) — required before validation handoff",
     parameters: WorkflowValidationResultParams,
-    renderCall(args: unknown, _theme: unknown, _context: unknown): Component { return renderWorkflowHandoffCall(WORKFLOW_VALIDATION_RESULT_TOOL, args); },
+    renderShell: "self",
+    renderCall(args: unknown, _theme: unknown, context: unknown): Component { return renderWorkflowHandoffCall(WORKFLOW_VALIDATION_RESULT_TOOL, args, context); },
+    renderResult(result: unknown, _options: unknown, _theme: unknown, context: unknown): Component { return renderProgressToolResult(result, context); },
       executionMode: "sequential",
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       return await applyValidationResult(ctx, params as Record<string, unknown>);
@@ -10161,7 +10990,9 @@ export default function workflowModes(pi: ExtensionAPI): void {
     description: "Submit structured repair outcome and safety flags for deterministic repair handoff routing.",
     promptSnippet: "workflow_repair_result({ status, changedFiles, movedFiles, preservedFiles, deletedFiles, rootArtifacts, possiblyUserOwnedFiles, needsUserApproval, safetyFlags, summary }) — required before repair handoff",
     parameters: WorkflowRepairResultParams,
-    renderCall(args: unknown, _theme: unknown, _context: unknown): Component { return renderWorkflowHandoffCall(WORKFLOW_REPAIR_RESULT_TOOL, args); },
+    renderShell: "self",
+    renderCall(args: unknown, _theme: unknown, context: unknown): Component { return renderWorkflowHandoffCall(WORKFLOW_REPAIR_RESULT_TOOL, args, context); },
+    renderResult(result: unknown, _options: unknown, _theme: unknown, context: unknown): Component { return renderProgressToolResult(result, context); },
       executionMode: "sequential",
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       return await applyRepairResult(ctx, params as Record<string, unknown>);
@@ -10174,7 +11005,9 @@ export default function workflowModes(pi: ExtensionAPI): void {
     description: "Submit structured Mission milestone execution outcome for deterministic mission handoff routing.",
     promptSnippet: "mission_milestone_result({ milestoneId, status, summary, evidence }) — required before Mission milestone handoff",
     parameters: MissionMilestoneResultParams,
-    renderCall(args: unknown, _theme: unknown, _context: unknown): Component { return renderWorkflowHandoffCall(MISSION_MILESTONE_RESULT_TOOL, args); },
+    renderShell: "self",
+    renderCall(args: unknown, _theme: unknown, context: unknown): Component { return renderWorkflowHandoffCall(MISSION_MILESTONE_RESULT_TOOL, args, context); },
+    renderResult(result: unknown, _options: unknown, _theme: unknown, context: unknown): Component { return renderProgressToolResult(result, context); },
       executionMode: "sequential",
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       return await applyMissionMilestoneResult(ctx, params as Record<string, unknown>);
@@ -10187,7 +11020,9 @@ export default function workflowModes(pi: ExtensionAPI): void {
     description: "Submit structured Standard Mode clarification and To Do decisions.",
     promptSnippet: "standard_handoff_result({ clarificationDecision, todoDecision, questions, todoItems, reason }) — required before Standard handoff",
     parameters: StandardHandoffResultParams,
-    renderCall(args: unknown, _theme: unknown, _context: unknown): Component { return renderWorkflowHandoffCall(STANDARD_HANDOFF_RESULT_TOOL, args); },
+    renderShell: "self",
+    renderCall(args: unknown, _theme: unknown, context: unknown): Component { return renderWorkflowHandoffCall(STANDARD_HANDOFF_RESULT_TOOL, args, context); },
+    renderResult(result: unknown, _options: unknown, _theme: unknown, context: unknown): Component { return renderProgressToolResult(result, context); },
       executionMode: "sequential",
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       return applyStandardHandoffResult(ctx, params as Record<string, unknown>);
@@ -10207,6 +11042,11 @@ export default function workflowModes(pi: ExtensionAPI): void {
       "Do not generate the same diagram more than once per conversation. Reference prior diagrams by concept name instead of re-calling workflow_diagram with identical source.",
     ],
     parameters: WorkflowDiagramParams,
+    // Pass 14: the CALL row joins the transcript-silence family (hidden
+    // unless ui.toolRowsVisible=true); the result CARD below is the end
+    // result the owner wants and stays visible.
+    renderShell: "self",
+    renderCall(args: unknown, _theme: unknown, context: unknown): Component { return renderProgressToolCall(WORKFLOW_DIAGRAM_TOOL, args, context); },
     executionMode: "sequential",
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx): Promise<AgentToolResult<WorkflowMermaidDiagramDetails>> {
       const source = normalizeMermaidSource(String((params as { source?: unknown }).source ?? ""));
@@ -10217,10 +11057,29 @@ export default function workflowModes(pi: ExtensionAPI): void {
       if (!source || !diagramType) {
         return { content: [{ type: "text", text: "Invalid or unsupported Mermaid diagram. Use flowchart, graph, sequenceDiagram, stateDiagram, classDiagram, erDiagram, or xychart-beta." }], details: { title, source, diagramType: diagramType ?? "unsupported", status: "fallback", terminalDiagram: workflowMermaidFallbackTerminalDiagram(source, diagramType ?? "unsupported"), error: "unsupported diagram type" } };
       }
+      // Enforce the documented "same diagram at most once per conversation" rule
+      // at the tool layer: the prompt-only rule cannot stop a model that keeps
+      // re-issuing identical blocked/rendered diagram calls in a loop.
+      const diagramKey = `${diagramType}\n${source}`;
+      if (renderedWorkflowDiagramSources.has(diagramKey)) {
+        // Pass 14: repeats redirect WITHOUT an error flag — the anti-loop
+        // protection is the no-re-render itself (the dedup Set), and the
+        // 3-strike forced-gate breaker remains the visible escalation. An
+        // isError row here would print routine policy feedback into the
+        // transcript (owner: only the end result belongs on screen).
+        return { content: [{ type: "text", text: `Diagram already rendered: ${title}. The same diagram source must not be rendered more than once per conversation. Reference it by title and continue the actual task; do not call workflow_diagram again with this source.` }], details: { title, source, diagramType, status: "fallback", terminalDiagram: workflowMermaidFallbackTerminalDiagram(source, diagramType), error: "duplicate diagram source" } };
+      }
+      renderedWorkflowDiagramSources.add(diagramKey);
       const details = await renderWorkflowMermaidPng(source, title);
       return { content: [{ type: "text", text: details.status === "rendered" ? title : `Diagram fallback: ${title}` }], details };
     },
     renderResult(result, _options, theme) {
+      try {
+        // Pass 14 (W1 swarm finding): a duplicate-source redirect draws NO
+        // card — repeats must be fully silent; only end results show.
+        const details = (result as { details?: { error?: unknown } }).details;
+        if (details?.error === "duplicate diagram source") return new Text("", 0, 0);
+      } catch { /* fall through to the card renderer */ }
       return workflowMermaidRenderer({ content: result.content, details: result.details }, { expanded: false }, theme);
     },
   } as ToolDefinition<typeof WorkflowDiagramParams, WorkflowMermaidDiagramDetails>);
@@ -10231,6 +11090,11 @@ export default function workflowModes(pi: ExtensionAPI): void {
     description: "Update Plan Mode implementation step progress for the approved workflow plan.",
     promptSnippet: "workflow_progress({ step, status }) — update Plan Mode step progress",
     parameters: WorkflowProgressParams,
+    // Pass 13: transcript silence for progress rows (renderers are
+    // display-only; see renderProgressToolCall above).
+    renderShell: "self",
+    renderCall(args: unknown, _theme: unknown, context: unknown): Component { return renderProgressToolCall("workflow_progress", args, context); },
+    renderResult(result: unknown, _options: unknown, _theme: unknown, context: unknown): Component { return renderProgressToolResult(result, context); },
     executionMode: "sequential",
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const progressParams = params as { step?: unknown; status?: unknown };
@@ -10243,12 +11107,26 @@ export default function workflowModes(pi: ExtensionAPI): void {
       if (!result.tracked) {
         return { content: [{ type: "text", text: "No Plan Mode progress steps are active. Progress not tracked." }], details: { step, status, tracked: false, reason: result.reason } };
       }
+      // Successful step progress proves execution is flowing again, so the
+      // bounded transient auto re-arm budget starts fresh for the next
+      // interruption chain.
+      if (state.planExecutionTransientRetries || state.planExecutionTransientRecoveryAt) {
+        updateState({ planExecutionTransientRetries: 0, planExecutionTransientRecoveryAt: undefined, planExecutionTransientRecoveryPlanId: undefined }, ctx);
+      }
       const item = result.step;
       return { content: [{ type: "text", text: `Step ${step}: ${item?.title ?? "unknown"} → ${status}` }], details: { step, status, text: item?.title, tracked: true, currentStepIndex: result.progress?.currentStepIndex } };
     },
   } as ToolDefinition);
 
   // ── Standard To-Do status transition validation ─────────────────
+  // Pass 9: pending items can never jump straight to completed. The
+  // 0.0.25-working rule (pending → active/blocked/skipped only) is what
+  // forced item-by-item real-time updates for three months; legalizing
+  // pending → completed let the model batch-complete the whole list in one
+  // end-of-turn burst (live 2026-11-18: items 1-6 completed in a single
+  // 22:57:49 cluster) and made todo.status="completed" fire while work was
+  // still running. HEAD behavior restored; everything else in this tool
+  // keeps the engagement improvements.
   const VALID_STANDARD_TODO_TRANSITIONS: Record<string, string[]> = {
     pending: ["active", "blocked", "skipped"],
     active: ["completed", "skipped", "blocked", "pending"],
@@ -10269,6 +11147,11 @@ export default function workflowModes(pi: ExtensionAPI): void {
     description: "Initialize or update Standard Mode dynamic To Do progress.",
     promptSnippet: "standard_todo({ action: \"set\", task, items }) initializes a task-sized dynamic item list; choose the count from task complexity, not a default of three; standard_todo({ action: \"update\", item, status }) updates progress",
     parameters: StandardTodoParams,
+    // Pass 13: transcript silence for progress rows (renderers are
+    // display-only; see renderProgressToolCall above).
+    renderShell: "self",
+    renderCall(args: unknown, _theme: unknown, context: unknown): Component { return renderProgressToolCall("standard_todo", args, context); },
+    renderResult(result: unknown, _options: unknown, _theme: unknown, context: unknown): Component { return renderProgressToolResult(result, context); },
     executionMode: "sequential",
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const input = params && typeof params === "object" && !Array.isArray(params)
@@ -10300,7 +11183,9 @@ export default function workflowModes(pi: ExtensionAPI): void {
         const nextTodo = createStandardTodoFromTitles(task, titles);
         if (!nextTodo) {
           const required = standardTodoMode(settings) === "required";
-          return { content: [{ type: "text", text: required ? `Required To Do tracking needs at least one concrete task-specific item before substantive Standard Mode work can continue. ${standardTodoUsageText()}` : "Standard Mode To Do needs at least one concrete task-specific item. Keep working without a To Do list or provide more specific items." }], details: { action, tracked: false, acceptedItems: titles.length }, isError: true };
+          // Pass 16 (owner ruling 2026-11-20): the auto-mode rejection used
+          // to license going boardless. It now teaches the retry instead.
+          return { content: [{ type: "text", text: required ? `Required To Do tracking needs at least one concrete task-specific item before substantive Standard Mode work can continue. ${standardTodoUsageText()}` : "Standard Mode To Do needs at least one concrete task-specific item. Retry standard_todo set with concrete task-specific items — one concrete item is acceptable for small work; do not continue this task without a board." }], details: { action, tracked: false, acceptedItems: titles.length }, isError: true };
         }
         updateState({ standardTodo: nextTodo, task, originalTask: state.originalTask ?? task }, ctx);
         standardTodoCreatedThisTurn = true;
@@ -10323,14 +11208,26 @@ export default function workflowModes(pi: ExtensionAPI): void {
       const currentItemStatus = todo.items[index].status;
       if (!isValidStandardTodoTransition(currentItemStatus, status)) {
         const allowed = VALID_STANDARD_TODO_TRANSITIONS[currentItemStatus]?.join(", ") ?? "none";
-        return { content: [{ type: "text", text: `Invalid status transition for To Do ${itemNumber}: ${currentItemStatus} → ${status}. Allowed from ${currentItemStatus}: ${allowed}.` }], details: { action, item: itemNumber, status, currentStatus: currentItemStatus, tracked: false }, isError: true };
+        return { content: [{ type: "text", text: `Invalid status transition for To Do ${itemNumber}: ${currentItemStatus} → ${status}. Allowed from ${currentItemStatus}: ${allowed}.${currentItemStatus === "completed" ? " To resume a completed item, set it to active first." : ""}` }], details: { action, item: itemNumber, status, currentStatus: currentItemStatus, tracked: false }, isError: true };
       }
+      // Swarm review fix (pass 9): per-turn settle bound — real-time work
+      // settles items as they finish; an end-of-turn burst hits this and is
+      // taught to end the turn so continuation drives the rest.
+      if ((status === "completed" || status === "skipped") && standardTodoSettlesThisTurn >= STANDARD_TODO_SETTLES_PER_TURN) {
+        return { content: [{ type: "text", text: `To Do settle limit reached: at most ${STANDARD_TODO_SETTLES_PER_TURN} items may be completed or skipped in a single turn. Items settle in real time as their work finishes — never batch-settle the list to end the run. End the turn; automatic continuation drives the remaining items.` }], details: { action, item: itemNumber, status, settleLimit: STANDARD_TODO_SETTLES_PER_TURN, tracked: false }, isError: true };
+      }
+      if (status === "completed" || status === "skipped") standardTodoSettlesThisTurn += 1;
       const items = todo.items.map((entry, i) => i === index ? { ...entry, status } : entry);
       const nextActive = status === "completed" || status === "skipped" ? items.findIndex((entry, i) => i > index && entry.status === "pending") : index;
       if (nextActive >= 0 && (status === "completed" || status === "skipped")) items[nextActive] = { ...items[nextActive], status: "active" };
       const done = items.filter((entry) => entry.status === "completed" || entry.status === "skipped").length;
       const blocked = items.some((entry) => entry.status === "blocked");
       const nextStatus: StandardTodoState["status"] = blocked ? "blocked" : done >= items.length ? "completed" : "active";
+      // Swarm review fix (pass 11): a board that is ACTIVE again is a live
+      // run — any close report for it is spent (resume-after-pause, resume of
+      // a completed item, continuation of a resurrected board must all be
+      // able to report their own close later).
+      if (nextStatus === "active") standardCloseReportedForTodo = undefined;
       updateState({ standardTodo: { ...todo, items, status: nextStatus, currentItemIndex: Math.max(0, nextActive >= 0 ? nextActive : index), updatedAt: new Date().toISOString() } }, ctx);
       const updated = state.standardTodo?.items[index];
       return { content: [{ type: "text", text: `To Do ${itemNumber}: ${updated?.title ?? "unknown"} → ${status}` }], details: { action, item: itemNumber, status, text: updated?.title, tracked: true } };
@@ -10742,6 +11639,9 @@ ${reportExcerpt(validation, 2400)}
 
   const completePlanWorkflow = async (ctx: ExtensionContext, validationText?: string, verdict: WorkflowState["validationVerdict"] = "PASS") => {
     const settings = loadWorkflowSettings(ctx.cwd);
+    // Pass 7 kill parity: a completed Plan has no consumer for background
+    // advisory workers — they die now, not on their 20-minute backstop.
+    killRunningBackgroundWorkers(ctx, "plan workflow complete");
     const preserveMissionPointer = isMissionWorkflowMode(state);
     const repairRetriesBeforeCompletion = state.currentValidationRetry ?? 0;
     const executionSummaryForHandoff = state.executionSummary;
@@ -10811,6 +11711,7 @@ ${reportExcerpt(validation, 2400)}
       planExecutionStepIndex: undefined,
       planRuntime: undefined,
       planProgress: undefined,
+      planBackgroundResults: undefined,
       lastCompletedPlanSummary: completedPlanSummary,
       lastPlanStopSummary: { stoppedAt: completedPlanSummary.completedAt, kind: "plan", status: "completed", title: "Plan completed", summary: completedPlanSummary.finalReport ?? initialFinalReport },
       planHistoryId: completedPlanId ?? state.planHistoryId,
@@ -10990,17 +11891,60 @@ ${reportExcerpt(validation, 2400)}
     else syncWorkflowRuntimeForActivity(ctx, reason);
   };
 
+  let standardAnswerRequeueAttempts = 0;
   const recoverStandardTransientHandoffFailure = (ctx: ExtensionContext, reason: string, phase?: WorkflowPendingToolPhase): void => {
     clearTransientPendingPhase(ctx, phase, "standard transient handoff failure");
     if (state.mode === "standard") setStandardRuntimeActive(ctx, false);
     pi.setActiveTools(standardToolsFor(loadWorkflowSettings(ctx.cwd)));
+    const storedAnswer = state.standardClarificationAnswer?.trim();
+    if (state.mode === "standard" && storedAnswer && standardAnswerRequeueAttempts < 2) {
+      // Re-queue the clarification continuation instead of asking the user to
+      // retype: a plain-text retry would discard the stored answer.
+      standardAnswerRequeueAttempts += 1;
+      const answerTask = state.standardClarificationTask ?? state.task ?? state.originalTask ?? "Continue Standard Mode task after clarification";
+      recordWorkflowInternalEvent(ctx, "Standard clarification answered — re-queuing continuation after transient failure");
+      queueWorkflowPrompt(pi, standardClarificationAnsweredPrompt(answerTask, storedAnswer), {
+        requireIdle: true,
+        isIdle: () => ctx.isIdle(),
+        onFinalFailure: () => { if (state.mode === "standard") recordWorkflowInternalEvent(ctx, "Standard clarification answer continuation re-queue failed"); },
+      });
+      show(pi, `# Standard Workflow Interrupted\n\nA transient connection or model handoff failure interrupted Standard Mode. This is not a workflow blocker.\n\nReason: ${workflowDisplayText(reason)}\n\nYour clarification answer is preserved and the continuation has been re-queued automatically.`);
+      return;
+    }
     show(pi, `# Standard Workflow Interrupted\n\nA transient connection or model handoff failure interrupted Standard Mode. This is not a workflow blocker.\n\nReason: ${workflowDisplayText(reason)}\n\nRetry the request, run /standard status, or continue from the current Standard Mode state.`);
   };
+
+  // Bounded automatic re-arms for transient execution interruptions: a
+  // provider/stream drop mid-execution used to shelve the workflow to
+  // plan_approved and wait for a manual /plan continue. Re-arm inline
+  // instead so mode stays "executing" (no tool-surface mismatch window)
+  // and completed worker evidence is preserved rather than re-run.
+  const PLAN_EXECUTION_TRANSIENT_RETRY_LIMIT = 2;
 
   const recoverPlanTransientHandoffFailure = (ctx: ExtensionContext, kind: TransientPlanFailureKind, reason: string, options: { phase?: WorkflowPendingToolPhase; preserveRetry?: boolean; completedRepair?: boolean } = {}): void => {
     clearTransientPendingPhase(ctx, options.phase, `plan ${kind} transient handoff failure`);
     const settings = loadWorkflowSettings(ctx.cwd);
     const planText = state.approvedPlan ?? state.draftPlan;
+    if (kind === "execution" && options.phase === "Execution" && state.approvedPlan
+        && (state.mode === "executing" || state.mode === "plan_approved")
+        && (state.planExecutionTransientRetries ?? 0) < PLAN_EXECUTION_TRANSIENT_RETRY_LIMIT) {
+      const attempt = (state.planExecutionTransientRetries ?? 0) + 1;
+      updateState({
+        planExecutionTransientRecoveryAt: new Date().toISOString(),
+        planExecutionTransientRecoveryPlanId: state.activePlanId,
+        planExecutionTransientRetries: attempt,
+      }, ctx);
+      recordWorkflowInternalEvent(ctx, `Plan execution transient failure; auto re-arm ${attempt}/${PLAN_EXECUTION_TRANSIENT_RETRY_LIMIT}.`);
+      show(pi, `# Plan Execution Interrupted — Recovering\n\nA transient connection or model failure interrupted Plan execution. Re-arming the executor for the current step automatically (auto-recovery ${attempt} of ${PLAN_EXECUTION_TRANSIENT_RETRY_LIMIT}).\n\nCompleted worker evidence is preserved and will not re-run. If automatic recovery is exhausted, run /plan continue.\n\nReason: ${workflowDisplayText(reason)}`);
+      deferWorkflowAction(pi, "auto re-arm interrupted Plan execution", async () => { await beginExecution(ctx, true); }, {
+        timeoutMs: workflowDeferredPhaseTimeoutMs(ctx, "Execution"),
+        onFailure: (error) => recoverPlanTransientHandoffFailure(ctx, "execution", transientFailureReason("Plan execution auto re-arm failed", error instanceof Error ? error.message : String(error)), { phase: "Execution" }),
+      });
+      return;
+    }
+    if (kind === "execution") {
+      recordWorkflowInternalEvent(ctx, `Plan execution transient auto re-arm not taken (mode ${state.mode}, retries ${state.planExecutionTransientRetries ?? 0}); manual /plan continue required.`);
+    }
     const currentRetry = options.preserveRetry ? Math.max(0, (state.currentValidationRetry ?? 1) - 1) : state.currentValidationRetry;
     const workflowRetry = options.preserveRetry ? Math.max(0, (state.workflowValidationRetryCount ?? 1) - 1) : state.workflowValidationRetryCount;
     const targetMode: WorkflowState["mode"] = kind === "planning"
@@ -11312,6 +12256,9 @@ ${renderMissionProgress(mission, settings)}
   };
 
   const completeMissionToAwaitingInput = (ctx: ExtensionContext, mission: MissionState, validationText: string | undefined, verdict: string | undefined, settings = loadWorkflowSettings(ctx.cwd)) => {
+    // Pass 7 kill parity: a completed Mission has no consumer for background
+    // advisory workers — they die now, not on their 20-minute backstop.
+    killRunningBackgroundWorkers(ctx, "mission complete");
     const repairSummary = mission.lastRepairAttempt ?? mission.repairHistory?.filter((entry) => entry.status === "completed").slice(-1)[0]?.repairSummary;
     const baseSummary = buildCompletedMissionSummary(mission, settings, {
       executionSummary: reportExcerpt(state.executionSummary, 2400),
@@ -11336,6 +12283,7 @@ ${renderMissionProgress(mission, settings)}
       lastCompletedMissionSummary: summary,
       lastMissionStopSummary: { stoppedAt: summary.completedAt, kind: "mission", status: "completed", title: "Mission completed", summary: summary.finalReport ?? finalMissionHandoffReport(mission, baseSummary, settings, ctx.cwd) },
       planProgress: undefined,
+      missionBackgroundResults: undefined,
     }, ctx);
     queueNativeFinalSummary(pi, nativeMissionFinalDeliverableSummary(summary), "workflow-mission-final-summary");
     return summary;
@@ -12353,12 +13301,19 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
 
   const extractSubagentObservations = (args: Record<string, unknown>, prefix = "top"): SubagentNameObservation[] => {
     const observations: SubagentNameObservation[] = [];
-    if (typeof args.agent === "string" && args.agent.trim()) observations.push({ name: args.agent.trim(), key: `${prefix}:agent:0:${args.agent.trim()}` });
-    if (Array.isArray(args.tasks)) {
-      args.tasks.forEach((task, index) => {
-        if (isRecord(task) && typeof task.agent === "string" && task.agent.trim()) observations.push({ name: task.agent.trim(), key: `${prefix}:tasks:${index}:${task.agent.trim()}` });
-      });
-    }
+    // Pass 13 (live 2026-11-19): the model routinely passes the SAME agent
+    // name twice — top-level `agent` AND `tasks[0].agent` — while the spawn
+    // side runs ONE worker per tasks[] entry (top-level fields only feed the
+    // no-tasks shape). Counting both produced two widget rows behind one
+    // process ("quality-validation x2" for one worker). Observations must
+    // mirror the spawn side: when tasks[] carries any agent, it is the sole
+    // source and the top-level name is not counted again.
+    const tasks = Array.isArray(args.tasks) ? args.tasks : [];
+    const hasTaskAgent = tasks.some((task) => isRecord(task) && typeof task.agent === "string" && task.agent.trim());
+    if (!hasTaskAgent && typeof args.agent === "string" && args.agent.trim()) observations.push({ name: args.agent.trim(), key: `${prefix}:agent:0:${args.agent.trim()}` });
+    tasks.forEach((task, index) => {
+      if (isRecord(task) && typeof task.agent === "string" && task.agent.trim()) observations.push({ name: task.agent.trim(), key: `${prefix}:tasks:${index}:${task.agent.trim()}` });
+    });
     if (Array.isArray(args.chain)) {
       args.chain.forEach((step, index) => {
         if (isRecord(step) && typeof step.agent === "string" && step.agent.trim()) observations.push({ name: step.agent.trim(), key: `${prefix}:chain:${index}:${step.agent.trim()}` });
@@ -12425,7 +13380,10 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
   };
 
   const phaseForWorkflowMode = (mode: WorkflowState["mode"]): SubagentPhase | undefined => {
-    if (mode === "standard") return state.standardActivePhase ?? "Planning";
+    // Pass 8: no phantom Planning default — once the Standard run closes and
+    // clears standardActivePhase, the gate must not re-arm a different forced
+    // bucket mid-handoff (live: satisfy Execution 0/3, then get Planning 0/2).
+    if (mode === "standard") return state.standardActivePhase;
     if (mode === "planning" || mode === "mission_planning") return "Planning";
     if (mode === "executing" || mode === "mission_running") return "Execution";
     if (mode === "repairing" || mode === "mission_repairing") return "Repair";
@@ -12569,8 +13527,11 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     return snapshot.count >= required;
   };
 
-  const beginForcedSubagentPhase = (ctx: ExtensionContext, phase: SubagentPhase, settings: ReturnType<typeof loadWorkflowSettings>, override?: SubagentPhasePolicyOverride): boolean => {
-    resetSubagentPhaseUsage(phase);
+  const beginForcedSubagentPhase = (ctx: ExtensionContext, phase: SubagentPhase, settings: ReturnType<typeof loadWorkflowSettings>, override?: SubagentPhasePolicyOverride, options: { preserveUsage?: boolean } = {}): boolean => {
+    // A transient-execution re-arm keeps this phase's successful worker
+    // evidence: re-running the required batch after a provider drop
+    // duplicates workers and multiplies exposure to further drops.
+    if (!options.preserveUsage) resetSubagentPhaseUsage(phase);
     phasePreflightBlocks[phase] = undefined;
     const policy = override?.policy ?? phasePolicy(settings, phase);
     const workers = override?.workers ?? workerCount(settings, phase);
@@ -12583,6 +13544,14 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     if (exemption) {
       phasePreflightBlocks[phase] = formatSubagentPolicyDecision(exemption);
       return true;
+    }
+    if (options.preserveUsage && subagentPolicyRequiresRequiredEvidence(policy)) {
+      const observed = subagentUsageByPhase[phase] ?? 0;
+      const required = workerTargetForPolicy(policy, workers);
+      if (observed >= required) {
+        phasePreflightBlocks[phase] = `Phase: ${override?.label ?? phase}\nObserved workers: ${observed} of ${required} required (preserved across a transient interruption)\nStatus: required forced-policy worker evidence is already satisfied for this phase; continue without re-running the worker batch.`;
+        return true;
+      }
     }
     const reason = forcedSubagentUnavailableReason(settings, phase, ctx.cwd, policy, workers);
     if (!reason) return true;
@@ -12598,7 +13567,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
         background: false,
       });
     }
-    showInternal(pi, `# Sub-Agent Policy Blocked\n\n${forcedSubagentMessage(phase, reason, override?.label)}`);
+    showPolicyBlockedCard(`# Sub-Agent Policy Blocked\n\n${forcedSubagentMessage(phase, reason, override?.label)}`);
     return false;
   };
 
@@ -12614,10 +13583,10 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     return `${label} stopped because ${label} Policy is forced. Required ${label.toLowerCase()} sub-agent workers: ${required}. Observed: ${observed}. Validation or the next workflow phase will not start until the forced worker requirement is satisfied. Change this in Workflow Sub-agents / Workers, or rerun with the required workers.`;
   };
 
-  const blockIfForcedSubagentsMissing = (ctx: ExtensionContext, phase: SubagentPhase, override?: SubagentPhasePolicyOverride): boolean => {
+  const blockIfForcedSubagentsMissing = (ctx: ExtensionContext, phase: SubagentPhase, override?: SubagentPhasePolicyOverride, forceVisible = false): boolean => {
     const reason = forcedSubagentUsageSatisfied(ctx, phase, override);
     if (!reason) return false;
-    showInternal(pi, `# Sub-Agent Policy Blocked\n\n${forcedSubagentMessage(phase, reason, override?.label)}`);
+    showPolicyBlockedCard(`# Sub-Agent Policy Blocked\n\n${forcedSubagentMessage(phase, reason, override?.label)}`, forceVisible);
     return true;
   };
 
@@ -12752,7 +13721,13 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     renderWorkflowSubagentActivity(ctx);
     const limits = settings.subagents as typeof settings.subagents & { subagentTimeoutMinutes?: number; subagentStaleMinutes?: number };
     const isBackground = useBackground && tasks.every((t) => t.background);
-    if (isBackground) activeBackgroundSubagentRunId = toolCallId;
+    // Swarm-verify fix (pass 9): this forced-preflight background wave must
+    // reset the close deadline too — it registers bg rows outside
+    // beginSubagentActivity and would otherwise inherit a stale deadline.
+    if (isBackground) {
+      standardBackgroundCloseDeadline = undefined;
+      activeBackgroundSubagentRunId = toolCallId;
+    }
     let backgroundSettled = false;
     let run: { results: WorkflowSubagentResult[] } | undefined;
     try {
@@ -12787,6 +13762,17 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
               }
             }, 1500);
           }
+        },
+        // Pass 6: the whole wave settled (even if onUpdate rows were dropped
+        // by the runId guard) — running rows for this wave are lies; clear
+        // them so the column cannot wedge (the Plan/Mission forced bg path
+        // emits no bridge events of its own).
+        onComplete: () => {
+          if (!isBackground) return;
+          if (activeBackgroundSubagentRunId === toolCallId) activeBackgroundSubagentRunId = undefined;
+          activeSubagents = activeSubagents.filter((agent) => agent.toolCallId !== toolCallId || agent.status !== "running");
+          renderWorkflowSubagentActivity(ctx);
+          syncWorkflowRuntimeForActivity(ctx, "forced background wave complete");
         },
       });
     } finally {
@@ -13065,6 +14051,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       validationVerdict: "UNKNOWN",
       lastValidationFailure: reason,
       lastValidationHandoffFailure: reason,
+      currentValidationHandoffRetry: 0,
       planProgress: workflowPlanProgressEnabled(settings)
         ? mergePlanProgress({ ...state, mode: "validated", validationVerdict: "UNKNOWN" }, settings, { lifecycleStatus: "blocked", validationStatus: "unknown", nextAction: "validation blocked by forced sub-agent policy" })
         : state.planProgress,
@@ -13178,6 +14165,7 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     activeSubagents = activeSubagents.filter((agent) => agent.toolCallId !== toolCallId);
     observedSubagentKeysByToolCall.delete(toolCallId);
     standardPhaseByToolCall.delete(toolCallId);
+    backgroundSubagentToolCalls.delete(toolCallId);
     const phaseOverride = parseSubagentWorkflowPhase(args.workflowPhase);
     if (phaseOverride) standardPhaseByToolCall.set(toolCallId, phaseOverride);
     const phase = phaseOverride ?? phaseForWorkflowMode(state.mode);
@@ -13186,10 +14174,144 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       const policy = phasePolicyForCurrentMode(settings, phase);
       rememberAdvisorySubagentDecision(ctx, phase, policy, "auto_delegate", "visible parent subagent call started", state.task ?? state.originalTask, workersForCurrentMode(settings, phase));
     }
+    if (args.background === true && loadWorkflowSettings(ctx.cwd).subagents.allowBackgroundSubagents === true) {
+      // Background dispatch: the tool call ends immediately with running
+      // placeholders, so register [bg] rows here and keep them "running"
+      // until worker completion events / result delivery update them. The
+      // tool_execution_end path skips its completed-marking for these.
+      // Swarm review fix (pass 9): a NEW wave always gets a fresh close
+      // settle window — a deadline armed for a previous wave must never
+      // starve this one of its window.
+      standardBackgroundCloseDeadline = undefined;
+      backgroundSubagentToolCalls.add(toolCallId);
+      const names = extractSubagentObservations(args, `top:${toolCallId}`).map((observation) => observation.name);
+      const localCounts = new Map<string, number>();
+      activeSubagents = [...activeSubagents, ...names.map((name) => {
+        const existingCount = activeSubagents.filter((agent) => agent.name === name && agent.status === "running").length;
+        const localCount = (localCounts.get(name) ?? 0) + 1;
+        localCounts.set(name, localCount);
+        return { toolCallId, name, instance: existingCount + localCount, startedAt: new Date().toISOString(), status: "running" as const, background: true };
+      })];
+      renderWorkflowSubagentActivity(ctx);
+      return;
+    }
     const observations = extractSubagentObservations(args, `top:${toolCallId}`);
     registerSubagentObservations(toolCallId, observations, ctx, observations.length === 0);
     if (observations.length === 0) renderWorkflowSubagentActivity(ctx);
   };
+
+  // Background sub-agent tool calls whose tool_execution_end must not mark
+  // rows completed (the workers are still running in the background).
+  const backgroundSubagentToolCalls = new Set<string>();
+
+  // Latest extension context for surfaces that fire outside a Pi event
+  // (background worker completion events arrive from the shared bridge).
+  let workflowActivityContext: ExtensionContext | undefined;
+
+  const handleBackgroundSubagentActivityEvent = (event: WorkflowBackgroundSubagentEvent): void => {
+    const ctx = workflowActivityContext;
+    if (!ctx) return;
+    if (event.kind === "wave-complete" && event.summary) {
+      // Durable inbox: bank the completed background wave's results so the
+      // next Standard prompt can surface them even when the sendMessage
+      // follow-up was destroyed by an aborted turn (live 2026-11-18: zero
+      // deliveries in all session history — queued follow-ups die on Esc).
+      if (state.mode === "standard") {
+        updateState({ standardBackgroundResults: [...(state.standardBackgroundResults ?? []).slice(-2), { phase: event.phase, summary: event.summary, completedAt: event.timestamp }] }, ctx);
+        recordWorkflowInternalEvent(ctx, "Standard background advisory results banked for next-turn delivery");
+      } else if (state.mode === "executing" || state.mode === "repairing") {
+        // Pass 7 parity: same durable-inbox law for Plan execution/repair —
+        // results ride the next naturally-occurring executor turn (no new
+        // queued turns, so Plan's pinned phase ordering is untouched).
+        updateState({ planBackgroundResults: [...(state.planBackgroundResults ?? []).slice(-2), { phase: event.phase, summary: event.summary, completedAt: event.timestamp }] }, ctx);
+        recordWorkflowInternalEvent(ctx, "Plan background advisory results banked for the next executor turn");
+      } else if (state.mode === "mission_running" || state.mode === "mission_repairing") {
+        updateState({ missionBackgroundResults: [...(state.missionBackgroundResults ?? []).slice(-2), { phase: event.phase, summary: event.summary, completedAt: event.timestamp }] }, ctx);
+        recordWorkflowInternalEvent(ctx, "Mission background advisory results banked for the next milestone turn");
+      }
+      // Pass 15 (owner ruling 2026-11-19): visible BG completion card — the
+      // transcript record the fading widget column cannot leave behind.
+      // Display-only (triggerTurn:false); the card content stays one short
+      // line because custom-message CONTENT always enters model history
+      // while details never do — the hidden follow-up emitted by the
+      // subagent extension remains the sole model delivery path.
+      const bgCardWorkers = Array.isArray(event.workers) ? event.workers : [];
+      const bgCardNames = bgCardWorkers.slice(0, 3).map((worker) => worker.name).join(", ");
+      try {
+        pi.sendMessage({ customType: WORKFLOW_BG_RESULT_MESSAGE_TYPE, content: `Background sub-agents finished${bgCardNames ? `: ${bgCardNames}` : ""}.`, display: true, details: { summary: event.summary, workers: bgCardWorkers, phase: event.phase, completedAt: event.timestamp } }, { triggerTurn: false });
+      } catch { /* display-only card; never disturb the sink */ }
+      return;
+    }
+    if (event.kind === "worker-failed" && event.agent) {
+      // Timeout/stale kill ladder fired: flip matching running bg rows to
+      // failed NOW so the column cannot keep spinning while the worker dies
+      // (empty toolCallId matches by name — skip-if-busy keeps one bg wave
+      // in flight, so the name is unambiguous).
+      const failedKeys = new Set(activeSubagents
+        .filter((agent) => agent.background === true && agent.status === "running" && agent.name === event.agent && (!event.toolCallId || agent.toolCallId === event.toolCallId))
+        .map((agent) => `${agent.toolCallId}:${agent.instance}`));
+      if (failedKeys.size) {
+        activeSubagents = activeSubagents.map((agent) => failedKeys.has(`${agent.toolCallId}:${agent.instance}`) ? { ...agent, status: "failed" as const } : agent);
+        renderWorkflowSubagentActivity(ctx);
+        syncWorkflowRuntimeForActivity(ctx, "background sub-agent worker failed");
+      }
+      return;
+    }
+    if (event.kind === "worker-finished" && event.agent) {
+      // Flip EVERY matching running row (duplicate names must not wedge the
+      // extras) and honor exitCode: a nonzero exit is a failure, never a ✓.
+      // Swarm fix (pass 13, C-1): also REPAIR a row already flipped failed —
+      // the kill ladder's worker-failed event matches by NAME ONLY (empty
+      // toolCallId), so an overlapping wave's finishing worker can be
+      // blanket-failed seconds before its real completion arrives; the real
+      // worker-finished event outranks that blanket flip.
+      const finishedStatus = event.exitCode === undefined || event.exitCode === 0 ? "completed" as const : "failed" as const;
+      const finishedKeys = new Set(activeSubagents
+        .filter((agent) => agent.toolCallId === event.toolCallId && agent.background === true && agent.name === event.agent && (agent.status === "running" || agent.status === "failed"))
+        .map((agent) => `${agent.toolCallId}:${agent.instance}`));
+      if (finishedKeys.size) {
+        activeSubagents = activeSubagents.map((agent) => finishedKeys.has(`${agent.toolCallId}:${agent.instance}`) ? { ...agent, status: finishedStatus } : agent);
+        renderWorkflowSubagentActivity(ctx);
+        syncWorkflowRuntimeForActivity(ctx, "background sub-agent worker finished");
+      }
+      return;
+    }
+    if (event.kind === "finished") {
+      // The whole wave settled: running rows for this toolCallId are lies —
+      // remove them immediately. Terminal rows (✓/✗) stay visible for a
+      // short display window, then go. If events never arrive at all,
+      // expireStaleBackgroundSubagentRows is the backstop.
+      const finishedToolCallId = event.toolCallId;
+      activeSubagents = activeSubagents.filter((agent) => !(agent.toolCallId === finishedToolCallId && agent.background === true && agent.status === "running"));
+      observedSubagentKeysByToolCall.delete(finishedToolCallId);
+      standardPhaseByToolCall.delete(finishedToolCallId);
+      renderWorkflowSubagentActivity(ctx);
+      syncWorkflowRuntimeForActivity(ctx, "background sub-agent finished cleanup");
+      setTimeout(() => {
+        activeSubagents = activeSubagents.filter((agent) => agent.toolCallId !== finishedToolCallId);
+        renderWorkflowSubagentActivity(ctx);
+      }, 30_000);
+      // Pass 10 (owner ruling 2026-11-19: completed background rows "should
+      // close just like the others when they turn green"): once NO background
+      // row is still running, the whole terminal lane clears after the same
+      // ~10s linger the foreground completed rows use — the column vanishes
+      // and the top widget returns to its plain two lines.
+      if (!activeSubagents.some((agent) => agent.background && agent.status === "running")) {
+        // Swarm fix (pass 13, C-2): the guard must hold at FIRE time, not
+        // arm time — a new wave starting inside the 10s window would
+        // otherwise lose its fresh running rows to this sweep.
+        setTimeout(() => {
+          if (activeSubagents.some((agent) => agent.background && agent.status === "running")) return;
+          activeSubagents = activeSubagents.filter((agent) => !(agent.background === true));
+          renderWorkflowSubagentActivity(ctx);
+        }, 10_000);
+      }
+      // Pass 7: the wave's rows just drained — if this was the last running
+      // background row, re-arm the Standard settle so the run can close now.
+      if (state.mode === "standard" && !activeSubagents.some((agent) => agent.background && agent.status === "running")) scheduleStandardRuntimeIdleCheck(ctx, "background wave finished");
+    }
+  };
+  setWorkflowBackgroundSubagentSink(handleBackgroundSubagentActivityEvent);
 
   const updateSubagentActivity = (toolCallId: string, partialResult: unknown, ctx: ExtensionContext) => {
     const nestedObservations = extractNestedSubagentObservations(partialResult);
@@ -13213,15 +14335,25 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       }, 1500);
       return;
     }
-    activeSubagents = activeSubagents.filter((agent) => agent.toolCallId !== toolCallId);
+    activeSubagents = activeSubagents.map((agent) => agent.toolCallId === toolCallId ? { ...agent, status: "completed" as const } : agent);
     renderWorkflowSubagentActivity(ctx);
-    syncWorkflowRuntimeForActivity(ctx, "subagent finished");
-    if (state.mode === "standard") pauseStandardRuntimeIfIdle(ctx, "subagent finished");
+    setTimeout(() => {
+      // Keep the ✓ completed rows visible briefly so firing is observable, then clean up.
+      activeSubagents = activeSubagents.filter((agent) => agent.toolCallId !== toolCallId || agent.status !== "completed");
+      observedSubagentKeysByToolCall.delete(toolCallId);
+      standardPhaseByToolCall.delete(toolCallId);
+      renderWorkflowSubagentActivity(ctx);
+      syncWorkflowRuntimeForActivity(ctx, "subagent completed cleanup");
+      if (state.mode === "standard") pauseStandardRuntimeIfIdle(ctx, "subagent completed cleanup");
+    }, 10_000);
   };
 
   // ── Phase entry ────────────────────────────────────────────────
 
   function exitPlanModeToIdle(ctx: ExtensionContext): void {
+    // Pass 7 kill parity: leaving Plan ends the consumer for any background
+    // advisory workers still in flight (same law as the Standard exit).
+    killRunningBackgroundWorkers(ctx, "plan exit");
     state = persistWorkflowState(emptyState(), ctx);
     activeMission = undefined;
     pi.setActiveTools(withRuntimeWebTools(BASE_EXECUTE_TOOLS));
@@ -13229,6 +14361,9 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
   }
 
   function exitMissionModeToIdle(ctx: ExtensionContext): void {
+    // Pass 7 kill parity: leaving Mission ends the consumer for any
+    // background advisory workers still in flight.
+    killRunningBackgroundWorkers(ctx, "mission exit");
     state = persistWorkflowState(emptyState(), ctx);
     activeMission = undefined;
     pi.setActiveTools(withRuntimeWebTools(BASE_EXECUTE_TOOLS));
@@ -13236,6 +14371,16 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
   }
 
   function exitStandardModeToIdle(ctx: ExtensionContext): void {
+    // Leaving Standard ends the consumer for any advisory work still in
+    // flight — kill background workers instead of letting them ride their
+    // backstop (pass 6 completion-kill law). Swarm review fix (pass 9): the
+    // close settle deadline dies with the mode — a stale deadline must never
+    // starve a later Standard run's wave of its window.
+    killRunningBackgroundWorkers(ctx, "standard exit");
+    standardBackgroundCloseDeadline = undefined;
+    // Pass 11: leaving Standard closes the generation — the next entry must
+    // be able to report its own close.
+    standardCloseReportedForTodo = undefined;
     state = persistWorkflowState(emptyState(), ctx);
     activeMission = undefined;
     pi.setActiveTools(withRuntimeWebTools(BASE_EXECUTE_TOOLS));
@@ -13248,6 +14393,8 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
     const standardWork = classifyStandardWork(task);
     if (settings.standard.enabled === false) return show(pi, "# Standard Mode Disabled\n\nEnable with `/workflow-settings set standard enabled true`.");
     activeMission = undefined;
+    // Pass 11: a fresh Standard entry must be able to report its own close.
+    standardCloseReportedForTodo = undefined;
     pi.setActiveTools(standardToolsFor(settings));
     const standardRuntimeStartedAt = new Date().toISOString();
     updateState({
@@ -13285,6 +14432,9 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       standardClarifyingQuestions: undefined,
       standardClarifyingAnswers: undefined,
       standardSubagentPreflight: undefined,
+      standardTaskAddenda: undefined,
+      standardBackgroundAdvisoryDispatched: undefined,
+      standardBackgroundResults: undefined,
       standardLastTodoDecision: undefined,
       standardLastTodoReason: undefined,
       modelsUsed: undefined,
@@ -13509,11 +14659,14 @@ Use /mission status, /mission resume, /mission continue, or /mission retry.`);
       : baseSteps;
     const execStepIndex = currentStepIndexForSteps(steps, activeIndex);
     const progressProofClear = clearPlanProgressToolProofPatch();
-    const executionState: WorkflowState = { ...state, mode: "executing", planExecutionStepIndex: activeIndex, planProgress: { ...currentProgress, steps, currentStepIndex: execStepIndex }, ...progressProofClear, planTokensUsed: 0 };
+    // Transient-execution resume: keep worker evidence and the bounded
+    // auto re-arm counter; a genuinely new execution resets both.
+    const transientExecutionResume = planTransientExecutionRecoveryActive(state);
+    const executionState: WorkflowState = { ...state, mode: "executing", planExecutionStepIndex: activeIndex, planProgress: { ...currentProgress, steps, currentStepIndex: execStepIndex }, ...progressProofClear, planTokensUsed: 0, planExecutionTransientRecoveryAt: transientExecutionResume ? state.planExecutionTransientRecoveryAt : undefined, planExecutionTransientRecoveryPlanId: transientExecutionResume ? state.planExecutionTransientRecoveryPlanId : undefined, planExecutionTransientRetries: transientExecutionResume ? (state.planExecutionTransientRetries ?? 0) : 0 };
     updateState(executionState, ctx);
-    traceWorkflowTracking(ctx, "plan-execution-progress-required", { step: execStepIndex + 1, status: "active" });
+    traceWorkflowTracking(ctx, "plan-execution-progress-required", { step: execStepIndex + 1, status: "active", transientResume: transientExecutionResume });
     const executionPreflightExists = phasePreflightBlocks.Execution != null;
-    if (!executionPreflightExists && !beginForcedSubagentPhase(ctx, "Execution", settings)) {
+    if (!executionPreflightExists && !beginForcedSubagentPhase(ctx, "Execution", settings, undefined, transientExecutionResume ? { preserveUsage: true } : undefined)) {
       const reason = "Execution blocked by forced sub-agent policy availability gate.";
       pi.setActiveTools(planToolsFor(settings));
       updateState({ mode: previousMode === "reviewed" ? "reviewed" : "plan_approved", planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: previousMode === "reviewed" ? "reviewed" : "plan_approved" }, settings, { lifecycleStatus: "blocked", nextAction: "fix execution policy blocker" }, state.approvedPlan) : state.planProgress }, ctx);
@@ -15311,8 +16464,9 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
       const title = `Question ${i + 1} of ${questions.length}: ${q.question}`;
-      const hasCustomOption = q.options.some(o => /^D\./i.test(o));
-      const options = [...q.options, ...(hasCustomOption ? [] : ["D. Other: type your own answer"]), "Skip this question", "Stop and answer later"];
+      // Pass 17 (owner ruling 2026-11-20): D is a fixed suite-owned line (like
+      // Skip/Stop), so even questions saved before this pass display it.
+      const options = [...enforceCanonicalOtherOption(q.options), "Skip this question", "Stop and answer later"];
       const choice = await ctx.ui.select(title, options);
       if (!choice || choice === "Stop and answer later") return undefined;
 
@@ -15361,8 +16515,9 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     const answers: ClarificationAnswer[] = [];
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
-      const hasCustomOption = q.options.some(o => /^D\./i.test(o));
-      const choice = await ctx.ui.select(`Standard Question ${i + 1} of ${questions.length}: ${q.question}`, [...q.options, ...(hasCustomOption ? [] : ["D. Other: type your own answer"]), "Skip this question", "Stop and answer later"]);
+      // Pass 17 (owner ruling 2026-11-20): D is a fixed suite-owned line (like
+      // Skip/Stop), so even questions saved before this pass display it.
+      const choice = await ctx.ui.select(`Standard Question ${i + 1} of ${questions.length}: ${q.question}`, [...enforceCanonicalOtherOption(q.options), "Skip this question", "Stop and answer later"]);
       if (!choice || choice === "Stop and answer later") return undefined;
       if (choice === "Skip this question") {
         answers.push({ index: q.index, letter: "S", skipped: true });
@@ -15393,7 +16548,12 @@ ${renderMissionStatus(activeMission ?? paused)}`);
 
   async function applyStandardClarificationAnswers(ctx: ExtensionContext, answerSummary: string, answers?: ClarificationAnswer[], options: { showRecorded?: boolean } = {}) {
     const task = state.standardClarificationTask ?? state.task ?? state.originalTask ?? "Continue Standard Mode task after clarification";
-    const work = classifyStandardWork(task, answerSummary);
+    const classifiedAnswer = classifyStandardWork(task, answerSummary);
+    // Monotonic phase: a freeform answer (which may be off-topic or hostile)
+    // must never downgrade an active Execution/Repair classification.
+    const work = state.standardActivePhase === "Execution" || state.standardActivePhase === "Repair"
+      ? { phase: state.standardActivePhase, kind: state.standardWorkKind ?? classifiedAnswer.kind }
+      : classifiedAnswer;
     resetStandardSubagentUsage();
     recordStandardClarificationAnswer(ctx, answerSummary, answers);
     updateState({ task, originalTask: task, standardActivePhase: work.phase, standardWorkKind: work.kind, lastWorkflowHandoff: undefined }, ctx);
@@ -15405,6 +16565,48 @@ ${renderMissionStatus(activeMission ?? paused)}`);
     const parsed = parseShorthandAnswers(input);
     if (questions.length > 0 && parsed.length > 0) return { summary: formatAnswersForPlanner(questions, parsed), answers: parsed };
     return { summary: input.trim() };
+  }
+
+  // Pass 10: the single Standard clarification-menu opener — shared by the
+  // tool-time schedule (pass 12), the agent_end bridge, and session_start
+  // (live E4: a pending ask was silently dropped when the session closed; a
+  // restart now re-opens the menu). The select is guarded: if it fails or is
+  // raced, the awaiting state stays intact, the consumed handoff is restored
+  // so the bounded idle-check retry can re-open, and typed capture still
+  // answers the question. Returns true when an armed ask handoff was
+  // consumed.
+  async function openStandardClarificationMenu(ctx: ExtensionContext): Promise<boolean> {
+    if (state.mode !== "standard") return false;
+    if (state.lastWorkflowHandoff?.type !== STANDARD_HANDOFF_RESULT_TOOL) return false;
+    if (state.standardClarificationStage !== "awaiting_answer" || (state.standardClarifyingQuestions?.length ?? 0) === 0) return false;
+    const menuQuestions = state.standardClarifyingQuestions!;
+    const consumedHandoff = state.lastWorkflowHandoff;
+    // Pass 12 (swarm W1b): the consume, the select, and the restore all live in
+    // one try — this exact machinery produced the 2026-11-18 uncaught-exception
+    // crash when a menu raced a session replacement, and a rejection escaping a
+    // voided promise here would repeat it.
+    try {
+      updateState({ lastWorkflowHandoff: undefined }, ctx);
+      const menuSettings = loadWorkflowSettings(ctx.cwd);
+      if (menuSettings.standard.interactiveClarificationEnabled !== false && ctx.hasUI) {
+        const choice = await ctx.ui.select("Standard clarification requested. Choose how to answer:", ["Answer Questions (guided)", "Type Shorthand (e.g. 1A, 2C)", "Answer Later"]);
+        if (choice === "Answer Questions (guided)") {
+          const answers = await runStandardClarificationSelect(ctx, menuQuestions);
+          if (answers) await applyStandardClarificationAnswers(ctx, formatAnswersForPlanner(menuQuestions, answers), answers, { showRecorded: false });
+        }
+      }
+    } catch {
+      recordWorkflowInternalEvent(ctx, "Standard clarification menu failed to open — typed answers still captured");
+      // Pass 12 (live 2026-11-19: the select raced a turn abort and the
+      // consumed handoff left the ask stranded — armed, invisible, and
+      // un-retryable). Restore the handoff while the ask is still armed
+      // and unanswered so the idle-check retry can re-open the menu. A
+      // failed consume (stale ctx) leaves the handoff untouched here.
+      if (state.mode === "standard" && state.standardClarificationStage === "awaiting_answer" && !state.standardClarificationAnswer?.trim()) {
+        try { updateState({ lastWorkflowHandoff: consumedHandoff }, ctx); } catch { /* ctx stale — leave state as-is */ }
+      }
+    }
+    return true;
   }
 
 
@@ -17708,6 +18910,17 @@ Pi Version: v${VERSION}
       }
       if (event.toolName === "edit" || event.toolName === "write" || event.toolName === "bash") phase = "Execution";
       else if (event.toolName === "subagent" && isRecord(event.input)) phase = parseSubagentWorkflowPhase(event.input.workflowPhase) ?? phase;
+      // Identical-success-call breaker: refuse a scoped tool call whose exact
+      // input already succeeded STANDARD_IDENTICAL_CALL_LIMIT times in a row.
+      if (STANDARD_IDENTICAL_CALL_TOOLS.has(event.toolName)) {
+        const inputKey = stableToolInputKey(event.input);
+        const identicalStrikes = standardIdenticalCallStrikes.get(event.toolName);
+        if (identicalStrikes && identicalStrikes.count >= STANDARD_IDENTICAL_CALL_LIMIT && identicalStrikes.input === inputKey) {
+          showPolicyBlockedCard(`# Repeated Identical Tool Calls\n\n${event.toolName} has repeated the identical successful call ${identicalStrikes.count} times in a row. Repeating it again will produce the same result.\n\nChange the approach: use a different tool or different arguments. If blocked on missing information, call standard_handoff_result with clarificationDecision "ask" to surface the blocker to the user.`, true);
+          recordWorkflowInternalEvent(ctx, `Standard identical-call breaker engaged: ${event.toolName} x${identicalStrikes.count}`);
+          return { block: true, reason: `STOP: ${event.toolName} has repeated the identical successful call ${identicalStrikes.count} times; calling it again will fail identically. Use a different tool or different arguments, or ask the user via standard_handoff_result with clarificationDecision "ask".` };
+        }
+      }
     }
     if (event.toolName === WORKFLOW_EXECUTION_RESULT_TOOL || event.toolName === MISSION_MILESTONE_RESULT_TOOL) phase = "Execution";
     if (event.toolName === WORKFLOW_REPAIR_RESULT_TOOL) phase = "Repair";
@@ -17736,6 +18949,11 @@ Pi Version: v${VERSION}
     }
     if (!subagentPolicyRequiresRequiredEvidence(policy)) return;
     if (state.mode === "standard" && standardForcedSubagentSatisfied(phase, settings, state.task ?? state.originalTask ?? "Standard Mode task")) return;
+    // Pass 8: an answer-only turn (a direct question/status/recap the user
+    // asked to be answered, classified read-only, naming no work verbs) never
+    // needs forced workers. Mutation tools (edit/write/bash) and the subagent
+    // evidence path keep their full gate below.
+    if (state.mode === "standard" && state.standardWorkKind === "read_only" && event.toolName !== "edit" && event.toolName !== "write" && event.toolName !== "bash" && event.toolName !== "subagent" && standardDirectAnswerTurn(state.task ?? state.originalTask)) return;
     const required = workerTargetForPolicy(policy, state.mode === "standard" ? standardWorkerCount(settings, phase) : workerCount(settings, phase));
     const observed = subagentUsageByPhase[phase] ?? 0;
     if (observed >= required) return;
@@ -17752,8 +18970,32 @@ Pi Version: v${VERSION}
       });
       return;
     }
+    if (state.mode === "standard" && event.toolName === STANDARD_HANDOFF_RESULT_TOOL && String((event.input as { clarificationDecision?: unknown } | undefined)?.clarificationDecision) === "ask" && !standardClarificationOff(settings)) {
+      recordSubagentPolicyDecision(ctx, {
+        phase,
+        policy,
+        outcome: "allow_user_explicit_finalization",
+        reason: "Standard clarification ask is user-facing Q&A; forced workers must be enforced before substantive work, not before asking the user questions",
+        task: state.task ?? state.originalTask,
+        required,
+        observed,
+        background: false,
+      });
+      return;
+    }
     if (event.toolName === "subagent") {
       const label = forcedSubagentGuardLabel(phase);
+      // ── Background gate (Cycle 2, Phase 3) ──────────────────────────
+      // Forced phases require synchronous worker results: a background
+      // call returns immediately with placeholders and records no
+      // evidence, so allowing it under an unmet forced requirement would
+      // shelve plans and block missions while workers burn in the
+      // background. Block until the required evidence is observed
+      // (the observed >= required early-return above already passed
+      // requests through once evidence is met).
+      if (isRecord(event.input) && event.input.background === true) {
+        return { block: true, reason: `subagent background blocked — forced ${phase.toLowerCase()} workers with synchronous results are required first (${observed}/${required}) for ${label}; retry without background, or run background workers after the required workers finish.` };
+      }
       const block = forcedSubagentVisibleCallBlock(ctx, phase, required, observed, event.input, label);
       if (block) return { block: true, reason: block };
       recordSubagentPolicyDecision(ctx, {
@@ -17791,7 +19033,21 @@ Pi Version: v${VERSION}
     }
     const label = forcedSubagentGuardLabel(phase);
     const noun = phase === "Planning" ? "planning" : phase === "Repair" ? "repair" : phase === "Review" ? "review" : phase === "Validation" ? "validation" : "execution";
-    return { block: true, reason: `${event.toolName} blocked — forced ${noun} workers required (${observed}/${required}) for ${label}` };
+    // Every forced-gate block must state the one legal next action; without a
+    // remedy the model has historically re-issued the identical blocked call
+    // (live incident: 11 consecutive workflow_diagram calls, two user stops).
+    const strikes = (forcedGateBlockStrikes.get(event.toolName) ?? 0) + 1;
+    forcedGateBlockStrikes.set(event.toolName, strikes);
+    const remaining = Math.max(1, required - observed);
+    const remedy = `Next action: call the subagent tool with ${remaining} more ${noun} worker task${remaining === 1 ? "" : "s"} (synchronous; background:true does not count while the gate is unmet). Read-only probes (read, grep, find, ls, safe read-only bash) remain available.${state.mode === "standard" ? ' To ask the user instead, call standard_handoff_result with clarificationDecision "ask".' : ""}`;
+    const baseReason = `${event.toolName} blocked — forced ${noun} workers required (${observed}/${required}) for ${label}`;
+    if (strikes >= FORCED_GATE_BLOCK_STRIKE_LIMIT) {
+      if (strikes === FORCED_GATE_BLOCK_STRIKE_LIMIT) {
+        showPolicyBlockedCard(`# Tool Call Loop Blocked\n\n${event.toolName} has been blocked ${strikes} times in a row by the same forced ${noun} gate. Calling it again will fail identically.\n\n${baseReason}\n\n${remedy}`, true);
+      }
+      return { block: true, reason: `STOP — ${event.toolName} has been blocked ${strikes} times by the same forced ${noun} gate; calling it again will fail identically. ${baseReason}. ${remedy}` };
+    }
+    return { block: true, reason: `${baseReason}. ${remedy}` };
   });
 
   function workflowAutoCompactionModeEligible(mode: string): boolean {
@@ -17973,9 +19229,14 @@ Pi Version: v${VERSION}
   });
 
   pi.on("tool_execution_start", async (event, ctx) => {
+    workflowActivityContext = ctx;
+    // A call that actually executes proves the gate allowed it — reset its
+    // consecutive-block strike count so the breaker tracks loops, not history.
+    forcedGateBlockStrikes.delete(event.toolName);
     activateCurrentPlanStepForTool(ctx, { toolName: event.toolName, input: event.args });
     workflowActiveToolExecutions += 1;
     traceWorkflowTracking(ctx, "tool-execution-start", { toolName: event.toolName, toolCallId: event.toolCallId });
+    if (state.mode === "standard" && STANDARD_IDENTICAL_CALL_TOOLS.has(event.toolName)) standardRecentToolInputs.set(event.toolCallId, stableToolInputKey(event.args));
     syncWorkflowRuntimeForActivity(ctx, "tool execution started");
     if (event.toolName === "subagent") beginSubagentActivity(event.toolCallId, event.args as Record<string, unknown>, ctx);
   });
@@ -17990,8 +19251,22 @@ Pi Version: v${VERSION}
   pi.on("tool_execution_end", async (event, ctx) => {
     workflowActiveToolExecutions = Math.max(0, workflowActiveToolExecutions - 1);
     traceWorkflowTracking(ctx, "tool-execution-end", { toolName: event.toolName, toolCallId: event.toolCallId, isError: Boolean(event.isError) });
+    if (state.mode === "standard" && STANDARD_IDENTICAL_CALL_TOOLS.has(event.toolName)) {
+      const capturedInputKey = standardRecentToolInputs.get(event.toolCallId);
+      standardRecentToolInputs.delete(event.toolCallId);
+      if (!event.isError && capturedInputKey !== undefined) {
+        const priorIdentical = standardIdenticalCallStrikes.get(event.toolName);
+        standardIdenticalCallStrikes.set(event.toolName, priorIdentical && priorIdentical.input === capturedInputKey ? { input: capturedInputKey, count: priorIdentical.count + 1 } : { input: capturedInputKey, count: 1 });
+      }
+    }
     if (event.toolName === "subagent") {
-      updateSubagentActivity(event.toolCallId, event.result, ctx);
+      // Background dispatches end with running placeholders while the real
+      // workers keep going: do not mark rows completed (✓ appears only
+      // when worker completion events / result delivery arrive) and do not
+      // record placeholder results as evidence.
+      const backgroundDispatch = backgroundSubagentToolCalls.delete(event.toolCallId);
+      const isBackgroundRun = backgroundDispatch && !event.isError;
+      if (!isBackgroundRun) updateSubagentActivity(event.toolCallId, event.result, ctx);
       const phase = standardPhaseByToolCall.get(event.toolCallId) ?? phaseForWorkflowMode(state.mode);
       const successful = extractSuccessfulSubagentObservations(event.result, `successful:${event.toolCallId}`);
       if (phase && successful.length > 0) {
@@ -18003,7 +19278,84 @@ Pi Version: v${VERSION}
           if (subagentPolicyRequiresRequiredEvidence(override.policy)) rememberStandardSubagentPreflight(ctx, phase, task, workerTargetForPolicy(override.policy, override.workers));
         }
       }
-      finishSubagentActivity(event.toolCallId, Boolean(event.isError), ctx);
+      // Deterministic background-advisory nudge: the moment a Standard forced
+      // bucket is satisfied, queue an idle-gated instruction to dispatch one
+      // small read-only background check so the BG Sub-agents strip is
+      // actually exercised (zero background dispatches ever recorded before
+      // 2026-11-18). Research law (2026-11-18): exactly ONE cheap advisory
+      // seat per satisfied producer bucket (one-verifier-per-batch evidence:
+      // Cobbe 2021, Anthropic multi-agent 2025), fired ONLY while remaining
+      // To Do work exists to consume the advice — background results with no
+      // consumer are pure waste.
+      if (state.mode === "standard" && phase && successful.length > 0 && !isBackgroundRun) {
+        const bgSettings = loadWorkflowSettings(ctx.cwd);
+        if (bgSettings.subagents.allowBackgroundSubagents === true) {
+          const bgTask = state.task ?? state.originalTask ?? "Standard Mode task";
+          // Pass 9: the advisory seat is keyed to the To Do LIST GENERATION
+          // (createdAt), not the task string. Task-string keys re-armed the
+          // nudge whenever the task text changed (new list, addenda, resume),
+          // which fed the self-perpetuating loop (live 2026-11-18: 8 advisory
+          // waves, run never idle for 5 hours, workers launched 58 minutes
+          // after a closure card). One seat per phase per list; a brand-new
+          // list re-arms it. No seat is ever taken or fired while a
+          // clarification is waiting on the user.
+          const bgListGeneration = state.standardTodo?.createdAt ?? bgTask;
+          const bgClarificationWaiting = state.standardClarificationPending || state.standardClarificationStage === "awaiting_answer";
+          if (standardForcedSubagentSatisfied(phase, bgSettings, bgTask) && state.standardBackgroundAdvisoryDispatched?.[phase] !== bgListGeneration && !bgClarificationWaiting) {
+            const bgTodoHasRemainingWork = (state.standardTodo?.items ?? []).some((item) => item.status === "active" || item.status === "pending" || item.status === "blocked");
+            const bgSeatBusy = activeSubagents.some((agent) => agent.background && agent.status === "running");
+            updateState({ standardBackgroundAdvisoryDispatched: { ...(state.standardBackgroundAdvisoryDispatched ?? {}), [phase]: bgListGeneration } }, ctx);
+            if (!bgTodoHasRemainingWork) {
+              recordWorkflowInternalEvent(ctx, "Standard background advisory skipped: no remaining To Do work to consume advisory results");
+              // No consumer remains: any still-running advisory worker dies
+              // now instead of riding its 20-minute backstop.
+              killRunningBackgroundWorkers(ctx, "no remaining To Do work");
+            } else if (bgSeatBusy) {
+              // One bg advisory seat at a time (pass 6): a second satisfied
+              // bucket while a seat is running skips its seat — the counting
+              // law stays 1 seat per bucket, never concurrent.
+              recordWorkflowInternalEvent(ctx, "Standard background advisory skipped: bg seat busy (one background advisory in flight)");
+            } else {
+              recordWorkflowInternalEvent(ctx, `Standard background advisory nudge queued: ${phase} bucket satisfied`);
+              // Idle-ladder delivery with bounded re-queue: firing into a
+              // streaming turn loses the prompt (live 2026-11-18 03:22: the
+              // first-ever nudge fired after the ~10s idle wait exhausted,
+              // landed in a follow-up queue, and was never seen again).
+              let bgNudgeDeliveryAttempt = 0;
+              const deliverBackgroundAdvisoryNudge = (): void => {
+                // Pass 9 delivery re-check: the world can change between queue
+                // and delivery — the list can complete or a clarification can
+                // start waiting on the user. Delivering a worker-spawning
+                // nudge into a finished or waiting run is exactly the
+                // "still running after done" chaos; drop it instead.
+                if (state.mode !== "standard") return;
+                const clarificationWaitingNow = state.standardClarificationPending || state.standardClarificationStage === "awaiting_answer";
+                const remainingWorkNow = (state.standardTodo?.items ?? []).some((item) => item.status === "active" || item.status === "pending" || item.status === "blocked");
+                if (clarificationWaitingNow || !remainingWorkNow) {
+                  recordWorkflowInternalEvent(ctx, "Standard background advisory nudge dropped at delivery: clarification waiting or no remaining To Do work");
+                  return;
+                }
+                queueWorkflowPrompt(pi, `PI WORKFLOW STANDARD MODE: forced ${phase.toLowerCase()} bucket satisfied. Dispatch exactly one OPTIONAL background advisory check now: call the subagent tool with background:true and ONE small read-only advisory task (quick quality review of the completed ${phase.toLowerCase()} outputs, reply under 120 words with findings first — a one-line verdict, the single most important issue, and the exact file, line, or URL it was found in). Do not poll, sleep, loop, watch, or start servers or listeners — make one pass and finish. Omit workflowPhase so the call inherits the current bucket, and continue normal work without waiting — results return automatically in a later turn. Never use background:true for a forced bucket's required workers.`, {
+                  requireIdle: true,
+                  isIdle: () => ctx.isIdle(),
+                  onFinalFailure: () => {
+                    if (state.mode !== "standard") return;
+                    bgNudgeDeliveryAttempt += 1;
+                    if (bgNudgeDeliveryAttempt <= 3) {
+                      recordWorkflowInternalEvent(ctx, `Standard background advisory nudge delivery retry ${bgNudgeDeliveryAttempt} of 3`);
+                      setTimeout(deliverBackgroundAdvisoryNudge, 30_000);
+                    } else {
+                      recordWorkflowInternalEvent(ctx, "Standard background advisory nudge delivery failed");
+                    }
+                  },
+                });
+              };
+              deliverBackgroundAdvisoryNudge();
+            }
+          }
+        }
+      }
+      if (!isBackgroundRun) finishSubagentActivity(event.toolCallId, Boolean(event.isError), ctx);
       const subagentTokens = subagentUsageTokensFromResult(event.result);
       if (subagentTokens > 0) accumulateModeTokens(subagentTokens, ctx);
     }
@@ -18012,12 +19364,26 @@ Pi Version: v${VERSION}
   });
 
   pi.on("session_start", async (_event, ctx) => {
-    cleanupOrphanProcesses();
+    // Background activity events must land even before the first tool call
+    // of the process (pass 6: the sink dropped events when the context was
+    // only assigned in tool_execution_start).
+    workflowActivityContext = ctx;
+    cleanupOrphanProcesses(ctx.cwd);
+    // Pass 12 (live 2026-11-19: the E4 residual became an owner-ordered
+    // repair — "the dynamic clarification menu was never pulled up"). An
+    // armed Standard clarification ask now SURVIVES the cold-start idle
+    // restore and its menu re-opens; that logic lives in the state-restore
+    // session_start handler at the bottom of this file, after the state is
+    // persisted.
     clearSubagentResultCache();
     activeSubagents = [];
     stopSubagentActivityTicker();
     workflowActiveToolExecutions = 0;
     workflowScheduledAgentTurns = 0;
+    forcedGateBlockStrikes.clear();
+    renderedWorkflowDiagramSources.clear();
+    standardIdenticalCallStrikes.clear();
+    standardRecentToolInputs.clear();
     if (ctx.hasUI) {
       try { ctx.ui.setWidget("workflow-subagent-activity", undefined); } catch { /* UI unavailable */ }
       try { ctx.ui.setStatus("workflow-subagent-activity", undefined); } catch { /* UI unavailable */ }
@@ -18033,7 +19399,8 @@ Pi Version: v${VERSION}
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {
-    cleanupOrphanProcesses();
+    killRunningBackgroundWorkers(ctx, "session shutdown");
+    cleanupOrphanProcesses(ctx.cwd);
     workflowScheduledAgentTurns = 0;
     stopSubagentActivityTicker();
     stopWorkflowUiClockTicker();
@@ -18172,8 +19539,8 @@ Pi Version: v${VERSION}
         if (settings.standard.autoTodoEnabled === false || settings.standard.todoTriggerMode === "off") return show(pi, "# Standard Mode To Do Disabled\n\nEnable with `/workflow-settings set standard todoTriggerMode manual`, `/workflow-settings set standard todoTriggerMode auto`, or `/workflow-settings set standard todoTriggerMode required`.");
         const task = rest.slice(1).join(" ").trim() || state.task || "Standard Mode task";
         updateState({ standardTodo: undefined, task, originalTask: state.originalTask ?? task }, ctx);
-        show(pi, `# Standard Mode To Do\n\nDynamic To Do generation requested. Standard Mode will create task-specific items only if this task needs them.\n\n${renderStandardModeStatus(state, pi.getActiveTools(), ctx, pi.getThinkingLevel())}`);
-        queueWorkflowPrompt(pi, `Create a dynamic Standard Mode To Do list for this task if it is appropriate for Standard Mode. Use standard_todo with action set and task-specific items. Choose the smallest useful item count from actual task complexity; do not default to three. If the task is too simple, say no To Do is needed. If it needs Plan Mode or Mission Mode, recommend that instead.\n\nTask: ${task}`, buildQueuedFailureRecovery(ctx, (reason) => recoverStandardTransientHandoffFailure(ctx, reason)));
+        show(pi, `# Standard Mode To Do\n\nDynamic To Do generation requested. Standard Mode will create a task-specific board for this task.\n\n${renderStandardModeStatus(state, pi.getActiveTools(), ctx, pi.getThinkingLevel())}`);
+        queueWorkflowPrompt(pi, `Create a dynamic Standard Mode To Do list for this task. Use standard_todo with action set and task-specific items. Choose the smallest useful item count from actual task complexity; do not default to three. Skip the board only if the task is a one-off answer. If it needs Plan Mode or Mission Mode, recommend that instead.\n\nTask: ${task}`, buildQueuedFailureRecovery(ctx, (reason) => recoverStandardTransientHandoffFailure(ctx, reason)));
         return;
       }
       return show(pi, renderStandardModeStatus(state, pi.getActiveTools(), ctx, pi.getThinkingLevel()));
@@ -18181,11 +19548,35 @@ Pi Version: v${VERSION}
     await enterStandardMode(ctx, raw);
   };
 
+  // /bg — manual control over background sub-agent workers (owner ruling
+  // 2026-11-18: "We need to be able to kill those agents. This is mandatory.").
+  const handleBgCommand = (action: string, ctx: ExtensionContext): void => {
+    if (action === "kill") {
+      const rowsBefore = activeSubagents.filter((agent) => agent.background && agent.status === "running");
+      const killed = killRunningBackgroundWorkers(ctx, "/bg kill");
+      // Swarm fix (pass 13): the receipt states row effects truthfully —
+      // real kills flip rows failed; stale rows with no live process close
+      // silently (killRunningBackgroundWorkers), and neither is claimed
+      // when it did not happen.
+      show(pi, killed.length
+        ? `# BG Sub-Agents Killed\n\nGroup-killed ${killed.length} background worker${killed.length === 1 ? "" : "s"} (pid ${killed.join(", ")}).${rowsBefore.length ? " Rows flipped to failed." : ""}`
+        : "# BG Sub-Agents Killed\n\nNo background workers were running.");
+      return;
+    }
+    const snapshot = backgroundWorkerSnapshot(ctx.cwd);
+    const rows = activeSubagents.filter((agent) => agent.background);
+    show(pi, `# BG Sub-Agents Status\n\n${snapshot.length ? snapshot.map((worker) => `- pid ${worker.pid} · ${worker.ageMs >= 0 ? `${Math.round(worker.ageMs / 1000)}s old` : "tracked in this session"}`).join("\n") : "No background workers registered."}${rows.length ? `\n\nActivity rows:\n${rows.map((agent) => `- ${agent.name} · ${agent.status}`).join("\n")}` : ""}`);
+  };
+
   pi.registerCommand("standard", { description: "Enter Standard Mode for normal active workflow assistance.", getArgumentCompletions: (prefix) => filterCompletions(STANDARD_COMPLETIONS, prefix), handler: handleStandardCommand });
   pi.registerCommand("standard status", { description: "Show Standard Mode status.", handler: async (_args, ctx) => handleStandardCommand("status", ctx) });
   pi.registerCommand("standard todo", { description: "Show Standard Mode To Do status.", handler: async (_args, ctx) => handleStandardCommand("todo", ctx) });
   pi.registerCommand("standard todo clear", { description: "Clear Standard Mode To Do tracking.", handler: async (_args, ctx) => handleStandardCommand("todo clear", ctx) });
   pi.registerCommand("standard exit", { description: "Exit Standard Mode.", handler: async (_args, ctx) => handleStandardCommand("exit", ctx) });
+
+  pi.registerCommand("bg", { description: "Show background sub-agent worker status.", handler: async (_args, ctx) => handleBgCommand("status", ctx) });
+  pi.registerCommand("bg status", { description: "Show background sub-agent worker status.", handler: async (_args, ctx) => handleBgCommand("status", ctx) });
+  pi.registerCommand("bg kill", { description: "Kill all running background sub-agent workers now.", handler: async (_args, ctx) => handleBgCommand("kill", ctx) });
 
 
   const handleMissionCommand = async (args: string, ctx: ExtensionContext): Promise<void> => {
@@ -18897,7 +20288,7 @@ Pi Version: v${VERSION}
         const result = updateSettings(ctx.cwd, scope, (s) => { const standard = s.standard as typeof s.standard & { subagents?: Record<string, boolean | number | string | undefined> }; standard.subagents = { ...(standard.subagents ?? {}), [key]: count }; });
         return show(pi, updatedMessage(result.scope, result.file, `standard.subagents.${key}`, String(count)));
       }
-      if (subject === "ui" && (key === "planTopWidgetVisible" || key === "planBottomWidgetVisible" || key === "missionTopWidgetVisible" || key === "missionBottomWidgetVisible" || key === "rememberWidgetVisibility" || key === "enableWidgetShortcuts" || key === "showIdleWorkflowEntryHint" || key === "showActiveWorkflowSwitchHint" || key === "showWidgetShortcutHint" || key === "showPresetShortcutHint")) {
+      if (subject === "ui" && (key === "planTopWidgetVisible" || key === "planBottomWidgetVisible" || key === "missionTopWidgetVisible" || key === "missionBottomWidgetVisible" || key === "rememberWidgetVisibility" || key === "enableWidgetShortcuts" || key === "showIdleWorkflowEntryHint" || key === "showActiveWorkflowSwitchHint" || key === "showWidgetShortcutHint" || key === "showPresetShortcutHint" || key === "toolRowsVisible")) {
         if (bool === undefined) return show(pi, `# Error\n\nUsage: \`/workflow-settings set ui ${key} <true|false>\``);
         const result = updateSettings(ctx.cwd, scope ?? "global", (s) => { workflowWidgetUi(s)[key] = bool; });
         setWorkflowUi(ctx, state, activeSubagents);
@@ -19514,10 +20905,20 @@ Public workflow commands:
 
     // Standard Mode: direct active work with optional dynamic To Do tracking.
     if (state.mode === "standard") {
-      if (state.standardClarificationPending && state.standardClarificationStage === "awaiting_answer") {
+      standardIdenticalCallStrikes.clear();
+      // Swarm-verify fix (pass 9): per-turn counters reset BEFORE the
+      // awaiting-answer early return — a clarification-wait turn is still a
+      // new agent turn, and its settles must not charge the previous turn's
+      // tally.
+      standardTodoCreatedThisTurn = false;
+      standardTodoSettlesThisTurn = 0;
+      // An answer already captured must never re-strip tools: this closes the
+      // 2026-11-17 wedge where a stored answer plus a re-armed awaiting state
+      // crippled the continuation turn to read/todo-only for 8 minutes.
+      if (state.standardClarificationPending && state.standardClarificationStage === "awaiting_answer" && !state.standardClarificationAnswer?.trim()) {
         const settings = loadWorkflowSettings(ctx.cwd);
         pi.setActiveTools(clarificationToolsFor(settings, false));
-        return { systemPrompt: `${event.systemPrompt}\n\nPI WORKFLOW STANDARD MODE: waiting for clarification answer. Type your answer or use /clarify cancel to skip.` };
+        return { systemPrompt: `${event.systemPrompt}\n\nPI WORKFLOW STANDARD MODE: waiting for clarification answer. Type your answer, or type skip to continue without one.` };
       }
       setStandardRuntimeActive(ctx, true);
       const settings = loadWorkflowSettings(ctx.cwd);
@@ -19531,17 +20932,67 @@ Public workflow commands:
       if (standardSurfaceBlock) {
         return { systemPrompt: `${event.systemPrompt}\n\nPI WORKFLOW STANDARD MODE BLOCKED: ${standardSurfaceBlock}\n\nDo not execute the user request. Retry after the Standard tool surface is repaired.` };
       }
-      standardTodoCreatedThisTurn = false;
       const rawPrompt = event.prompt?.trim() ?? "";
-      const answeredClarification = Boolean(state.standardClarificationAnswer?.trim() && state.standardClarificationTask?.trim() && !state.standardClarificationPending);
-      const task = answeredClarification ? state.standardClarificationTask!.trim() : rawPrompt;
-      const standardWork = classifyStandardWork(task, answeredClarification ? state.standardClarificationAnswer : undefined);
-      if (rawPrompt && !answeredClarification) {
+      // Pass 7: a queued To Do continuation turn continues the CURRENT task —
+      // it must never be classified as a new task (the reset below would
+      // clear the very To Do list it is driving forward).
+      const standardTodoContinuationTurn = rawPrompt.startsWith("PI WORKFLOW STANDARD MODE — CONTINUE THE ACTIVE TO DO LIST");
+      // System-generated queued prompts are never user tasks or task addenda.
+      // Swarm review fix (pass 9): they must also never RESET task/board/
+      // evidence state or classify a new task — the advisory nudge's
+      // delivery used to fall into the new-task reset below, wiping the very
+      // To Do list its seat is keyed to and re-arming the loop.
+      const isSystemGeneratedPrompt = rawPrompt.startsWith("Standard clarification answer received")
+        || rawPrompt.startsWith("PI WORKFLOW STANDARD MODE")
+        || rawPrompt.startsWith("Create a dynamic Standard Mode To Do list");
+      // Consume a stored answer only when the triggering prompt IS the queued
+      // clarification-answer follow-up; a fresh user message starts/adds instead.
+      const answeredClarification = Boolean(state.standardClarificationAnswer?.trim() && state.standardClarificationTask?.trim() && !state.standardClarificationPending)
+        && rawPrompt.startsWith("Standard clarification answer received");
+      // Pass 10 (live E1/E2: a stale stored answer ate every later ask, and the
+      // owner's chat messages were silently captured as clarification answers
+      // — 271 state writes carried one stale answer): restore the 0.0.25 rule.
+      // A stored answer survives ONLY until the next turn that is not its own
+      // delivery follow-up. The follow-up prompt embeds the answer text, so a
+      // racing queued turn clearing it here never loses the answer content.
+      if (state.standardClarificationAnswer?.trim() && !answeredClarification) {
+        updateState({ standardClarificationAnswer: undefined }, ctx);
+      }
+      // Task continuity: while a fresh, incomplete To Do is active, a normal
+      // user message is guidance for the CURRENT task. It must not replace the
+      // task, wipe worker evidence, or re-run the classifier on chatter.
+      const continuationTodoActive = state.standardTodo?.status === "active"
+        && state.standardTodo.items.some((item) => item.status === "active" || item.status === "pending");
+      const continuationTodoUpdatedAt = state.standardTodo?.updatedAt ? Date.parse(state.standardTodo.updatedAt) : NaN;
+      const continuationTodoFresh = Number.isFinite(continuationTodoUpdatedAt) && Date.now() - continuationTodoUpdatedAt < 15 * 60_000;
+      const continuationMessage = Boolean(rawPrompt) && !isSystemGeneratedPrompt && !answeredClarification && continuationTodoActive && continuationTodoFresh;
+      const task = answeredClarification
+        ? state.standardClarificationTask!.trim()
+        : (continuationMessage || standardTodoContinuationTurn || isSystemGeneratedPrompt)
+          ? (state.task ?? state.originalTask ?? rawPrompt)
+          : rawPrompt;
+      const classifiedWork = classifyStandardWork(task, answeredClarification ? state.standardClarificationAnswer : undefined);
+      // Monotonic phase at turn start: never downgrade Execution/Repair.
+      const standardWork = state.standardActivePhase === "Execution" || state.standardActivePhase === "Repair"
+        ? { phase: state.standardActivePhase, kind: state.standardWorkKind ?? classifiedWork.kind }
+        : classifiedWork;
+      if (continuationMessage) {
+        updateState({ standardTaskAddenda: [...(state.standardTaskAddenda ?? []), rawPrompt].slice(-5) }, ctx);
+        if (!state.standardClarificationPending && state.standardClarificationStage !== "awaiting_answer" && state.standardClarificationStage !== "drafting") {
+          updateState({ standardClarificationAnswer: undefined, standardClarificationStage: undefined }, ctx);
+        }
+      }
+      if (rawPrompt && !answeredClarification && !continuationMessage && !standardTodoContinuationTurn && !isSystemGeneratedPrompt) {
         resetStandardSubagentUsage();
         const existingTodoForTask = state.standardTodo?.task === task && state.standardTodo.status !== "completed" && !standardTodoLooksGeneric(state.standardTodo) ? state.standardTodo : undefined;
-        updateState({ task, originalTask: task, standardActivePhase: standardWork.phase, standardWorkKind: standardWork.kind, standardTodo: existingTodoForTask, standardClarificationAnswer: undefined, standardClarificationStage: undefined, standardClarificationTask: undefined, standardClarificationRequirementReason: undefined, standardClarifyingQuestions: undefined, standardClarifyingAnswers: undefined, standardSubagentPreflight: undefined, standardLastAutoCheckAt: undefined, standardLastClarificationDecision: undefined, standardLastClarificationReason: undefined, standardLastTodoDecision: undefined, standardLastTodoReason: undefined }, ctx);
+        // Swarm review fix (pass 11): adopting an old board into a new task
+        // turn (verbatim re-issue after an abnormal close) re-opens its
+        // generation — the spent close report must not silence this run's
+        // own close.
+        if (existingTodoForTask) standardCloseReportedForTodo = undefined;
+        updateState({ task, originalTask: task, standardActivePhase: standardWork.phase, standardWorkKind: standardWork.kind, standardTodo: existingTodoForTask, standardTaskAddenda: undefined, standardClarificationAnswer: undefined, standardClarificationStage: undefined, standardClarificationTask: undefined, standardClarificationRequirementReason: undefined, standardClarifyingQuestions: undefined, standardClarifyingAnswers: undefined, standardLastAutoCheckAt: undefined, standardLastClarificationDecision: undefined, standardLastClarificationReason: undefined, standardLastTodoDecision: undefined, standardLastTodoReason: undefined }, ctx);
       }
-      if (task) {
+      if (task && !continuationMessage && !standardTodoContinuationTurn) {
         const gate = standardClarificationGate(task, settings, state);
         if (gate.force) {
           pi.setActiveTools(clarificationToolsFor(settings, settings.standard.useSubagentsBeforeClarification === true && standardSubagentsAllowed(settings)));
@@ -19551,16 +21002,25 @@ Public workflow commands:
       }
       const standardTodoMustInitialize = standardRequiredTodoMissing(state, settings, task);
       if (task) rememberStandardAdvisorySubagentDecisionForWork(ctx, settings, standardWork, task);
-      if (task && !standardTodoMustInitialize && (standardWork.phase === "Execution" || standardWork.phase === "Repair")) {
+      if (task && !standardTodoMustInitialize && (standardWork.phase === "Execution" || standardWork.phase === "Repair") && !standardForcedSubagentSatisfied(standardWork.phase, settings, task)) {
         const override = standardForcedSubagentOverride(settings, standardWork.phase);
-        if (!beginForcedSubagentPhase(ctx, standardWork.phase, settings, override)) {
+        if (!beginForcedSubagentPhase(ctx, standardWork.phase, settings, override, { preserveUsage: true })) {
           pi.setActiveTools(clarificationToolsFor(settings, false));
           return { systemPrompt: `${event.systemPrompt}\n\nPI WORKFLOW STANDARD MODE BLOCKED: required Standard ${standardWork.phase.toLowerCase()} sub-agent requirements are unavailable. Do not execute the user request; report the sub-agent policy blocker and wait for settings or worker availability to be fixed.` };
         }
       }
       const answeredClarificationBlock = answeredClarification ? `\n\n${standardClarificationAnsweredPrompt(task, state.standardClarificationAnswer!.trim())}` : "";
       if (answeredClarification) updateState({ standardClarificationAnswer: undefined, standardClarificationStage: undefined, standardActivePhase: standardWork.phase, standardWorkKind: standardWork.kind, standardClarificationTask: undefined, standardClarificationRequirementReason: undefined, standardClarificationPending: false, standardClarifyingQuestions: undefined, standardClarifyingAnswers: undefined, task, originalTask: task }, ctx);
-      return { systemPrompt: `${event.systemPrompt}\n\n${standardPrompt(state, settings, standardTodoCreatedThisTurn)}${answeredClarificationBlock}` };
+      // Banked background results are surfaced by standardPrompt THIS turn
+      // and cleared after building the prompt so they are delivered exactly
+      // once. Pass 7 fix: updateState reassigns `state`, so the prompt must
+      // be built from the pre-clear snapshot — the old order cleared the
+      // results before standardPrompt could ever render them, which is why
+      // banked results only ever reached the user via the lossy follow-up.
+      const surfacedBackgroundResults = state.standardBackgroundResults?.length;
+      const surfacedBackgroundState = state;
+      if (surfacedBackgroundResults) updateState({ standardBackgroundResults: undefined }, ctx);
+      return { systemPrompt: `${event.systemPrompt}\n\n${standardPrompt(surfacedBackgroundState, settings, standardTodoCreatedThisTurn)}${answeredClarificationBlock}` };
     }
 
     // Plan Mode: intercept user message as planning task
@@ -19658,7 +21118,14 @@ Public workflow commands:
       if (missionExecutionSurfaceBlock) {
         return { systemPrompt: `${event.systemPrompt}\n\nPI MISSION EXECUTION BLOCKED: ${missionExecutionSurfaceBlock}\n\nDo not execute the milestone. Run /mission continue after the tool surface is repaired.` };
       }
-      return { systemPrompt: `${event.systemPrompt}\n\n${missionRuntimePrompt(mission, loadWorkflowSettings(ctx.cwd), phasePreflightBlocks.Execution)}` };
+      // Banked background results are surfaced THIS turn via
+      // missionBackgroundResultsBlock (built from the pre-clear snapshot —
+      // updateState reassigns `state`); clear after so they are delivered
+      // exactly once (pass 7 parity).
+      const surfacedMissionBackgroundResults = state.missionBackgroundResults?.length;
+      const missionBackgroundBlock = missionBackgroundResultsBlock(state);
+      if (surfacedMissionBackgroundResults) updateState({ missionBackgroundResults: undefined }, ctx);
+      return { systemPrompt: `${event.systemPrompt}\n\n${missionRuntimePrompt(mission, loadWorkflowSettings(ctx.cwd), phasePreflightBlocks.Execution)}${missionBackgroundBlock}` };
     }
 
     if (state.mode === "mission_repairing") {
@@ -19763,7 +21230,13 @@ Public workflow commands:
       if (executionSurfaceBlock) {
         return { systemPrompt: `${event.systemPrompt}\n\nPI WORKFLOW EXECUTION BLOCKED: ${executionSurfaceBlock}\n\nDo not execute the approved plan. Run /plan continue after the execution tool surface is repaired.` };
       }
-      return { systemPrompt: `${event.systemPrompt}\n\n${executePrompt(state, settings, phasePreflightBlocks.Execution)}` };
+      // Banked background results are surfaced by executePrompt THIS turn
+      // (built from the pre-clear snapshot — updateState reassigns `state`);
+      // clear after so they are delivered exactly once (pass 7 parity).
+      const surfacedPlanBackgroundResults = state.planBackgroundResults?.length;
+      const executePromptState = state;
+      if (surfacedPlanBackgroundResults) updateState({ planBackgroundResults: undefined }, ctx);
+      return { systemPrompt: `${event.systemPrompt}\n\n${executePrompt(executePromptState, settings, phasePreflightBlocks.Execution)}` };
     }
     if (state.mode === "repairing") {
       const settings = loadWorkflowSettings(ctx.cwd);
@@ -19851,7 +21324,7 @@ Public workflow commands:
           // Setting state here eliminates agent_end's fragile re-detection from cleaned text.
           // Guard against overwriting state already set by the standard_handoff_result typed tool handler.
           const rawClarificationDecision = parseStandardAutoCheckDecision(text);
-          if (rawClarificationDecision.clarificationDecision === "ask" && state.standardClarificationStage !== "awaiting_answer") {
+          if (rawClarificationDecision.clarificationDecision === "ask" && state.standardClarificationStage !== "awaiting_answer" && !state.standardClarificationAnswer?.trim()) {
             const maxBridgeQuestions = Math.max(1, Math.min(2, settings.standard.maxClarificationQuestions ?? 1));
             const bridgeQuestions = parseClarifyingQuestions(text).slice(0, maxBridgeQuestions);
             updateState({
@@ -19894,6 +21367,46 @@ Public workflow commands:
   pi.on("agent_end", async (event, ctx) => {
     const text = lastAssistantText(event.messages as AgentMessage[]) ?? "";
     const settings = loadWorkflowSettings(ctx.cwd);
+
+    // Background sub-agent result delivery: the triggered turn is
+    // informational only. Show the results card and finish the background
+    // activity rows, but never route the reply through handoff,
+    // clarification, or forced-gate parsing — the delivered summary is not
+    // a handoff, and routing it could bounce the workflow's phase.
+    const backgroundResultMessage = (event.messages as AgentMessage[]).find((message) => (message as { customType?: string }).customType === "workflow-subagent-background-result");
+    if (backgroundResultMessage) {
+      const backgroundDetails = (backgroundResultMessage as { details?: { toolCallId?: string } }).details;
+      traceWorkflowTracking(ctx, "subagent-background-result-delivered", { mode: state.mode, toolCallId: backgroundDetails?.toolCallId });
+      // The delivered follow-up message IS the visible surface (pass 6): the
+      // old re-show via show(pi, content) printed every result twice (live
+      // 2026-11-18: three wave messages plus a fourth duplicate card).
+      const backgroundToolCallId = backgroundDetails?.toolCallId;
+      if (backgroundToolCallId) {
+        activeSubagents = activeSubagents.map((agent) => agent.toolCallId === backgroundToolCallId && agent.background === true ? { ...agent, status: "completed" as const } : agent);
+        renderWorkflowSubagentActivity(ctx);
+        setTimeout(() => {
+          activeSubagents = activeSubagents.filter((agent) => agent.toolCallId !== backgroundToolCallId);
+          observedSubagentKeysByToolCall.delete(backgroundToolCallId);
+          standardPhaseByToolCall.delete(backgroundToolCallId);
+          renderWorkflowSubagentActivity(ctx);
+          syncWorkflowRuntimeForActivity(ctx, "background sub-agent delivered cleanup");
+        }, 10_000);
+      }
+      // Pass 7: a delivered background result may have been the last pending
+      // work — re-arm the Standard settle/continuation after this turn.
+      if (state.mode === "standard") scheduleStandardRuntimeIdleCheck(ctx, "background result delivered");
+      // Pass 10 (live E1-E4: every failed clarification menu coincided with a
+      // background delivery turn): an ARMED Standard clarification menu must
+      // not be eaten by this early return. The delivery turn is exactly when
+      // the model, prompted with the wave results, decides to ask — fall
+      // through to the Standard block so the agent_end bridge opens the menu.
+      // Every other delivery turn keeps the protective return.
+      const standardClarificationMenuArmed = state.mode === "standard"
+        && state.lastWorkflowHandoff?.type === STANDARD_HANDOFF_RESULT_TOOL
+        && state.standardClarificationStage === "awaiting_answer"
+        && (state.standardClarifyingQuestions?.length ?? 0) > 0;
+      if (!standardClarificationMenuArmed) return;
+    }
 
     if (initialPlanParentSuppressed()) {
       traceWorkflowTracking(ctx, "typed-initial-plan-parent-agent-end-suppressed", { mode: state.mode, lifecycleStatus: state.planProgress?.lifecycleStatus });
@@ -20136,30 +21649,42 @@ Public workflow commands:
     if (state.mode === "standard") {
       scheduleStandardRuntimeIdleCheck(ctx, "agent_end standard");
       if (state.lastWorkflowHandoff?.type === STANDARD_HANDOFF_RESULT_TOOL) {
-        // If the typed tool handler set up clarification with questions,
-        // show the interactive menu directly here — no deferred action, no timeout.
+        // Pass 10: the menu opener is shared with session_start (live E4: a
+        // pending ask was silently dropped at session close — a restart now
+        // re-opens the menu). Falls through to the finalize path when no
+        // clarification questions are armed.
         const typedToolHasQuestions = state.standardClarificationStage === "awaiting_answer"
           && (state.standardClarifyingQuestions?.length ?? 0) > 0;
-        if (typedToolHasQuestions) {
-          updateState({ lastWorkflowHandoff: undefined }, ctx);
-          const menuQuestions = state.standardClarifyingQuestions!;
-          if (settings.standard.interactiveClarificationEnabled !== false && ctx.hasUI) {
-            const choice = await ctx.ui.select("Standard clarification requested. Choose how to answer:", ["Answer Questions (guided)", "Type Shorthand (e.g. 1A, 2C)", "Answer Later"]);
-            if (choice === "Answer Questions (guided)") {
-              const answers = await runStandardClarificationSelect(ctx, menuQuestions);
-              if (answers) await applyStandardClarificationAnswers(ctx, formatAnswersForPlanner(menuQuestions, answers), answers, { showRecorded: false });
-            }
-          }
-          return;
+        if (!typedToolHasQuestions) recordWorkflowInternalEvent(ctx, "Standard typed handoff without clarification questions — finalize path");
+        if (await openStandardClarificationMenu(ctx)) return;
+        if (!finalizeStandardTerminalStateIfIdle(ctx, "typed standard final handoff")) {
+          // Pass 7: a deferred finalize (work still draining, or actionable To
+          // Do items the continuation engine now owns) must NOT discard the
+          // accepted handoff — it stays armed so the settle fires when the
+          // work drains (live 2026-11-18: two Accepted handoffs were silently
+          // deleted and the run never closed). Only a pending clarification
+          // consumes it here.
+          if (state.standardClarificationStage === "awaiting_answer") updateState({ lastWorkflowHandoff: undefined }, ctx);
         }
-        if (!finalizeStandardTerminalStateIfIdle(ctx, "typed standard final handoff")) updateState({ lastWorkflowHandoff: undefined }, ctx);
       }
       const autoDecision = parseStandardAutoCheckDecision(text);
       const autoCheckPatch = parseStandardAutoChecks(text);
       if (Object.keys(autoCheckPatch).length > 0) updateState(autoCheckPatch, ctx);
 
-      const clarificationAsked = autoDecision.clarificationDecision === "ask" || standardOutputNeedsAutomaticClarification(text, settings);
-      const clarificationDrafting = state.standardClarificationStage === "drafting";
+      const answerAlreadyCaptured = Boolean(state.standardClarificationAnswer?.trim());
+      // Pass 12: a typed-tool ask already armed the state and scheduled its
+      // menu at tool time (or this bridge just consumed the handoff above).
+      // Re-arming from the SAME turn's leftover prose would print a second
+      // Clarification card and open a second select while the first menu is
+      // still pending — the ask is already fully served.
+      const typedAskAlreadyArmed = !answerAlreadyCaptured
+        && state.standardClarificationPending === true
+        && state.standardClarificationStage === "awaiting_answer";
+      const clarificationAsked = !answerAlreadyCaptured && !typedAskAlreadyArmed && (autoDecision.clarificationDecision === "ask" || standardOutputNeedsAutomaticClarification(text, settings));
+      const clarificationDrafting = !answerAlreadyCaptured && !typedAskAlreadyArmed && state.standardClarificationStage === "drafting";
+      if (answerAlreadyCaptured && (autoDecision.clarificationDecision === "ask" || standardOutputNeedsAutomaticClarification(text, settings))) {
+        recordWorkflowInternalEvent(ctx, "Standard clarification auto re-arm suppressed: answer already captured");
+      }
       if (clarificationAsked || clarificationDrafting) {
         const maxQuestions = Math.max(1, Math.min(2, settings.standard.maxClarificationQuestions ?? 1));
         const task = state.standardClarificationTask ?? state.task ?? state.originalTask ?? "Continue Standard Mode task after clarification";
@@ -20177,15 +21702,16 @@ Public workflow commands:
             standardClarificationRequirementReason: fallbackReason,
             standardClarifyingQuestions: undefined,
           }, ctx);
-          recordWorkflowInternalEvent(ctx, "Internal workflow lifecycle event suppressed.");
+          recordWorkflowInternalEvent(ctx, "Standard clarification requested (auto text, no structured questions)");
           if (settings.standard.interactiveClarificationEnabled !== false && ctx.hasUI) {
+            show(pi, `# Clarification Needed\n\n${fallbackReason}\n\nNo structured questions available. Type your freeform answer, or type skip to continue without one.`);
             const choice = await ctx.ui.select("Standard clarification requested. Choose how to answer:", ["Type Freeform Answer", "Answer Later"]);
             if (choice === "Type Freeform Answer") {
               const answer = await ctx.ui.input("Standard clarification requested. Type your answer:", "Answer in your own words");
               if (answer?.trim()) await applyStandardClarificationAnswers(ctx, answer.trim(), undefined, { showRecorded: false });
             }
           } else {
-            show(pi, `# Clarification Needed\n\n${fallbackReason}\n\nNo structured questions available. Type your freeform answer, or use \`/clarify cancel\` to skip.`);
+            show(pi, `# Clarification Needed\n\n${fallbackReason}\n\nNo structured questions available. Type your freeform answer, or type skip to continue without one.`);
           }
           return;
         }
@@ -20197,7 +21723,10 @@ Public workflow commands:
           standardClarificationRequirementReason: fallbackReason,
           standardClarifyingQuestions: questions,
         }, ctx);
-        recordWorkflowInternalEvent(ctx, "Internal workflow lifecycle event suppressed.");
+        recordWorkflowInternalEvent(ctx, `Standard clarification requested (auto text, ${questions.length} questions)`);
+        // Always render the questions visibly — the interactive select alone
+        // leaves them invisible when the user answers by typing in chat.
+        show(pi, `# Clarification Needed\n\n${fallbackReason}\n\n${renderStandardClarificationQuestionsForDisplay(questions)}\n\nAnswer by typing shorthand: \`1A, 2C\` or \`1B\` or \`2D: your custom answer\``);
         if (settings.standard.interactiveClarificationEnabled !== false && ctx.hasUI) {
           const choice = await ctx.ui.select("Standard clarification requested. Choose how to answer:", ["Answer Questions (guided)", "Type Shorthand (e.g. 1A, 2C)", "Answer Later"]);
           if (choice === "Answer Questions (guided)") {
@@ -20564,7 +22093,7 @@ Public workflow commands:
             ? mergePlanProgress({ ...state, mode: "validated", draftPlan: text, approvedPlan: undefined }, settings, { lifecycleStatus: "blocked", nextAction: "planning blocked by forced sub-agent policy", steps: [] }, undefined)
             : state.planProgress,
         }, ctx);
-        showInternal(pi, `# Sub-Agent Policy Blocked\n\n${forcedSubagentMessage("Planning", forcedPlanningBlock, "Planning")}`);
+        showPolicyBlockedCard(`# Sub-Agent Policy Blocked\n\n${forcedSubagentMessage("Planning", forcedPlanningBlock, "Planning")}`, true);
         recordWorkflowInternalEvent(ctx, "Internal workflow lifecycle event suppressed.");
         return;
       }
@@ -20804,7 +22333,7 @@ Public workflow commands:
       if (state.lastWorkflowHandoff?.type === WORKFLOW_REPAIR_RESULT_TOOL) return;
       applyPlanProgressMarkers(ctx, text);
       planForcedSubagentPreflightReconcile(ctx, "Repair");
-      const repairBlockedBySubagents = blockIfForcedSubagentsMissing(ctx, "Repair");
+      const repairBlockedBySubagents = blockIfForcedSubagentsMissing(ctx, "Repair", undefined, true);
       if (repairBlockedBySubagents) {
         const repairPolicy = phasePolicy(settings, "Repair");
         const repairWorkers = workerCount(settings, "Repair");
@@ -20816,6 +22345,7 @@ Public workflow commands:
           const required = workerTargetForPolicy(repairPolicy, workerCount(settings, "Repair"));
           const observed = subagentUsageByPhase.Repair ?? 0;
           updateState({ mode: "validated", lastRepairStatus: "blocked", lastRepairAttempt: compact(text, 1200), repairHistory: appendWorkflowRepairHistory({ timestamp: new Date().toISOString(), retry: state.currentValidationRetry ?? 0, status: "blocked", repairSummary: compact(text, 800), nextAction: `Repair summary saved, but revalidation blocked by forced repair sub-agent policy (${observed}/${required} workers).` }), planProgress: workflowPlanProgressEnabled(settings) ? mergePlanProgress({ ...state, mode: "validated" }, settings, { lifecycleStatus: "blocked", repairStatus: "blocked", nextAction: "repair summary saved; forced repair sub-agents missing" }) : state.planProgress }, ctx);
+          showBlockedPlanRecoveryMenu(ctx);
           return;
         }
       }
@@ -20827,7 +22357,8 @@ Public workflow commands:
       const repairSafetyBlock = workflowValidationFailureRequiresApproval(text, settings);
       if (repairSafetyBlock) {
         updateState({ mode: "validated", lastRepairStatus: "blocked", lastRepairAttempt: compact(text, 1200), repairHistory: appendWorkflowRepairHistory({ timestamp: new Date().toISOString(), retry: state.currentValidationRetry ?? 0, status: "blocked", repairSummary: compact(text, 800), nextAction: "Review repair summary and approve safe next steps before retrying." }) }, ctx);
-        recordWorkflowInternalEvent(ctx, "Internal workflow lifecycle event suppressed.");
+        show(pi, `# Plan Repair Blocked\n\nThe repair summary describes changes that require approval under the current safe-only retry mode, so no automatic retry was consumed.\n\nReason: ${repairSafetyBlock}\n\nUse /plan repair to retry with manual override, /plan revalidate, or /plan revise <feedback>.`);
+        showBlockedPlanRecoveryMenu(ctx);
         return;
       }
       if (!planValidationBoundaryReached(state, settings)) {
@@ -20990,7 +22521,41 @@ Public workflow commands:
 
   pi.on("session_start", async (event, ctx) => {
     if (workflowSubagentWorkerMode()) return;
-    state = persistWorkflowState(idleStartupStateFrom(restoreWorkflowStateFromSession(ctx)), ctx);
+    const restored = restoreWorkflowStateFromSession(ctx);
+    // Pass 12 (live 2026-11-19, owner ruling: "the dynamic clarification
+    // menu was never pulled up" — restart used to discard a pending ask,
+    // the former E4 residual). An armed Standard clarification ask now
+    // survives the cold-start idle restore WITH its To Do board and task
+    // context, and its menu re-opens after the startup card. The tool guard
+    // locks every tool while the restored ask awaits the answer, so the
+    // restored standard slice cannot run anything by itself.
+    const restoredStandardAsk = restored.mode === "standard"
+      && restored.standardClarificationPending === true
+      && restored.standardClarificationStage === "awaiting_answer"
+      && (restored.standardClarifyingQuestions?.length ?? 0) > 0
+      && restored.lastWorkflowHandoff?.type === STANDARD_HANDOFF_RESULT_TOOL
+      && !restored.standardClarificationAnswer?.trim();
+    state = persistWorkflowState({
+      ...idleStartupStateFrom(restored),
+      ...(restoredStandardAsk ? {
+        mode: "standard" as const,
+        task: restored.task ?? restored.originalTask,
+        originalTask: restored.originalTask ?? restored.task,
+        standardTodo: restored.standardTodo,
+        standardClarificationPending: true,
+        standardClarificationStage: "awaiting_answer" as const,
+        standardClarifyingQuestions: restored.standardClarifyingQuestions,
+        standardClarificationTask: restored.standardClarificationTask,
+        standardClarificationRequirementReason: restored.standardClarificationRequirementReason,
+        standardActivePhase: restored.standardActivePhase,
+        standardWorkKind: restored.standardWorkKind,
+        lastWorkflowHandoff: restored.lastWorkflowHandoff,
+      } : {}),
+    }, ctx);
+    standardIdenticalCallStrikes.clear();
+    standardRecentToolInputs.clear();
+    standardAnswerRequeueAttempts = 0;
+    standardClarificationMenuRetryCount = 0;
     activeMission = undefined;
     if (!workflowSuiteSafeMode()) {
       installWorkflowFooter(ctx);
@@ -21000,5 +22565,21 @@ Public workflow commands:
     pi.setActiveTools(withRuntimeWebTools(BASE_EXECUTE_TOOLS));
     setWorkflowUi(ctx, state, activeSubagents);
     await showStartupVisual(ctx);
+    if (restoredStandardAsk) {
+      const restoreSettings = loadWorkflowSettings(ctx.cwd);
+      if (restoreSettings.standard.interactiveClarificationEnabled !== false && ctx.hasUI) {
+        scheduleWorkflowHandoff(pi, {
+          kind: "standard_clarification_menu",
+          expectedMode: "standard",
+          questions: restored.standardClarifyingQuestions,
+          task: restored.standardClarificationTask ?? restored.task ?? restored.originalTask,
+          fallback: "Standard clarification questions are ready, but the interactive menu is unavailable. Type your answer in chat.",
+        }, () => { void openStandardClarificationMenu(ctx); });
+      } else {
+        // Swarm W1b: a headless/no-UI restart must not leave the restored ask
+        // invisible — the questions stay on screen and typed capture answers.
+        show(pi, `# Clarification Needed\n\n${workflowDisplayText(restored.standardClarificationRequirementReason)}\n\n${renderStandardClarificationQuestionsForDisplay(restored.standardClarifyingQuestions ?? [])}\n\nType your answer in chat.`);
+      }
+    }
   });
 }

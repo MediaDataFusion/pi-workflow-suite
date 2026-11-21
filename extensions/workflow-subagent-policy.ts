@@ -202,6 +202,14 @@ function normalizedWords(text: string | undefined): string[] {
   return (text ?? "").trim().toLowerCase().split(/\s+/).filter(Boolean);
 }
 
+// Pass 8: single source for the work-verb veto shared by the Standard
+// direct-answer exemption — a task naming mutation/evidence/finalization
+// work is never exempt from forced workers, whatever question words it has.
+export function forcedTaskMentionsWorkVerbs(task: string | undefined): boolean {
+  const normalized = (task ?? "").trim().toLowerCase();
+  return WORK_MUTATION_RE.test(normalized) || EVIDENCE_WORK_RE.test(normalized) || FINALIZATION_WORK_RE.test(normalized);
+}
+
 function forcedTrivialTaskReason(phase: SubagentPhase, task: string | undefined, kind?: string): string | undefined {
   const text = task?.trim() ?? "";
   if (!text) return "empty/no-op request";

@@ -261,6 +261,7 @@
   },
   "ui": {
     "showWorkflowStatus": true,
+    "toolRowsVisible": false,
     "showPlanModeIndicator": true,
     "planModeIndicatorText": "PLAN MODE ACTIVE - enter your planning request, or use /plan cancel to exit",
     "enableHotkeys": false,
@@ -329,6 +330,7 @@
     "subagentTimeoutMinutes": 20,
     "subagentStaleMinutes": 8,
     "allowBackgroundSubagents": true,
+    "subagentModelRouting": {},
     "modelRouting": {
       "enabled": false,
       "models": {

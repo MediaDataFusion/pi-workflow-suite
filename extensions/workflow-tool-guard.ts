@@ -4,7 +4,7 @@ import { isAbsolute, resolve, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadWorkflowSettings } from "./workflow-model-router.js";
-import { loadMissionState, type WorkflowState } from "./workflow-state.js";
+import { loadMissionState, planTransientExecutionRecoveryActive, type WorkflowState } from "./workflow-state.js";
 
 export const PLAN_TOOLS = ["read", "grep", "find", "ls"];
 export const WORKFLOW_PROGRESS_TOOL = "workflow_progress";
@@ -185,10 +185,22 @@ function stripUriTokens(command: string): string {
   return command.replace(/\b[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s'"`;&|)]*/g, " ");
 }
 
+function plausiblePathCandidate(raw: string): boolean {
+  // Keep bare traversal and tilde forms: they resolve outside the repo root.
+  if (raw === "." || raw === "..") return true;
+  if (raw.startsWith("~")) return true;
+  if (raw.startsWith("./") || raw.startsWith("../")) return true;
+  if (!raw.startsWith("/")) return false; // bare relative names resolve inside the validated cwd
+  if (raw === "/") return true; // skipped downstream as a no-op candidate
+  // Absolute tokens must carry a word character in a path segment, so markdown
+  // punctuation like /## or /** is never treated as a path candidate.
+  return /^\/[^/]*[A-Za-z0-9_]/.test(raw) || /\/[^/]*[A-Za-z0-9_]/.test(raw);
+}
+
 function bashPathCandidates(command: string): string[] {
   const trimmed = stripUriTokens(stripHereDocBodies(stripQuotedSlashes(command))).trim();
   if (!trimmed) return [];
-  return Array.from(trimmed.matchAll(/(?:^|[\s=:'"`])((?:\.{1,2}|~|\/)[^\s'"`;&|)]*)/g)).map((match) => match[1]).filter(Boolean);
+  return Array.from(trimmed.matchAll(/(?:^|[\s=:'"`])((?:\.{1,2}|~|\/)[^\s'"`;&|)]*)/g)).map((match) => match[1]).filter(Boolean).filter(plausiblePathCandidate);
 }
 
 function hasShellControlOperator(command: string): boolean {
@@ -441,13 +453,49 @@ function stripTimeoutPrefix(command: string): string {
 
 const DESTRUCTIVE_WORD_RE = /\b(?:install|add|update|upgrade|publish|deploy|push|checkout|switch|commit|merge|rebase|stash|tag|apply|am|restore|sed\s+-i|perl\s+-pi|chmod|chown|curl\s.*\|\s*(?:sh|bash)|wget\s.*\|\s*(?:sh|bash))\b/i;
 
-const SAFE_READ_ONLY_COMMANDS_RE = /^(?:git\s+(?:status|log|diff|show|branch|rev-parse|ls-files|describe|remote|tag|shortlog|count-objects|blame|name-rev)\b|cat\b|head\b|tail\b|less\b|more\b|wc\b|file\b|stat\b|which\b|where\b|command\s+-v\b|type\b|echo\b|printf\b|printenv\b|env\b|uname\b|date\b|id\b|whoami\b|hostname\b|pwd\b|ls\b|du\b|df\b|diff\b|comm\b|sort\b|uniq\b|cut\b|tr\b|awk\b|jq\b|yq\b|xq\b|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:build|test|lint|typecheck|type-check|check[\s:]?\w*|dev|start|preview|serve|watch|format|analyze|compile|ci|validate|verify|coverage|bench|benchmark|bundle|pack|dist|static|docs|doc|stylelint|e2e|integration|unit)\b|(?:npm|pnpm|yarn|bun)\s+(?:exec|info|ls|list|query|outdated|why|view|pack\s+--dry-run)\b|npx\s+(?:serve|http-server|lite-server|tsc|vite|eslint|prettier|vitest|jest|mocha|cypress|playwright|webpack|rollup|parcel|turbo|nx|ts-node|tsx|esbuild|swc|babel|stylelint|biome|rome|knip|typedoc|compodoc|angular-cli|react-scripts|next|nuxt|remix|astro|svelte-kit)\b|pnpm\s+(?:exec|dlx)\s+\w+\b|bun\s+(?:test|check|build|run)\b|deno\s+(?:check|test|build|lint|task|info|doc|compile|fmt|eval|cache)\b|cargo\s+(?:build|test|check|clippy|doc|bench|run|metadata|locate-project|tree|version)\b|(?:rustc|rustup)\s+(?:--version|--print|which)\b|go\s+(?:build|test|vet|run|doc|list|mod\s+(?:verify|tidy|graph|download|why))\b|python3?\s+(?:--version|-V|-c\b|-m\s+(?:pytest|unittest|mypy|pylint|flake8|black|isort|ruff|json\.tool|compileall|bandit|pyright|http\.server|html\.parser|html))\b|pip3?\s+(?:list|show|check|debug|index\s+versions)\b|tsc\b|node\s+(?:--version|-v|--check|-c|-e|--eval)\b|make\s+(?:build|test|check|lint|all|verify|docs|format|static|analyze)\b|cmake\s+(?:--build|--version)\b|(?:dotnet|msbuild)\s+(?:build|test|restore|check|format|lint|pack)\b|(?:gradle|\.\/gradlew|gradlew\.bat)\s+(?:build|test|check|compile|lint|dependencies|projects|tasks)\b|mvn\s+(?:compile|test|verify|checkstyle|pmd|versions:display|dependency:tree|dependency:list)\b|(?:swift|swiftc)\s+(?:build|test|package\s+(?:describe|dump-package))\b|(?:bundle|gem)\s+(?:exec|list|check|info|query)\b|rake\s+(?:test|spec|lint|check|notes|stats|about)\b|php\s+(?:--version|-v|-l)\b|(?:php\s+)?artisan\s+(?:--version|route:list|config:show|env)\b|composer\s+(?:validate|check|show|outdated|info|diagnose)\b|mix\s+(?:test|compile|lint|format|docs)\b|bazel\s+(?:build|test|query|cquery|info|version)\b|buck\s+(?:build|test|query|audit)\b|curl\s+(?:-[^\s]*[sSfIv][^\s]*\s+)+(?:https?:\/\/|localhost|\$)|kill\s+\$!\b|kill\s+-0\s+\$\w+\b|wait\s+\$!\b|wait\s+\$\w+\b|sleep\s+[0-9.]+[smhd]?\b|ps\s+(?:aux?|-[a-z]*[eE][a-z]*|-[a-z]*[pP][a-z]*)\b|pgrep\s+-\w+\s+\w+|true\b|false\b|\.\s*\/node_modules\/\.bin\/\S+\b)/i;
+const SAFE_READ_ONLY_COMMANDS_RE = /^(?:git\s+(?:status|log|diff|show|branch|rev-parse|ls-files|describe|remote|tag|shortlog|count-objects|blame|name-rev)\b|cat\b|head\b|tail\b|less\b|more\b|wc\b|file\b|stat\b|which\b|where\b|command\s+-v\b|type\b|echo\b|printf\b|printenv\b|env\b|uname\b|date\b|id\b|whoami\b|hostname\b|pwd\b|ls\b|du\b|df\b|diff\b|comm\b|sort\b|uniq\b|cut\b|tr\b|awk\b|jq\b|yq\b|xq\b|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:build|test|lint|typecheck|type-check|check[\s:]?\w*|dev|start|preview|serve|watch|format|analyze|compile|ci|validate|verify|coverage|bench|benchmark|bundle|pack|dist|static|docs|doc|stylelint|e2e|integration|unit)\b|(?:npm|pnpm|yarn|bun)\s+(?:exec|info|ls|list|query|outdated|why|view|pack\s+--dry-run)\b|npx\s+(?:serve|http-server|lite-server|tsc|vite|eslint|prettier|vitest|jest|mocha|cypress|playwright|webpack|rollup|parcel|turbo|nx|ts-node|tsx|esbuild|swc|babel|stylelint|biome|rome|knip|typedoc|compodoc|angular-cli|react-scripts|next|nuxt|remix|astro|svelte-kit)\b|pnpm\s+(?:exec|dlx)\s+\w+\b|bun\s+(?:test|check|build|run)\b|deno\s+(?:check|test|build|lint|task|info|doc|compile|fmt|eval|cache)\b|cargo\s+(?:build|test|check|clippy|doc|bench|run|metadata|locate-project|tree|version)\b|(?:rustc|rustup)\s+(?:--version|--print|which)\b|go\s+(?:build|test|vet|run|doc|list|mod\s+(?:verify|tidy|graph|download|why))\b|python3?\s+(?:--version|-V|-c\b|-m\s+(?:pytest|unittest|mypy|pylint|flake8|black|isort|ruff|json\.tool|compileall|bandit|pyright|http\.server|html\.parser|html))\b|pip3?\s+(?:list|show|check|debug|index\s+versions)\b|tsc\b|node\s+(?:--version|-v|--check|-c|-e|--eval)\b|make\s+(?:build|test|check|lint|all|verify|docs|format|static|analyze)\b|cmake\s+(?:--build|--version)\b|(?:dotnet|msbuild)\s+(?:build|test|restore|check|format|lint|pack)\b|(?:gradle|\.\/gradlew|gradlew\.bat)\s+(?:build|test|check|compile|lint|dependencies|projects|tasks)\b|mvn\s+(?:compile|test|verify|checkstyle|pmd|versions:display|dependency:tree|dependency:list)\b|(?:swift|swiftc)\s+(?:build|test|package\s+(?:describe|dump-package))\b|(?:bundle|gem)\s+(?:exec|list|check|info|query)\b|rake\s+(?:test|spec|lint|check|notes|stats|about)\b|php\s+(?:--version|-v|-l)\b|(?:php\s+)?artisan\s+(?:--version|route:list|config:show|env)\b|composer\s+(?:validate|check|show|outdated|info|diagnose)\b|mix\s+(?:test|compile|lint|format|docs)\b|bazel\s+(?:build|test|query|cquery|info|version)\b|buck\s+(?:build|test|query|audit)\b|curl\s+(?:-[^\s]*[sSfIv][^\s]*\s+)+(?:https?:\/\/|localhost|\$)|pytest\b|py\.test\b|grep\b|rg\b|find\s+(?![^|;&]*(?:-delete|-exec|-execdir|-ok|-okdir|-fprint|-fprintf))[^|;&]*|lsof\b|kill\s+\$!(?!\w)|kill\s+-0\s+\$\w+\b|wait\s+\$!(?!\w)|wait\s+\$\w+\b|sleep\s+[0-9.]+[smhd]?\b|ps\s+(?:aux?|-[a-z]*[eE][a-z]*|-[a-z]*[pP][a-z]*)\b|pgrep\s+-\w+\s+\w+|true\b|false\b|\.\s*\/node_modules\/\.bin\/\S+\b)/i;
+
+function splitBashControlSegments(command: string): string[] {
+  // Quote-aware split on shell control operators (|, &, ;, newlines).
+  // Splitting on single & over-splits `&&` and background `&`, which is
+  // harmless here: every resulting segment must independently qualify as
+  // read-only, and empty segments are dropped.
+  const segments: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | undefined;
+  let escaped = false;
+  for (const char of command) {
+    if (escaped) { current += char; escaped = false; continue; }
+    if (char === "\\") { current += char; escaped = true; continue; }
+    if (quote) {
+      current += char;
+      if (char === quote) quote = undefined;
+      continue;
+    }
+    if (char === '"' || char === "'") { current += char; quote = char; continue; }
+    if (char === "|" || char === "&" || char === ";" || char === "\n") { segments.push(current); current = ""; continue; }
+    current += char;
+  }
+  segments.push(current);
+  return segments.map((segment) => segment.trim()).filter((segment) => segment.length > 0);
+}
 
 export function standardSafeReadOnlyBash(command: string): boolean {
   const trimmed = command.trim();
   if (!trimmed || isBlockedExecuteCommand(trimmed)) return false;
   const cmd = stripTimeoutPrefix(trimmed);
-  return SAFE_READ_ONLY_COMMANDS_RE.test(cmd);
+  // Segment-wise read-only vouching: every control-operator segment (pipes,
+  // &&/||, ;, newlines) must itself start with an allowed read-only command,
+  // no output redirection may remain after benign redirections are stripped,
+  // and command/process substitution is disqualified outright. The previous
+  // whole-command prefix match let compounds like `grep x && rm file` pass
+  // once the tail was missed by the blocked-command patterns.
+  if (/[`$]\(|[<>]\(/.test(cmd)) return false;
+  const withoutBenignRedirections = stripBenignValidationRedirections(cmd);
+  if (/>/.test(withoutBenignRedirections)) return false;
+  const segments = splitBashControlSegments(withoutBenignRedirections);
+  if (segments.length === 0) return false;
+  return segments.every((segment) => SAFE_READ_ONLY_COMMANDS_RE.test(segment));
 }
 
 function stripSafePreamble(command: string): string {
@@ -624,12 +672,27 @@ export function registerToolGuard(pi: ExtensionAPI, getState: () => WorkflowStat
       );
     const staleAcceptedMissionReviewResult = tool === WORKFLOW_REVIEW_RESULT_TOOL && missionReviewAlreadyAccepted(state);
     if (tool === WORKFLOW_REVIEW_RESULT_TOOL && !staleAcceptedPlanReviewResult && !staleAcceptedMissionReviewResult && state.mode !== "reviewing" && !missionReviewActive(state)) return { block: true, reason: "Review handoff unavailable outside review phase" };
-    if (tool === WORKFLOW_EXECUTION_RESULT_TOOL && state.mode !== "executing") return { block: true, reason: "Execution handoff unavailable outside execution phase" };
+    if (tool === WORKFLOW_EXECUTION_RESULT_TOOL && state.mode !== "executing") {
+      // During a transient execution re-arm the executor may briefly see
+      // non-executing mode; give an actionable retry reason instead of a
+      // phase-mismatch dead end.
+      if (planTransientExecutionRecoveryActive(state)) return { block: true, reason: "Execution handoff paused: the executor is re-arming after a transient interruption. Retry this handoff on the re-armed executor turn." };
+      return { block: true, reason: "Execution handoff unavailable outside execution phase" };
+    }
     if (tool === MISSION_MILESTONE_RESULT_TOOL && state.mode !== "mission_running") return { block: true, reason: "Milestone handoff unavailable outside Mission execution" };
     if (tool === WORKFLOW_VALIDATION_RESULT_TOOL && !isValidationResultMode(state.mode)) return { block: true, reason: "Validation handoff unavailable outside validation phase" };
     if (tool === WORKFLOW_REPAIR_RESULT_TOOL && state.mode !== "repairing" && state.mode !== "mission_repairing") return { block: true, reason: "Repair handoff unavailable outside repair phase" };
 
-    if (tool === WORKFLOW_PROGRESS_TOOL && state.mode !== "executing" && state.mode !== "repairing") return { block: true, reason: "Progress tracking unavailable outside Plan execution" };
+    if (tool === WORKFLOW_PROGRESS_TOOL && state.mode !== "executing" && state.mode !== "repairing") {
+      // A transient Plan execution re-arm must not lock the executor out of
+      // plan-step tracking: blocking here made executors declare hard
+      // blockers ("cannot read/advance plan steps") during the recovery
+      // window instead of waiting for the re-arm. Tolerance is Plan-mode
+      // only; Mission/Standard surfaces stay unaffected. Progress
+      // recording is state-safe in any mode.
+      const transientPlanRearm = (state.mode === "plan_approved" || state.mode === "reviewed") && planTransientExecutionRecoveryActive(state);
+      if (!transientPlanRearm) return { block: true, reason: "Progress tracking unavailable outside Plan execution" };
+    }
 
     if (initialPlanHandoffAlreadyAccepted(state) && planProgressRelevantWorkTool(tool, event.input)) {
       return { block: true, reason: "Plan already accepted; execution must start from the queued executor or approval path." };
@@ -655,21 +718,31 @@ export function registerToolGuard(pi: ExtensionAPI, getState: () => WorkflowStat
       if (state.mode !== "standard") return { block: true, reason: "To Do unavailable outside Standard Mode" };
     }
 
+    // Pass 12 (live 2026-11-19, owner ruling: the model ran standard_todo
+    // set → clear and kept narrating after an accepted clarification ask —
+    // the "Then STOP" contract was prompt-only). While a Standard
+    // clarification is awaiting the user's answer, NO tool may run: nothing
+    // is allowed to happen between the ask and the answer. The terminate
+    // hint ends the agent's batch through the normal loop exit (agent_end
+    // fires, queued followUp handoffs survive). ctx.abort() is deliberately
+    // NOT used — aborting a turn destroys queued handoff deliveries
+    // (workflow-state: "queued follow-ups are destroyed on turn abort").
+    if (state.mode === "standard"
+      && state.standardClarificationPending
+      && state.standardClarificationStage === "awaiting_answer"
+      && !state.standardClarificationAnswer?.trim()) {
+      return {
+        block: true,
+        terminate: true,
+        reason: `${tool} blocked — Standard Mode clarification is pending. The user is answering the clarification questions. End this turn now: print nothing further and call no more tools.`,
+      };
+    }
+
     if (state.mode === "standard" && tool !== "standard_todo" && standardRequiredTodoMissing(state, settings)) {
       if (tool === "edit" || tool === "write") return { block: true, reason: `${tool} blocked — To Do required` };
       if (tool === "bash") {
         const command = String((event.input as { command?: unknown }).command ?? "");
         if (!standardSafeReadOnlyBash(command)) return { block: true, reason: "Bash blocked — To Do required" };
-      }
-    }
-
-    if (state.mode === "standard" && state.standardClarificationPending) {
-      if (tool === "edit" || tool === "write")
-        return { block: true, reason: `${tool} blocked — Standard Mode clarification is pending. Answer the clarification questions first.` };
-      if (tool === "bash") {
-        const command = String((event.input as { command?: unknown }).command ?? "");
-        if (!standardSafeReadOnlyBash(command))
-          return { block: true, reason: "Bash blocked — Standard Mode clarification is pending. Answer the clarification questions first." };
       }
     }
 

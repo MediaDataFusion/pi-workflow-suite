@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -271,6 +271,10 @@ export interface WorkflowSettings {
     customBrandText?: string;
     customBrandBaseVisual?: CustomBrandBaseVisual;
     debugPlanStepTracking?: boolean;
+    // Pass 13/14: false (absent) hides suite tool transcript rows —
+    // progress/todo, web research, and handoff result rows (renderers are
+    // display-only; widgets own progress; errors stay visible).
+    toolRowsVisible?: boolean;
   };
   subagents: WorkflowSubagentSettings;
   context: {
@@ -541,6 +545,7 @@ const BUILTIN_DEFAULT_WORKFLOW_SETTINGS = {
   },
   "ui": {
     "showWorkflowStatus": true,
+    "toolRowsVisible": false,
     "showPlanModeIndicator": true,
     "planModeIndicatorText": "PLAN MODE ACTIVE - enter your planning request, or use /plan cancel to exit",
     "enableHotkeys": false,
@@ -1082,13 +1087,80 @@ function applyActivePresetOverlay(settings: WorkflowSettings): WorkflowSettings 
   };
 }
 
+// ── Settings load memoization (Cycle 2 D1) ─────────────────────────────
+// loadWorkflowSettings runs on every parent tool call and per sub-agent
+// worker; a full reload re-reads and re-parses the example + global +
+// project files, rebuilds defaults twice, deep-clones, and walks parent
+// directories. Memoize the SERIALIZED result keyed on (file, mtimeMs,
+// size) and JSON.parse per hit, so every caller still receives a fresh
+// mutable object — no shared-reference mutation hazards. Every settings
+// write clears the cache (see saveSettingsFile), so write-then-read
+// chains (preset apply, DSL set + re-render, route reapply) always
+// observe fresh values. Missing/unstattable files are never served from
+// cache. Residual limit: an mtime- AND size-preserving restore of
+// different content would keep a stale entry; settings restores happen
+// while Pi is closed, so that combination is not realistic.
+const workflowSettingsLoadCache = new Map<string, string>();
+const WORKFLOW_SETTINGS_CACHE_MAX_ENTRIES = 64;
+
+function tryStatWorkflowSettingsFile(file: string): { mtimeMs: number; size: number } | undefined {
+  try {
+    const stat = statSync(file);
+    return { mtimeMs: stat.mtimeMs, size: stat.size };
+  } catch {
+    return undefined;
+  }
+}
+
+function workflowSettingsCacheKey(file: string, stat: { mtimeMs: number; size: number }): string {
+  return `${file}::${stat.mtimeMs}::${stat.size}`;
+}
+
+function readCachedWorkflowSettings(key: string): WorkflowSettings | undefined {
+  const serialized = workflowSettingsLoadCache.get(key);
+  if (serialized === undefined) return undefined;
+  try {
+    return JSON.parse(serialized) as WorkflowSettings;
+  } catch {
+    workflowSettingsLoadCache.delete(key);
+    return undefined;
+  }
+}
+
+function storeCachedWorkflowSettings(key: string, settings: WorkflowSettings): void {
+  workflowSettingsLoadCache.set(key, JSON.stringify(settings));
+  while (workflowSettingsLoadCache.size > WORKFLOW_SETTINGS_CACHE_MAX_ENTRIES) {
+    const oldest = workflowSettingsLoadCache.keys().next().value;
+    if (oldest === undefined) break;
+    workflowSettingsLoadCache.delete(oldest);
+  }
+}
+
+function globalWorkflowSettingsCacheKey(): string | undefined {
+  const stat = tryStatWorkflowSettingsFile(WORKFLOW_SETTINGS_FILE);
+  return stat ? `global::${workflowSettingsCacheKey(WORKFLOW_SETTINGS_FILE, stat)}` : undefined;
+}
+
+function effectiveWorkflowSettingsCacheKey(globalFile: string, projectFile: string): string | undefined {
+  const globalStat = tryStatWorkflowSettingsFile(globalFile);
+  const projectStat = tryStatWorkflowSettingsFile(projectFile);
+  if (!globalStat || !projectStat) return undefined;
+  return `effective::${workflowSettingsCacheKey(globalFile, globalStat)}::${workflowSettingsCacheKey(projectFile, projectStat)}`;
+}
+
 /** Load effective settings: project overrides merged over global. */
 export function loadEffectiveSettings(cwd: string): EffectiveSettings {
   const global = loadGlobalSettings();
   const projectPath = findProjectSettings(cwd);
   if (!projectPath) return { settings: global, projectOverridePath: undefined };
+  const cacheKey = effectiveWorkflowSettingsCacheKey(WORKFLOW_SETTINGS_FILE, projectPath);
+  if (cacheKey) {
+    const cached = readCachedWorkflowSettings(cacheKey);
+    if (cached) return { settings: cached, projectOverridePath: projectPath };
+  }
   try {
     const project = JSON.parse(readFileSync(projectPath, "utf8")) as Partial<WorkflowSettings>;
+    if (cacheKey) storeCachedWorkflowSettings(cacheKey, applyActivePresetOverlay(mergeSettings(global, project)));
     return { settings: applyActivePresetOverlay(mergeSettings(global, project)), projectOverridePath: projectPath };
   } catch {
     return { settings: global, projectOverridePath: projectPath };
@@ -1097,6 +1169,20 @@ export function loadEffectiveSettings(cwd: string): EffectiveSettings {
 
 /** Load global settings only (no project override). */
 export function loadGlobalSettings(): WorkflowSettings {
+  const cacheKey = globalWorkflowSettingsCacheKey();
+  if (cacheKey) {
+    const cached = readCachedWorkflowSettings(cacheKey);
+    if (cached) return cached;
+  }
+  const result = loadGlobalWorkflowSettingsUncached();
+  // Memoize only when the file did not change during the load: first-run
+  // defaults and legacy migration write the file (saveSettingsFile cleared
+  // the cache), and the re-stat no longer matches the stale key.
+  if (cacheKey && globalWorkflowSettingsCacheKey() === cacheKey) storeCachedWorkflowSettings(cacheKey, result);
+  return result;
+}
+
+function loadGlobalWorkflowSettingsUncached(): WorkflowSettings {
   const defaults = defaultWorkflowSettings();
   if (!existsSync(WORKFLOW_SETTINGS_FILE)) {
     saveWorkflowSettings(defaults);
@@ -1113,8 +1199,13 @@ export function loadGlobalSettings(): WorkflowSettings {
 
 /** Backwards-compatible: loads effective settings for a given cwd. */
 export function loadWorkflowSettings(cwd?: string): WorkflowSettings {
-  if (cwd) return loadEffectiveSettings(cwd).settings;
-  return loadGlobalSettings();
+  const debugTiming = process.env.PI_WORKFLOW_DEBUG === "1";
+  const startedAt = debugTiming ? performance.now() : 0;
+  const settings = cwd ? loadEffectiveSettings(cwd).settings : loadGlobalSettings();
+  if (debugTiming) {
+    try { console.error(`[workflow-debug] loadWorkflowSettings ${cwd ? "effective" : "global"} ${(performance.now() - startedAt).toFixed(2)}ms cacheEntries=${workflowSettingsLoadCache.size}`); } catch { /* diagnostics unavailable */ }
+  }
+  return settings;
 }
 
 /** Get the project root for creating overrides. Prefers git root, falls back to cwd. */
@@ -1134,6 +1225,10 @@ function saveSettingsFile(file: string, settings: WorkflowSettings): void {
   writeFileSync(tmp, content, "utf8");
   JSON.parse(readFileSync(tmp, "utf8"));
   renameSync(tmp, file);
+  // Write-through invalidation: every settings write (updateSettings,
+  // createProjectSettingsOverride, first-run defaults, legacy migration)
+  // funnels through here, so one clear covers all write-then-read chains.
+  workflowSettingsLoadCache.clear();
 }
 
 function loadSettingsFile(file: string): WorkflowSettings {
@@ -1910,9 +2005,10 @@ export function renderPlanModelStrategy(settings: WorkflowSettings): string {
   const lines = [`Plan Model Source: ${source}`];
   lines.push("", "## Effective Plan Models");
   for (const role of ["planner", "executor", "reviewer", "validator"] as WorkflowRole[]) {
+    // Pass 18 (owner ruling 2026-11-21): no route-fallback note in settings cards —
+    // the source label ("Shared"/"Plan-specific") already shows the effective route.
     const route = planRoleRoute(settings, role);
-    const fallback = settings.planning.usePlanSpecificModels && route.source === "shared" ? " (Plan-specific route not configured; falling back to Shared)" : "";
-    lines.push(`${workflowRoleLabel(role)}: ${planModelSourceLabel(route.source)} ${modelLabelForRoute(route.route)}${fallback}`);
+    lines.push(`${workflowRoleLabel(role)}: ${planModelSourceLabel(route.source)} ${modelLabelForRoute(route.route)}`);
   }
   lines.push("", "## Plan-Specific Models");
   const planModels = settings.planning.models ?? normalizePlanModels(defaultWorkflowSettings(), settings.planning);
@@ -1932,8 +2028,7 @@ export function renderStandardModelStrategy(settings: WorkflowSettings): string 
   if (effectiveRole === "current" || source === "current") lines.push("Effective Standard Model: Current active Pi model");
   else {
     const route = standardRoleRoute(settings, effectiveRole as WorkflowRole);
-    const fallback = source === "standard_specific" && route.source === "shared" ? " (Standard-specific route not configured; falling back to Shared)" : "";
-    lines.push(`Effective Standard Model: ${standardModelSourceLabel(route.source)} ${workflowRoleLabel(effectiveRole as WorkflowRole)} — ${modelLabelForRoute(route.route)}${fallback}`);
+    lines.push(`Effective Standard Model: ${standardModelSourceLabel(route.source)} ${workflowRoleLabel(effectiveRole as WorkflowRole)} — ${modelLabelForRoute(route.route)}`);
   }
   lines.push("", "## Standard-Specific Models");
   const standardModels = settings.standard.models ?? normalizeStandardModels(defaultWorkflowSettings(), settings.standard);
